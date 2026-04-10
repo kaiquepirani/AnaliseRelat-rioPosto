@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { validarPlaca, normalizarPlaca } from '@/lib/frota'
-import { kv } from '@vercel/kv'
+import { redis } from '@/lib/redis'
 import { Extrato, Lancamento, ResumoPosto } from '@/lib/types'
 import { randomUUID } from 'crypto'
 
@@ -17,7 +17,6 @@ const COMBUSTIVEIS: Record<string, string> = {
 }
 
 async function extrairTextoPDF(buffer: Buffer): Promise<string> {
-  // Extrai texto bruto do PDF sem dependências externas
   const content = buffer.toString('latin1')
   const textos: string[] = []
   const regex = /BT[\s\S]*?ET/g
@@ -157,7 +156,7 @@ ${textoPDF}`
       }
     })
 
-    const extratosAnteriores: Extrato[] = await kv.get('extratos') || []
+    const extratosAnteriores: Extrato[] = await redis.get('extratos') || []
     extratosAnteriores.forEach(ext => {
       Object.entries(ext.kmVeiculos || {}).forEach(([placa, dados]) => {
         if (kmVeiculos[placa] && dados.kmAtual) {
@@ -186,7 +185,7 @@ ${textoPDF}`
       alertas, kmVeiculos,
     }
 
-    await kv.set('extratos', [...extratosAnteriores, novoExtrato])
+    await redis.set('extratos', [...extratosAnteriores, novoExtrato])
     return NextResponse.json({ sucesso: true, extrato: novoExtrato })
   } catch (err: any) {
     console.error(err)
