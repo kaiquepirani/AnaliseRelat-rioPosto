@@ -16,6 +16,29 @@ const COMBUSTIVEIS: Record<string, string> = {
   'GCA': 'Gasolina Comum',
 }
 
+async function extrairTextoPDF(buffer: Buffer): Promise<string> {
+  // Extrai texto bruto do PDF sem dependências externas
+  const content = buffer.toString('latin1')
+  const textos: string[] = []
+  const regex = /BT[\s\S]*?ET/g
+  let match
+  while ((match = regex.exec(content)) !== null) {
+    const bloco = match[0]
+    const tjRegex = /\(([^)]+)\)\s*Tj/g
+    let tj
+    while ((tj = tjRegex.exec(bloco)) !== null) {
+      textos.push(tj[1])
+    }
+    const tfRegex = /\[([^\]]+)\]\s*TJ/g
+    let tf
+    while ((tf = tfRegex.exec(bloco)) !== null) {
+      const partes = tf[1].match(/\(([^)]*)\)/g)
+      if (partes) partes.forEach(p => textos.push(p.replace(/[()]/g, '')))
+    }
+  }
+  return textos.join(' ').replace(/\\n/g, '\n').replace(/\s+/g, ' ').trim()
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
@@ -24,15 +47,7 @@ export async function POST(req: NextRequest) {
 
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-
-    let textoPDF = ''
-    try {
-      const pdfParse = (await import('pdf-parse')).default
-      const data = await pdfParse(buffer)
-      textoPDF = data.text
-    } catch {
-      textoPDF = `[PDF: ${file.name}] Não foi possível extrair texto.`
-    }
+    const textoPDF = await extrairTextoPDF(buffer)
 
     const resposta = await client.messages.create({
       model: 'claude-sonnet-4-5',
@@ -63,7 +78,12 @@ O JSON deve ter exatamente este formato:
   ]
 }
 
-Regras: km=inteiro ou null, litros/vlrUnitario/valor=decimal com ponto, extraia TODAS as linhas.
+Regras:
+- km deve ser número inteiro (null se não disponível)
+- litros, vlrUnitario e valor devem ser números decimais com ponto
+- valor sem pontos de milhar (ex: 1774.28 e não 1.774,28)
+- itens é a string de combustíveis como aparece no extrato
+- Extraia TODAS as linhas sem exceção
 
 TEXTO DO EXTRATO:
 ${textoPDF}`
