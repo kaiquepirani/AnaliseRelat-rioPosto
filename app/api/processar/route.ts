@@ -16,28 +16,6 @@ const COMBUSTIVEIS: Record<string, string> = {
   'GCA': 'Gasolina Comum',
 }
 
-async function extrairTextoPDF(buffer: Buffer): Promise<string> {
-  const content = buffer.toString('latin1')
-  const textos: string[] = []
-  const regex = /BT[\s\S]*?ET/g
-  let match
-  while ((match = regex.exec(content)) !== null) {
-    const bloco = match[0]
-    const tjRegex = /\(([^)]+)\)\s*Tj/g
-    let tj
-    while ((tj = tjRegex.exec(bloco)) !== null) {
-      textos.push(tj[1])
-    }
-    const tfRegex = /\[([^\]]+)\]\s*TJ/g
-    let tf
-    while ((tf = tfRegex.exec(bloco)) !== null) {
-      const partes = tf[1].match(/\(([^)]*)\)/g)
-      if (partes) partes.forEach(p => textos.push(p.replace(/[()]/g, '')))
-    }
-  }
-  return textos.join(' ').replace(/\\n/g, '\n').replace(/\s+/g, ' ').trim()
-}
-
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
@@ -45,22 +23,32 @@ export async function POST(req: NextRequest) {
     if (!file) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 })
 
     const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    const textoPDF = await extrairTextoPDF(buffer)
+    const base64 = Buffer.from(bytes).toString('base64')
 
-    const resposta = await client.messages.create({
+    const messageParams: any = {
       model: 'claude-sonnet-4-5',
       max_tokens: 8000,
       messages: [{
         role: 'user',
-        content: `Abaixo está o texto extraído de um extrato de posto de combustível. Extraia TODOS os lançamentos e retorne APENAS um JSON válido, sem texto adicional, sem markdown, sem blocos de código.
+        content: [
+          {
+            type: 'document',
+            source: {
+              type: 'base64',
+              media_type: 'application/pdf',
+              data: base64,
+            },
+          },
+          {
+            type: 'text',
+            text: `Extraia TODOS os dados deste extrato de posto de combustível e retorne APENAS um JSON válido, sem texto adicional, sem markdown, sem blocos de código.
 
 O JSON deve ter exatamente este formato:
 {
   "posto": {
     "nome": "nome do posto",
     "cnpj": "cnpj",
-    "periodo": "periodo do extrato"
+    "periodo": "periodo do extrato ex: 01/04/2024 a 15/04/2024"
   },
   "lancamentos": [
     {
@@ -82,12 +70,13 @@ Regras:
 - litros, vlrUnitario e valor devem ser números decimais com ponto
 - valor sem pontos de milhar (ex: 1774.28 e não 1.774,28)
 - itens é a string de combustíveis como aparece no extrato
-- Extraia TODAS as linhas sem exceção
-
-TEXTO DO EXTRATO:
-${textoPDF}`
+- Extraia TODAS as linhas sem exceção`
+          }
+        ]
       }]
-    })
+    }
+
+    const resposta = await client.messages.create(messageParams)
 
     const textoResposta = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
     let dadosBrutos: any
