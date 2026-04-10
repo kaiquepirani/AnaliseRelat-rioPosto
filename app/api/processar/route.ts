@@ -23,28 +23,30 @@ export async function POST(req: NextRequest) {
     if (!file) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 })
 
     const bytes = await file.arrayBuffer()
-    const base64 = Buffer.from(bytes).toString('base64')
+    const buffer = Buffer.from(bytes)
+
+    let textoPDF = ''
+    try {
+      const pdfParse = (await import('pdf-parse')).default
+      const data = await pdfParse(buffer)
+      textoPDF = data.text
+    } catch {
+      textoPDF = `[PDF: ${file.name}] Não foi possível extrair texto.`
+    }
 
     const resposta = await client.messages.create({
-      model: 'claude-opus-4-5',
+      model: 'claude-sonnet-4-5',
       max_tokens: 8000,
       messages: [{
         role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: base64 }
-          },
-          {
-            type: 'text',
-            text: `Extraia TODOS os dados deste extrato de posto de combustível e retorne APENAS um JSON válido, sem texto adicional, sem markdown, sem blocos de código.
+        content: `Abaixo está o texto extraído de um extrato de posto de combustível. Extraia TODOS os lançamentos e retorne APENAS um JSON válido, sem texto adicional, sem markdown, sem blocos de código.
 
 O JSON deve ter exatamente este formato:
 {
   "posto": {
     "nome": "nome do posto",
     "cnpj": "cnpj",
-    "periodo": "período do extrato ex: 01/04/2024 a 15/04/2024"
+    "periodo": "periodo do extrato"
   },
   "lancamentos": [
     {
@@ -61,14 +63,10 @@ O JSON deve ter exatamente este formato:
   ]
 }
 
-Regras:
-- km deve ser número inteiro (null se não disponível)
-- litros e vlrUnitario devem ser números decimais com ponto
-- valor deve ser número decimal com ponto (sem pontos de milhar)
-- itens é a string de combustíveis como aparece no extrato
-- Extraia TODAS as linhas, sem exceção`
-          }
-        ]
+Regras: km=inteiro ou null, litros/vlrUnitario/valor=decimal com ponto, extraia TODAS as linhas.
+
+TEXTO DO EXTRATO:
+${textoPDF}`
       }]
     })
 
@@ -79,15 +77,18 @@ Regras:
       const cleaned = textoResposta.replace(/```json|```/g, '').trim()
       dadosBrutos = JSON.parse(cleaned)
     } catch {
-      return NextResponse.json({ error: 'Falha ao interpretar resposta do Claude', raw: textoResposta }, { status: 500 })
+      return NextResponse.json({ error: 'Falha ao interpretar resposta', raw: textoResposta }, { status: 500 })
+    }
+
+    const parseValor = (v: any) => {
+      if (typeof v === 'number') return v
+      return parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0
     }
 
     const lancamentos: Lancamento[] = (dadosBrutos.lancamentos || []).map((l: any) => {
       const validacao = validarPlaca(l.placa || '')
       const itens = (l.itens || '').toUpperCase()
       const codigoComb = Object.keys(COMBUSTIVEIS).find(k => itens.includes(k)) || itens.split(',')[0] || 'OUT'
-      const combustivelNome = COMBUSTIVEIS[codigoComb] || codigoComb
-
       return {
         documento: l.documento || '',
         emissao: l.emissao || '',
@@ -96,10 +97,10 @@ Regras:
         placaCorrigida: validacao.placaCorrigida,
         km: l.km || undefined,
         combustivel: codigoComb,
-        combustivelNome,
-        litros: parseFloat(l.litros) || 0,
-        vlrUnitario: parseFloat(l.vlrUnitario) || 0,
-        valor: parseFloat(l.valor) || 0,
+        combustivelNome: COMBUSTIVEIS[codigoComb] || codigoComb,
+        litros: parseValor(l.litros),
+        vlrUnitario: parseValor(l.vlrUnitario),
+        valor: parseValor(l.valor),
         status: validacao.status,
         nFrota: validacao.veiculo?.nFrota,
         grupo: validacao.veiculo?.grupo,
@@ -132,9 +133,7 @@ Regras:
     lancamentos.forEach(l => {
       if (l.km && l.placaLida) {
         const key = normalizarPlaca(l.placaLida)
-        if (!kmVeiculos[key] || l.km > kmVeiculos[key].kmAtual) {
-          kmVeiculos[key] = { kmAtual: l.km }
-        }
+        if (!kmVeiculos[key] || l.km > kmVeiculos[key].kmAtual) kmVeiculos[key] = { kmAtual: l.km }
       }
     })
 
@@ -151,11 +150,9 @@ Regras:
     const posto: ResumoPosto = {
       nome: dadosBrutos.posto?.nome || file.name,
       cnpj: dadosBrutos.posto?.cnpj || '',
-      totalValor,
-      totalLitros,
+      totalValor, totalLitros,
       totalVeiculos: placasUnicas.size,
-      porCombustivel,
-      lancamentos,
+      porCombustivel, lancamentos,
     }
 
     const novoExtrato: Extrato = {
@@ -164,16 +161,12 @@ Regras:
       dataUpload: new Date().toISOString(),
       periodo: dadosBrutos.posto?.periodo || '',
       postos: [posto],
-      totalValor,
-      totalLitros,
+      totalValor, totalLitros,
       totalVeiculos: placasUnicas.size,
-      alertas,
-      kmVeiculos,
+      alertas, kmVeiculos,
     }
 
-    const atualizados = [...extratosAnteriores, novoExtrato]
-    await kv.set('extratos', atualizados)
-
+    await kv.set('extratos', [...extratosAnteriores, novoExtrato])
     return NextResponse.json({ sucesso: true, extrato: novoExtrato })
   } catch (err: any) {
     console.error(err)
