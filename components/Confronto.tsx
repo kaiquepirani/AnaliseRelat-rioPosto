@@ -62,8 +62,8 @@ interface Resultado {
 export default function Confronto({ extratos }: { extratos: Extrato[] }) {
   const [fonteExtrato, setFonteExtrato] = useState<'pdf' | 'sistema'>('sistema')
   const [planilhaArq, setPlanilhaArq] = useState<File | null>(null)
-  const [pdfArq, setPdfArq] = useState<File | null>(null)
-  const [extratoSel, setExtratoSel] = useState('')
+  const [pdfArqs, setPdfArqs] = useState<File[]>([])
+  const [extratosSel, setExtratosSel] = useState<string[]>([])
   const [processando, setProcessando] = useState(false)
   const [resultados, setResultados] = useState<Resultado[] | null>(null)
   const [erro, setErro] = useState('')
@@ -71,6 +71,10 @@ export default function Confronto({ extratos }: { extratos: Extrato[] }) {
   const [toleranciaValor, setToleraciaValor] = useState(10)
   const planilhaRef = useRef<HTMLInputElement>(null)
   const pdfRef = useRef<HTMLInputElement>(null)
+
+  const toggleExtrato = (id: string) => {
+    setExtratosSel(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
 
   const parsarPlanilha = async (file: File): Promise<Viagem[]> => {
     const buf = await file.arrayBuffer()
@@ -151,32 +155,37 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
     })).filter((a: Abastecimento) => a.valor > 0)
   }
 
-  // Extrair abastecimentos de um extrato já no sistema
-  const extrairDoSistema = (extratoId: string): Abastecimento[] => {
-    const extrato = extratos.find(e => e.id === extratoId)
-    if (!extrato) return []
-    return extrato.postos.flatMap(p =>
-      p.lancamentos.map(l => ({
-        data: parsarDataPosto(l.emissao) || new Date(),
-        cupom: l.documento,
-        placa: normalizarPlaca(l.placaLida),
-        valor: l.valor,
-      }))
-    ).filter(a => a.valor > 0)
+  const extrairDoSistema = (ids: string[]): Abastecimento[] => {
+    return ids.flatMap(id => {
+      const extrato = extratos.find(e => e.id === id)
+      if (!extrato) return []
+      return extrato.postos.flatMap(p =>
+        p.lancamentos.map(l => ({
+          data: parsarDataPosto(l.emissao) || new Date(),
+          cupom: l.documento,
+          placa: normalizarPlaca(l.placaLida),
+          valor: l.valor,
+        }))
+      )
+    }).filter(a => a.valor > 0)
   }
 
   const confrontar = async () => {
     if (!planilhaArq) return
-    if (fonteExtrato === 'pdf' && !pdfArq) return
-    if (fonteExtrato === 'sistema' && !extratoSel) return
+    if (fonteExtrato === 'pdf' && pdfArqs.length === 0) return
+    if (fonteExtrato === 'sistema' && extratosSel.length === 0) return
     setProcessando(true)
     setErro('')
     setResultados(null)
     try {
       const viagens = await parsarPlanilha(planilhaArq)
-      const abastecimentos = fonteExtrato === 'pdf'
-        ? await parsarPDF(pdfArq!)
-        : extrairDoSistema(extratoSel)
+      let abastecimentos: Abastecimento[]
+      if (fonteExtrato === 'pdf') {
+        const resultsPDF = await Promise.all(pdfArqs.map(f => parsarPDF(f)))
+        abastecimentos = resultsPDF.flat()
+      } else {
+        abastecimentos = extrairDoSistema(extratosSel)
+      }
 
       const resultados: Resultado[] = []
       for (const ab of abastecimentos) {
@@ -205,8 +214,12 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
   const divergentes = resultados?.filter(r => r.status === 'valor_divergente') || []
   const confirmados = resultados?.filter(r => r.status === 'ok') || []
 
-  const extratoSelecionado = extratos.find(e => e.id === extratoSel)
-  const prontoParaConfrontar = planilhaArq && (fonteExtrato === 'pdf' ? pdfArq : extratoSel)
+  const totalAbastPDF = pdfArqs.reduce((s, f) => s + (f.size > 0 ? 1 : 0), 0)
+  const totalLancSistema = extratosSel.reduce((s, id) => {
+    const e = extratos.find(x => x.id === id)
+    return s + (e ? e.postos.flatMap(p => p.lancamentos).length : 0)
+  }, 0)
+  const prontoParaConfrontar = planilhaArq && (fonteExtrato === 'pdf' ? pdfArqs.length > 0 : extratosSel.length > 0)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -221,7 +234,7 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
           <div className="filtro-label" style={{ marginBottom: 8 }}>Fonte do extrato do posto</div>
           <div style={{ display: 'flex', gap: 8 }}>
             {(['sistema', 'pdf'] as const).map(op => (
-              <button key={op} onClick={() => { setFonteExtrato(op); setPdfArq(null); setExtratoSel('') }}
+              <button key={op} onClick={() => { setFonteExtrato(op); setPdfArqs([]); setExtratosSel([]) }}
                 style={{
                   padding: '0.5rem 1.1rem', fontSize: 13, fontWeight: 600, borderRadius: 8,
                   border: `2px solid ${fonteExtrato === op ? 'var(--navy)' : 'var(--border)'}`,
@@ -253,50 +266,69 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
 
           {/* Extrato - PDF ou sistema */}
           {fonteExtrato === 'pdf' ? (
-            <div onClick={() => pdfRef.current?.click()} style={{
-              border: `2px dashed ${pdfArq ? 'var(--sky)' : 'var(--border)'}`,
-              borderRadius: 'var(--radius)', padding: '1.25rem', cursor: 'pointer',
-              textAlign: 'center', background: pdfArq ? 'var(--sky-light)' : 'var(--bg)', transition: 'all 0.15s',
+            <div style={{
+              border: `2px dashed ${pdfArqs.length > 0 ? 'var(--sky)' : 'var(--border)'}`,
+              borderRadius: 'var(--radius)', padding: '1.25rem',
+              background: pdfArqs.length > 0 ? 'var(--sky-light)' : 'var(--bg)',
             }}>
-              <div style={{ fontSize: 24, marginBottom: 8 }}>📄</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)' }}>Extrato do Posto (.pdf)</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-                {pdfArq ? `✓ ${pdfArq.name}` : 'Clique para selecionar'}
-              </div>
-              <input ref={pdfRef} type="file" accept=".pdf" style={{ display: 'none' }}
-                onChange={e => setPdfArq(e.target.files?.[0] || null)} />
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', marginBottom: 8 }}>📄 Extratos do Posto (PDF)</div>
+              <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 10 }}>Selecione um ou mais PDFs para juntar quinzenas</div>
+              <button onClick={() => pdfRef.current?.click()}
+                style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 10 }}>
+                + Adicionar PDF
+              </button>
+              <input ref={pdfRef} type="file" accept=".pdf" multiple style={{ display: 'none' }}
+                onChange={e => {
+                  const novos = Array.from(e.target.files || [])
+                  setPdfArqs(prev => [...prev, ...novos])
+                  e.target.value = ''
+                }} />
+              {pdfArqs.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {pdfArqs.map((f, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'white', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 10px', fontSize: 12 }}>
+                      <span style={{ color: 'var(--navy)', fontWeight: 500 }}>✓ {f.name}</span>
+                      <button onClick={() => setPdfArqs(prev => prev.filter((_, j) => j !== i))}
+                        style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 14, fontWeight: 700, padding: '0 4px' }}>×</button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <div style={{
-              border: `2px solid ${extratoSel ? 'var(--sky)' : 'var(--border)'}`,
+              border: `2px solid ${extratosSel.length > 0 ? 'var(--sky)' : 'var(--border)'}`,
               borderRadius: 'var(--radius)', padding: '1.25rem',
-              background: extratoSel ? 'var(--sky-light)' : 'var(--bg)',
+              background: extratosSel.length > 0 ? 'var(--sky-light)' : 'var(--bg)',
             }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', marginBottom: 10 }}>📂 Extrato já lançado</div>
-              <select
-                value={extratoSel}
-                onChange={e => setExtratoSel(e.target.value)}
-                style={{
-                  width: '100%', padding: '0.5rem 0.75rem', fontSize: 13,
-                  border: '1px solid var(--border)', borderRadius: 8,
-                  background: 'var(--surface)', fontFamily: 'inherit', color: 'var(--text)',
-                }}
-              >
-                <option value="">Selecione um extrato...</option>
-                {extratos.map(e => (
-                  <option key={e.id} value={e.id}>
-                    {e.postos[0]?.nome} — {e.periodo || e.arquivo} ({new Date(e.dataUpload).toLocaleDateString('pt-BR')})
-                  </option>
-                ))}
-              </select>
-              {extratoSelecionado && (
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-2)' }}>
-                  ✓ {extratoSelecionado.postos.flatMap(p => p.lancamentos).length} lançamentos · {fmt(extratoSelecionado.totalValor)}
-                </div>
-              )}
-              {extratos.length === 0 && (
-                <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>
-                  Nenhum extrato lançado ainda. Use a opção de PDF.
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', marginBottom: 6 }}>📂 Extratos já lançados</div>
+              <div style={{ fontSize: 11, color: 'var(--text-2)', marginBottom: 10 }}>Selecione um ou mais para juntar quinzenas</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {extratos.length === 0 ? (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontStyle: 'italic' }}>Nenhum extrato lançado ainda.</div>
+                ) : extratos.map(e => {
+                  const sel = extratosSel.includes(e.id)
+                  return (
+                    <label key={e.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
+                      background: sel ? 'white' : 'var(--bg)', border: `1px solid ${sel ? 'var(--sky)' : 'var(--border)'}`,
+                      borderRadius: 8, padding: '8px 12px', transition: 'all 0.15s',
+                    }}>
+                      <input type="checkbox" checked={sel} onChange={() => toggleExtrato(e.id)}
+                        style={{ width: 15, height: 15, accentColor: 'var(--navy)', flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)' }}>{e.postos[0]?.nome}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-2)' }}>
+                          {e.periodo || e.arquivo} · {e.postos.flatMap(p => p.lancamentos).length} lançamentos · {e.totalValor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                        </div>
+                      </div>
+                    </label>
+                  )
+                })}
+              </div>
+              {extratosSel.length > 0 && (
+                <div style={{ marginTop: 10, fontSize: 11, color: 'var(--navy)', fontWeight: 600 }}>
+                  ✓ {extratosSel.length} extrato{extratosSel.length > 1 ? 's' : ''} selecionado{extratosSel.length > 1 ? 's' : ''} · {totalLancSistema} lançamentos no total
                 </div>
               )}
             </div>
