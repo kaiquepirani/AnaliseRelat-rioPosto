@@ -1,18 +1,24 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Extrato, Lancamento } from '@/lib/types'
+import { Extrato } from '@/lib/types'
 import Upload from '@/components/Upload'
 import ResumoGeral from '@/components/ResumoGeral'
 import TabelaAlertas from '@/components/TabelaAlertas'
 import HistoricoComparativo from '@/components/HistoricoComparativo'
 import DetalhesPosto from '@/components/DetalhesPosto'
 import AnaliseVeiculo from '@/components/AnaliseVeiculo'
+import RankingConsumo from '@/components/RankingConsumo'
+import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
+import AlertasAtipicos from '@/components/AlertasAtipicos'
+import EficienciaKM from '@/components/EficienciaKM'
+
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'ranking' | 'preco' | 'eficiencia' | 'veiculo' | 'historico'
 
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
   const [carregando, setCarregando] = useState(true)
   const [processando, setProcessando] = useState(false)
-  const [abaAtiva, setAbaAtiva] = useState<'resumo' | 'postos' | 'alertas' | 'historico' | 'veiculo'>('resumo')
+  const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [extratoSelecionado, setExtratoSelecionado] = useState<string>('todos')
 
   const buscarExtratos = useCallback(async () => {
@@ -64,6 +70,20 @@ export default function Dashboard() {
     naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
   }
 
+  const totalAlertas = alertasAgregados.naoIdentificada + alertasAgregados.provavel
+
+  const abas: { id: Aba; label: string; badge?: number | string }[] = [
+    { id: 'resumo', label: 'Resumo' },
+    { id: 'postos', label: 'Postos', badge: todosPostos.length },
+    { id: 'alertas', label: 'Placas', badge: totalAlertas > 0 ? totalAlertas : undefined },
+    { id: 'atipicos', label: 'Atípicos' },
+    { id: 'ranking', label: 'Ranking' },
+    { id: 'preco', label: 'Preço/litro' },
+    { id: 'eficiencia', label: 'Eficiência' },
+    { id: 'veiculo', label: 'Por veículo' },
+    { id: 'historico', label: 'Histórico' },
+  ]
+
   return (
     <div className="app">
       <header className="header">
@@ -108,40 +128,25 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="abas">
-              {(['resumo', 'postos', 'alertas', 'historico', 'veiculo'] as const).map(aba => (
-                <button key={aba} className={`aba ${abaAtiva === aba ? 'aba-ativa' : ''}`} onClick={() => setAbaAtiva(aba)}>
-                  {aba === 'resumo' && 'Resumo geral'}
-                  {aba === 'postos' && `Postos (${todosPostos.length})`}
-                  {aba === 'alertas' && `Alertas${alertasAgregados.naoIdentificada + alertasAgregados.provavel > 0 ? ` (${alertasAgregados.naoIdentificada + alertasAgregados.provavel})` : ''}`}
-                  {aba === 'historico' && 'Histórico'}
-                  {aba === 'veiculo' && 'Por veículo'}
+              {abas.map(aba => (
+                <button key={aba.id} className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`} onClick={() => setAbaAtiva(aba.id)}>
+                  {aba.label}
+                  {aba.badge !== undefined && aba.badge !== 0 && (
+                    <span className="aba-badge">{aba.badge}</span>
+                  )}
                 </button>
               ))}
             </div>
 
-            {abaAtiva === 'resumo' && (
-              <ResumoGeral
-                totalValor={totalGeral}
-                totalLitros={totalLitros}
-                totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size}
-                alertas={alertasAgregados}
-                lancamentos={todosLancamentos}
-              />
-            )}
-            {abaAtiva === 'postos' && (
-              <div className="postos-grid">
-                {todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}
-              </div>
-            )}
-            {abaAtiva === 'alertas' && (
-              <TabelaAlertas lancamentos={todosLancamentos} />
-            )}
-            {abaAtiva === 'historico' && (
-              <HistoricoComparativo extratos={extratos} />
-            )}
-            {abaAtiva === 'veiculo' && (
-              <AnaliseVeiculo extratos={extratos} />
-            )}
+            {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} />}
+            {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
+            {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} />}
+            {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
+            {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />}
+            {abaAtiva === 'preco' && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
+            {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
+            {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
+            {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
           </>
         )}
       </main>
