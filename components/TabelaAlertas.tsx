@@ -72,6 +72,41 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
     setSalvando(false)
   }
 
+  const exportarExcel = () => {
+    const linhas = naoIdentificadas.map(l => {
+      const chave = chaveJustificativa(l)
+      return {
+        'Placa': l.placaLida,
+        'Data': l.emissao,
+        'Posto': mapaPostos[chave] || '—',
+        'Combustível': l.combustivelNome,
+        'Litros': l.litros,
+        'Valor (R$)': l.valor,
+        'Documento': l.documento,
+        'Status': justificativas[chave] ? 'Justificado' : 'Pendente',
+        'Justificativa': justificativas[chave] || '',
+      }
+    })
+
+    const header = Object.keys(linhas[0])
+    const csv = [
+      header.join(';'),
+      ...linhas.map(row => header.map(h => {
+        const v = String((row as any)[h]).replace(/"/g, '""')
+        return `"${v}"`
+      }).join(';'))
+    ].join('\n')
+
+    const bom = '\uFEFF'
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `alertas-placas-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (naoIdentificadas.length === 0) {
     return (
       <div className="estado-vazio">
@@ -89,22 +124,34 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   return (
     <div className="alertas">
       {/* Resumo */}
-      <div className="cards-grid">
-        <div className="card card-alerta">
-          <div className="card-label">Total a investigar</div>
-          <div className="card-valor">{naoIdentificadas.length} lançamentos</div>
-          <div className="card-sub">{fmt(totalValor)}</div>
-        </div>
-        <div className={`card ${semJustificativa.length === 0 ? 'card-ok' : 'card-alerta'}`}>
-          <div className="card-label">Sem justificativa</div>
-          <div className="card-valor">{semJustificativa.length}</div>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: 12 }}>
+        <div className="cards-grid" style={{ flex: 1, margin: 0 }}>
+          <div className="card card-alerta">
+            <div className="card-label">Total a investigar</div>
+            <div className="card-valor">{naoIdentificadas.length} lançamentos</div>
+            <div className="card-sub">{fmt(totalValor)}</div>
+          </div>
+          <div className={`card ${semJustificativa.length === 0 ? 'card-ok' : 'card-alerta'}`}>
+            <div className="card-label">Sem justificativa</div>
+            <div className="card-valor">{semJustificativa.length}</div>
           <div className="card-sub">{fmt(semJustificativa.reduce((s, l) => s + l.valor, 0))}</div>
+          </div>
+          <div className="card card-ok">
+            <div className="card-label">Justificados</div>
+            <div className="card-valor">{comJustificativa.length}</div>
+            <div className="card-sub">{fmt(comJustificativa.reduce((s, l) => s + l.valor, 0))}</div>
+          </div>
         </div>
-        <div className="card card-ok">
-          <div className="card-label">Justificados</div>
-          <div className="card-valor">{comJustificativa.length}</div>
-          <div className="card-sub">{fmt(comJustificativa.reduce((s, l) => s + l.valor, 0))}</div>
-        </div>
+        <button onClick={exportarExcel} style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '0.6rem 1.1rem', fontSize: 13, fontWeight: 600,
+          background: 'var(--navy)', color: 'white',
+          border: 'none', borderRadius: 'var(--radius-sm)',
+          cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', alignSelf: 'flex-start',
+        }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar Excel
+        </button>
       </div>
 
       {/* Lançamentos sem justificativa */}
