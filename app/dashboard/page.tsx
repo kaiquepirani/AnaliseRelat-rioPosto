@@ -13,8 +13,9 @@ import AlertasAtipicos from '@/components/AlertasAtipicos'
 import AnalisePosto from '@/components/AnalisePosto'
 import EficienciaKM from '@/components/EficienciaKM'
 import PrecoAtual from '@/components/PrecoAtual'
+import Confronto from '@/components/Confronto'
 
-type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico'
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto'
 
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
@@ -86,6 +87,7 @@ export default function Dashboard() {
     { id: 'eficiencia', label: 'Eficiência' },
     { id: 'veiculo', label: 'Por veículo' },
     { id: 'historico', label: 'Histórico' },
+    { id: 'confronto', label: 'Confronto' },
   ]
 
   return (
@@ -157,6 +159,7 @@ export default function Dashboard() {
             {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
             {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
             {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
+            {abaAtiva === 'confronto' && <Confronto />}
           </>
         )}
       </main>
