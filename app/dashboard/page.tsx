@@ -10,9 +10,9 @@ import AnaliseVeiculo from '@/components/AnaliseVeiculo'
 import RankingConsumo from '@/components/RankingConsumo'
 import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
 import AlertasAtipicos from '@/components/AlertasAtipicos'
-import EficienciaKM from '@/components/EficienciaKM'
+import AnalisePosto from '@/components/AnalisePosto'
 
-type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'ranking' | 'preco' | 'eficiencia' | 'veiculo' | 'historico'
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'eficiencia' | 'veiculo' | 'historico'
 
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
@@ -77,6 +77,7 @@ export default function Dashboard() {
     { id: 'postos', label: 'Postos', badge: todosPostos.length },
     { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
+    { id: 'posto', label: 'Por posto' },
     { id: 'ranking', label: 'Ranking' },
     { id: 'preco', label: 'Preço/litro' },
     { id: 'eficiencia', label: 'Eficiência' },
@@ -96,7 +97,7 @@ export default function Dashboard() {
               <div className="logo-sub">Controle de combustível</div>
             </div>
           </div>
-          <div className="logo-nome-cursivo">Etco Tur</div>
+          <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
           <div className="header-right">
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
@@ -146,6 +147,7 @@ export default function Dashboard() {
             {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
             {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} />}
             {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
+            {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
             {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />}
             {abaAtiva === 'preco' && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
             {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
