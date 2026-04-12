@@ -177,3 +177,50 @@ Regras criticas:
       provavel: lancamentos.filter(l => l.status === 'provavel').length,
       provalValor: lancamentos.filter(l => l.status === 'provavel').reduce((s, l) => s + l.valor, 0),
       naoIdentificada: lancamentos.filter(l => l.status === 'nao_identificada').length,
+      naoIdentificadaValor: lancamentos.filter(l => l.status === 'nao_identificada').reduce((s, l) => s + l.valor, 0),
+    }
+
+    const kmVeiculos: Record<string, { kmAtual: number; mediaPeriodo?: number }> = {}
+    lancamentos.forEach(l => {
+      if (l.km && l.placaLida) {
+        const key = normalizarPlaca(l.placaLida)
+        if (!kmVeiculos[key] || l.km > kmVeiculos[key].kmAtual) kmVeiculos[key] = { kmAtual: l.km }
+      }
+    })
+
+    const extratosAnteriores: Extrato[] = await redis.get('extratos') || []
+    extratosAnteriores.forEach(ext => {
+      Object.entries(ext.kmVeiculos || {}).forEach(([placa, dados]) => {
+        if (kmVeiculos[placa] && dados.kmAtual) {
+          const diff = kmVeiculos[placa].kmAtual - dados.kmAtual
+          if (diff > 0) kmVeiculos[placa].mediaPeriodo = diff
+        }
+      })
+    })
+
+    const posto: ResumoPosto = {
+      nome: dadosBrutos.posto?.nome || file.name,
+      cnpj: dadosBrutos.posto?.cnpj || '',
+      totalValor, totalLitros,
+      totalVeiculos: placasUnicas.size,
+      porCombustivel, lancamentos,
+    }
+
+    const novoExtrato: Extrato = {
+      id: randomUUID(),
+      arquivo: file.name,
+      dataUpload: new Date().toISOString(),
+      periodo: dadosBrutos.posto?.periodo || '',
+      postos: [posto],
+      totalValor, totalLitros,
+      totalVeiculos: placasUnicas.size,
+      alertas, kmVeiculos,
+    }
+
+    await redis.set('extratos', [...extratosAnteriores, novoExtrato])
+    return NextResponse.json({ sucesso: true, extrato: novoExtrato })
+  } catch (err: any) {
+    console.error('Erro geral:', err.message)
+    return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 })
+  }
+}
