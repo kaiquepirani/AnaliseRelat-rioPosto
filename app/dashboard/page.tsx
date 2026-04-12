@@ -96,7 +96,7 @@ export default function Dashboard() {
               <div className="logo-sub">Controle de combustível</div>
             </div>
           </div>
-          <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
+          <div className="logo-nome-cursivo">Etco Tur</div>
           <div className="header-right">
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
