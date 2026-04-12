@@ -159,7 +159,7 @@ export default function Dashboard() {
             {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
             {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
             {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
-            {abaAtiva === 'confronto' && <Confronto />}
+            {abaAtiva === 'confronto' && <Confronto extratos={extratos} />}
           </>
         )}
       </main>
