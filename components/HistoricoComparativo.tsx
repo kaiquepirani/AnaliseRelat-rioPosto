@@ -4,18 +4,53 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
+function parsarDataBR(data: string): Date | null {
+  // Aceita DD/MM/YY ou DD/MM/YYYY
+  const m = data.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+  if (!m) return null
+  let ano = parseInt(m[3])
+  if (ano < 100) ano += ano < 50 ? 2000 : 1900
+  return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
+}
+
+function periodoReal(extrato: Extrato): { label: string; dataInicio: Date | null } {
+  const lancamentos = extrato.postos.flatMap(p => p.lancamentos)
+  const datas = lancamentos
+    .map(l => parsarDataBR(l.emissao))
+    .filter((d): d is Date => d !== null)
+
+  if (datas.length === 0) return { label: extrato.periodo || extrato.arquivo, dataInicio: null }
+
+  const menor = new Date(Math.min(...datas.map(d => d.getTime())))
+  const maior = new Date(Math.max(...datas.map(d => d.getTime())))
+
+  const fmtData = (d: Date) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+  const label = menor.getTime() === maior.getTime()
+    ? fmtData(menor)
+    : `${fmtData(menor)} a ${fmtData(maior)}`
+
+  return { label, dataInicio: menor }
+}
+
 export default function HistoricoComparativo({ extratos }: { extratos: Extrato[] }) {
-  const ordenados = [...extratos].sort((a, b) => new Date(a.dataUpload).getTime() - new Date(b.dataUpload).getTime())
+  // Ordenar por data real dos abastecimentos
+  const comPeriodo = extratos.map(e => ({ extrato: e, ...periodoReal(e) }))
+  const ordenados = [...comPeriodo].sort((a, b) => {
+    if (!a.dataInicio) return 1
+    if (!b.dataInicio) return -1
+    return a.dataInicio.getTime() - b.dataInicio.getTime()
+  })
 
   const dataGrafico = ordenados.map(e => ({
-    periodo: e.periodo || new Date(e.dataUpload).toLocaleDateString('pt-BR'),
-    valor: parseFloat(e.totalValor.toFixed(2)),
-    litros: parseFloat(e.totalLitros.toFixed(1)),
-    veiculos: e.totalVeiculos,
+    periodo: e.label,
+    valor: parseFloat(e.extrato.totalValor.toFixed(2)),
+    litros: parseFloat(e.extrato.totalLitros.toFixed(1)),
+    veiculos: e.extrato.totalVeiculos,
   }))
 
   const kmVeiculosAgregado: Record<string, number[]> = {}
-  ordenados.forEach(e => {
+  ordenados.forEach(({ extrato: e }) => {
     Object.entries(e.kmVeiculos || {}).forEach(([placa, d]) => {
       if (d.mediaPeriodo) {
         if (!kmVeiculosAgregado[placa]) kmVeiculosAgregado[placa] = []
@@ -31,7 +66,7 @@ export default function HistoricoComparativo({ extratos }: { extratos: Extrato[]
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={dataGrafico} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="periodo" tick={{ fontSize: 12 }} />
+            <XAxis dataKey="periodo" tick={{ fontSize: 11 }} />
             <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `R$${(v/1000).toFixed(0)}k`} />
             <Tooltip formatter={(v: number) => fmt(v)} />
             <Legend />
@@ -44,12 +79,12 @@ export default function HistoricoComparativo({ extratos }: { extratos: Extrato[]
         <div className="grafico-titulo">Tabela comparativa por período</div>
         <table className="tabela">
           <thead>
-            <tr><th>Período</th><th>Posto</th><th>Total R$</th><th>Total litros</th><th>Veículos</th><th>Alertas</th></tr>
+            <tr><th>Período real</th><th>Posto</th><th>Total R$</th><th>Total litros</th><th>Veículos</th><th>Alertas</th></tr>
           </thead>
           <tbody>
-            {ordenados.map((e, i) => (
+            {ordenados.map(({ extrato: e, label }, i) => (
               <tr key={i}>
-                <td>{e.periodo || new Date(e.dataUpload).toLocaleDateString('pt-BR')}</td>
+                <td>{label}</td>
                 <td>{e.postos.map(p => p.nome).join(', ')}</td>
                 <td>{fmt(e.totalValor)}</td>
                 <td>{e.totalLitros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
