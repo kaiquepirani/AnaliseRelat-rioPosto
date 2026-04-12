@@ -6,12 +6,13 @@ import ResumoGeral from '@/components/ResumoGeral'
 import TabelaAlertas from '@/components/TabelaAlertas'
 import HistoricoComparativo from '@/components/HistoricoComparativo'
 import DetalhesPosto from '@/components/DetalhesPosto'
+import AnaliseVeiculo from '@/components/AnaliseVeiculo'
 
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
   const [carregando, setCarregando] = useState(true)
   const [processando, setProcessando] = useState(false)
-  const [abaAtiva, setAbaAtiva] = useState<'resumo' | 'postos' | 'alertas' | 'historico'>('resumo')
+  const [abaAtiva, setAbaAtiva] = useState<'resumo' | 'postos' | 'alertas' | 'historico' | 'veiculo'>('resumo')
   const [extratoSelecionado, setExtratoSelecionado] = useState<string>('todos')
 
   const buscarExtratos = useCallback(async () => {
@@ -107,12 +108,13 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="abas">
-              {(['resumo', 'postos', 'alertas', 'historico'] as const).map(aba => (
+              {(['resumo', 'postos', 'alertas', 'historico', 'veiculo'] as const).map(aba => (
                 <button key={aba} className={`aba ${abaAtiva === aba ? 'aba-ativa' : ''}`} onClick={() => setAbaAtiva(aba)}>
                   {aba === 'resumo' && 'Resumo geral'}
                   {aba === 'postos' && `Postos (${todosPostos.length})`}
-                  {aba === 'alertas' && `Alertas ${alertasAgregados.naoIdentificada + alertasAgregados.provavel > 0 ? `(${alertasAgregados.naoIdentificada + alertasAgregados.provavel})` : ''}`}
+                  {aba === 'alertas' && `Alertas${alertasAgregados.naoIdentificada + alertasAgregados.provavel > 0 ? ` (${alertasAgregados.naoIdentificada + alertasAgregados.provavel})` : ''}`}
                   {aba === 'historico' && 'Histórico'}
+                  {aba === 'veiculo' && 'Por veículo'}
                 </button>
               ))}
             </div>
@@ -136,6 +138,9 @@ export default function Dashboard() {
             )}
             {abaAtiva === 'historico' && (
               <HistoricoComparativo extratos={extratos} />
+            )}
+            {abaAtiva === 'veiculo' && (
+              <AnaliseVeiculo extratos={extratos} />
             )}
           </>
         )}
