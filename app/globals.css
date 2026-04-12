@@ -198,3 +198,13 @@ code { font-family: 'DM Mono', monospace; font-size: 12px; background: var(--bg)
 .motivo-alerta { font-size: 12px; line-height: 1.5; display: block; }
 .motivo-amarelo { color: var(--amber, #b45309); }
 .motivo-vermelho { color: var(--red, #b91c1c); }
+
+.aba-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 6px; font-size: 10px; font-weight: 600; background: var(--red-bg, #fef2f2); color: var(--red, #b91c1c); border-radius: 9px; }
+.aba-ativa .aba-badge { background: #dbeafe; color: #1d4ed8; }
+
+.ranking, .preco-comb, .eficiencia, .alertas-atipicos { display: flex; flex-direction: column; gap: 1.5rem; }
+
+.card-valor-alerta { color: var(--red, #b91c1c); }
+
+.badge-diff { display: inline-block; font-size: 11px; font-weight: 500; padding: 2px 7px; border-radius: 4px; }
+.badge-neutro { background: var(--bg, #f8f7f4); color: var(--text-2, #6b6860); border: 1px solid var(--border, #e4e2db); }
