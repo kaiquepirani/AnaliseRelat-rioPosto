@@ -8,7 +8,7 @@ import { randomUUID } from 'crypto'
 const client = new Anthropic()
 
 const COMBUSTIVEIS: Record<string, string> = {
-  '10C': 'Etanol',
+  '10C': 'Diesel S10',
   'DIE': 'Diesel',
   'GAA': 'Gasolina',
   'PRO': 'Produto/Aditivo',
