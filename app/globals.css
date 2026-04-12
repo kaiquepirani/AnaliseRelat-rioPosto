@@ -51,7 +51,7 @@ body { min-height: 100vh; }
 .logo { display: flex; align-items: center; gap: 14px; text-decoration: none; }
 .logo-img {
   height: 48px; width: auto;
-  filter: brightness(0) invert(1);
+  
   object-fit: contain;
 }
 .logo-divider {
