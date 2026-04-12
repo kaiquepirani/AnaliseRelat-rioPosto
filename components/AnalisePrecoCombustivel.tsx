@@ -96,7 +96,7 @@ export default function AnalisePrecoCombustivel({ extratos }: { extratos: Extrat
     return { porPostoComb, evolucao, alertas: alertas.sort((a, b) => b.diff - a.diff).slice(0, 20) }
   }, [extratos])
 
-  const combustiveis = [...new Set(porPostoComb.map(p => p.combustivel))]
+  const combustiveis = Array.from(new Set(porPostoComb.map(p => p.combustivel)))
   const cores = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626']
 
   return (
