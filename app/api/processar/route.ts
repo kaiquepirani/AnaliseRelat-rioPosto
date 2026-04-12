@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer()
     const base64 = Buffer.from(bytes).toString('base64')
 
+    console.log('PDF recebido:', file.name, 'tamanho base64:', base64.length)
+
     const messageParams: any = {
       model: 'claude-sonnet-4-5',
       max_tokens: 8000,
@@ -66,25 +68,28 @@ O JSON deve ter exatamente este formato:
 }
 
 Regras:
-- km deve ser número inteiro (null se não disponível)
-- litros, vlrUnitario e valor devem ser números decimais com ponto
-- valor sem pontos de milhar (ex: 1774.28 e não 1.774,28)
-- itens é a string de combustíveis como aparece no extrato
-- Extraia TODAS as linhas sem exceção`
+- km deve ser numero inteiro (null se nao disponivel)
+- litros, vlrUnitario e valor devem ser numeros decimais com ponto
+- valor sem pontos de milhar (ex: 1774.28 e nao 1.774,28)
+- itens e a string de combustiveis como aparece no extrato
+- Extraia TODAS as linhas sem excecao`
           }
         ]
       }]
     }
 
     const resposta = await client.messages.create(messageParams)
-
     const textoResposta = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
-    let dadosBrutos: any
+    
+    console.log('Resposta Claude (primeiros 500 chars):', textoResposta.substring(0, 500))
 
+    let dadosBrutos: any
     try {
       const cleaned = textoResposta.replace(/```json|```/g, '').trim()
       dadosBrutos = JSON.parse(cleaned)
-    } catch {
+      console.log('Lancamentos encontrados:', dadosBrutos?.lancamentos?.length || 0)
+    } catch (e) {
+      console.error('Erro ao parsear JSON:', e)
       return NextResponse.json({ error: 'Falha ao interpretar resposta', raw: textoResposta }, { status: 500 })
     }
 
@@ -177,7 +182,7 @@ Regras:
     await redis.set('extratos', [...extratosAnteriores, novoExtrato])
     return NextResponse.json({ sucesso: true, extrato: novoExtrato })
   } catch (err: any) {
-    console.error(err)
+    console.error('Erro geral:', err.message)
     return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 })
   }
 }
