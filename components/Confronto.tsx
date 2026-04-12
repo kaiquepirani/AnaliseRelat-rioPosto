@@ -124,7 +124,7 @@ export default function Confronto() {
   // Parse do PDF do posto via Claude API
   const parsarPDF = async (file: File): Promise<Abastecimento[]> => {
     const buf = await file.arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+    const base64 = btoa(Array.from(new Uint8Array(buf)).map(b => String.fromCharCode(b)).join(''))
 
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
