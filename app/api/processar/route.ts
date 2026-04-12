@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     const messageParams: any = {
       model: 'claude-sonnet-4-5',
-      max_tokens: 8000,
+      max_tokens: 16000,
       messages: [{
         role: 'user',
         content: [
