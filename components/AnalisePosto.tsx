@@ -327,6 +327,77 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
               </tbody>
             </table>
           </div>
+
+          {/* Relatório completo de abastecimentos do período */}
+          {periodos.map((p, idx) => (
+            <div key={idx} className="tabela-hist-wrap">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                <div className="grafico-titulo" style={{ margin: 0 }}>
+                  Abastecimentos — {p.label}
+                </div>
+                <div style={{ display: 'flex', gap: 12, fontSize: 13, color: 'var(--text-2)' }}>
+                  <span>{p.nVeiculos} veículos</span>
+                  <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmt(p.totalValor)}</span>
+                  <span>{fmtL(p.totalLitros)}</span>
+                </div>
+              </div>
+              <table className="tabela tabela-sm">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Placa</th>
+                    <th>Prefixo</th>
+                    <th>Veículo</th>
+                    <th>Grupo</th>
+                    <th>Combustível</th>
+                    <th>Litros</th>
+                    <th>R$/L</th>
+                    <th>Valor</th>
+                    <th>KM</th>
+                    <th>Documento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.lancamentos
+                    .slice()
+                    .sort((a: any, b: any) => {
+                      const da = parsarDataBR(a.emissao)
+                      const db = parsarDataBR(b.emissao)
+                      if (!da || !db) return 0
+                      return da.getTime() - db.getTime()
+                    })
+                    .map((l: any, i: number) => (
+                    <tr key={i}>
+                      <td>{l.emissao}</td>
+                      <td><code>{l.placaLida}</code></td>
+                      <td>{l.nFrota ? <span style={{ fontSize: 11, background: 'var(--sky-light)', color: 'var(--navy)', padding: '2px 7px', borderRadius: 20, fontWeight: 600 }}>{l.nFrota}</span> : '—'}</td>
+                      <td style={{ fontSize: 12 }}>{l.modelo ? `${l.marca || ''} ${l.modelo}`.trim() : '—'}</td>
+                      <td style={{ fontSize: 12 }}>{l.grupo || '—'}</td>
+                      <td>
+                        <span style={{ background: 'var(--navy)', color: 'white', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
+                          {l.combustivelNome}
+                        </span>
+                      </td>
+                      <td>{fmtL(l.litros)}</td>
+                      <td>{l.vlrUnitario > 0 ? `R$ ${l.vlrUnitario.toFixed(3)}` : '—'}</td>
+                      <td style={{ fontWeight: 600 }}>{fmt(l.valor)}</td>
+                      <td>{l.km?.toLocaleString('pt-BR') || '—'}</td>
+                      <td style={{ fontSize: 11, color: 'var(--text-3)' }}>{l.documento}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--bg)', fontWeight: 700 }}>
+                    <td colSpan={6} style={{ textAlign: 'right', color: 'var(--text-2)', fontSize: 12 }}>TOTAL DO PERÍODO</td>
+                    <td>{fmtL(p.totalLitros)}</td>
+                    <td>—</td>
+                    <td style={{ color: 'var(--navy)' }}>{fmt(p.totalValor)}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          ))}
         </>
       )}
     </div>
