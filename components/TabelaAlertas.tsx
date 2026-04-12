@@ -25,49 +25,10 @@ function motivoAlerta(l: Lancamento): string {
 }
 
 export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento[] }) {
-  const provaveis = lancamentos.filter(l => l.status === 'provavel')
   const naoIdentificadas = lancamentos.filter(l => l.status === 'nao_identificada')
 
   return (
     <div className="alertas">
-      {provaveis.length > 0 && (
-        <div className="alerta-secao">
-          <div className="alerta-header alerta-amarelo">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            Placas com correspondência aproximada — verificar ({provaveis.length} lançamentos · {fmt(provaveis.reduce((s, l) => s + l.valor, 0))})
-          </div>
-          <table className="tabela">
-            <thead>
-              <tr>
-                <th>Placa lida</th>
-                <th>Placa corrigida</th>
-                <th>Veículo associado</th>
-                <th>Motivo do alerta</th>
-                <th>Data</th>
-                <th>Valor</th>
-              </tr>
-            </thead>
-            <tbody>
-              {provaveis.map((l, i) => (
-                <tr key={i} className="tr-amarelo">
-                  <td><code>{l.placaLida}</code></td>
-                  <td><code className="placa-corrigida">{l.placaCorrigida}</code></td>
-                  <td>
-                    <div style={{ fontSize: 13 }}>{l.marca} {l.modelo}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text-3)' }}>{l.grupo} · Prefixo {l.nFrota}</div>
-                  </td>
-                  <td>
-                    <span className="motivo-alerta motivo-amarelo">{motivoAlerta(l)}</span>
-                  </td>
-                  <td>{l.emissao}</td>
-                  <td>{fmt(l.valor)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       {naoIdentificadas.length > 0 && (
         <div className="alerta-secao">
           <div className="alerta-header alerta-vermelho">
