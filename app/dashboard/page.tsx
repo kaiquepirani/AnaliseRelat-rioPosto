@@ -89,7 +89,7 @@ export default function Dashboard() {
       <header className="header">
         <div className="header-inner">
           <div className="logo">
-            <img src="/logo.png" alt="ETCO Tur" className="logo-img" />
+            <img src="https://raw.githubusercontent.com/kaiquepirani/AnaliseRelat-rioPosto/main/logo.png" alt="ETCO Tur" className="logo-img" />
             <div className="logo-divider" />
             <div className="logo-text">
               <div className="logo-title">Gestão de Frota</div>
