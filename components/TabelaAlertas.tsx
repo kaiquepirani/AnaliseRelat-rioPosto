@@ -1,6 +1,7 @@
 'use client'
 import { Lancamento } from '@/lib/types'
-import { useState, useEffect, useCallback } from 'react'
+import { Extrato } from '@/lib/types'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -15,12 +16,25 @@ function chaveJustificativa(l: Lancamento): string {
   return `${l.placaLida}__${l.documento}`
 }
 
-export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento[] }) {
+export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamentos: Lancamento[], extratos?: Extrato[] }) {
   const naoIdentificadas = lancamentos.filter(l => l.status === 'nao_identificada')
   const [justificativas, setJustificativas] = useState<Record<string, string>>({})
   const [editando, setEditando] = useState<string | null>(null)
   const [textoEditando, setTextoEditando] = useState('')
   const [salvando, setSalvando] = useState(false)
+
+  // Mapear documento -> nome do posto
+  const mapaPostos = useMemo(() => {
+    const mapa: Record<string, string> = {}
+    extratos.forEach(e => {
+      e.postos.forEach(p => {
+        p.lancamentos.forEach(l => {
+          mapa[`${l.placaLida}__${l.documento}`] = p.nome
+        })
+      })
+    })
+    return mapa
+  }, [extratos])
 
   const carregarJustificativas = useCallback(async () => {
     const res = await fetch('/api/justificativas')
@@ -105,6 +119,7 @@ export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento
               <tr>
                 <th>Placa</th>
                 <th>Data</th>
+                <th>Posto</th>
                 <th>Combustível</th>
                 <th>Litros</th>
                 <th>Valor</th>
@@ -115,10 +130,12 @@ export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento
             <tbody>
               {semJustificativa.map((l, i) => {
                 const chave = chaveJustificativa(l)
+                const posto = mapaPostos[chave] || '—'
                 return (
                   <tr key={i} className="tr-vermelho">
                     <td><code>{l.placaLida}</code></td>
                     <td>{l.emissao}</td>
+                    <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{posto}</td>
                     <td>{l.combustivelNome}</td>
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
@@ -192,6 +209,7 @@ export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento
               <tr>
                 <th>Placa</th>
                 <th>Data</th>
+                <th>Posto</th>
                 <th>Combustível</th>
                 <th>Litros</th>
                 <th>Valor</th>
@@ -203,10 +221,12 @@ export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento
             <tbody>
               {comJustificativa.map((l, i) => {
                 const chave = chaveJustificativa(l)
+                const posto = mapaPostos[chave] || '—'
                 return (
                   <tr key={i}>
                     <td><code>{l.placaLida}</code></td>
                     <td>{l.emissao}</td>
+                    <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{posto}</td>
                     <td>{l.combustivelNome}</td>
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
