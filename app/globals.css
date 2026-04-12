@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Dancing+Script:wght@700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -50,8 +50,7 @@ body { min-height: 100vh; }
 }
 .logo { display: flex; align-items: center; gap: 14px; text-decoration: none; }
 .logo-img {
-  height: 48px; width: auto;
-  
+  height: 52px; width: auto;
   object-fit: contain;
 }
 .logo-divider {
@@ -62,7 +61,15 @@ body { min-height: 100vh; }
 .logo-title { font-size: 15px; font-weight: 700; color: white; line-height: 1.2; letter-spacing: -0.01em; }
 .logo-sub { font-size: 11px; color: var(--sky); font-weight: 500; letter-spacing: 0.02em; }
 
-.header-right { display: flex; align-items: center; gap: 12px; }
+.logo-nome-cursivo {
+  font-family: 'Dancing Script', cursive;
+  font-size: 32px;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
 
 /* ── UPLOAD ── */
 .upload-area {
