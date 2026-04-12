@@ -32,12 +32,11 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
 
   const dataComb = Object.entries(porCombustivel).map(([nome, d]) => ({ nome, ...d }))
   const dataStatus = [
-    { nome: 'Confirmada', valor: alertas.confirmadaValor, fill: '#16a34a' },
-    { nome: 'Verificar', valor: alertas.provalValor, fill: '#d97706' },
+    { nome: 'Confirmada', valor: alertas.confirmadaValor + alertas.provalValor, fill: '#16a34a' },
     { nome: 'Investigar', valor: alertas.naoIdentificadaValor, fill: '#dc2626' },
   ].filter(d => d.valor > 0)
 
-  const totalAlerta = alertas.provalValor + alertas.naoIdentificadaValor
+  const totalAlerta = alertas.naoIdentificadaValor
 
   return (
     <div className="resumo">
@@ -55,9 +54,9 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
           <div className="card-valor">{totalVeiculos}</div>
         </div>
         <div className={`card ${totalAlerta > 0 ? 'card-alerta' : 'card-ok'}`}>
-          <div className="card-label">Valor em alerta</div>
+          <div className="card-label">Placas a investigar</div>
           <div className="card-valor">{fmt(totalAlerta)}</div>
-          <div className="card-sub">{alertas.provavel} verificar · {alertas.naoIdentificada} investigar</div>
+          <div className="card-sub">{alertas.naoIdentificada} placa{alertas.naoIdentificada !== 1 ? 's' : ''} não identificada{alertas.naoIdentificada !== 1 ? 's' : ''}</div>
         </div>
       </div>
 
