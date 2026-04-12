@@ -75,7 +75,7 @@ export default function Dashboard() {
   const abas: { id: Aba; label: string; badge?: number | string }[] = [
     { id: 'resumo', label: 'Resumo' },
     { id: 'postos', label: 'Postos', badge: todosPostos.length },
-    { id: 'alertas', label: 'Placas', badge: totalAlertas > 0 ? totalAlertas : undefined },
+    { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
     { id: 'ranking', label: 'Ranking' },
     { id: 'preco', label: 'Preço/litro' },
