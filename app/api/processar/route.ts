@@ -14,6 +14,30 @@ const COMBUSTIVEIS: Record<string, string> = {
   'PRO': 'Produto/Aditivo',
   'ETA': 'Etanol Aditivado',
   'GCA': 'Gasolina Comum',
+  'DIESEL S10': 'Diesel S10',
+  'OLEO DIESEL B S10': 'Diesel S10',
+  'OLEO DIESEL S10': 'Diesel S10',
+  'DIESEL': 'Diesel',
+  'GASOLINA TIPO C': 'Gasolina',
+  'GASOLINA COMUM': 'Gasolina',
+  'GASOLINA': 'Gasolina',
+  'ETANOL': 'Etanol',
+  'ETANOL HIDRA': 'Etanol',
+  'ETANOL ADITIVADO': 'Etanol Aditivado',
+  'GNV': 'GNV',
+}
+
+function mapearCombustivel(itens: string): { codigo: string; nome: string } {
+  const upper = itens.toUpperCase().trim()
+  // Busca exata primeiro
+  for (const [key, nome] of Object.entries(COMBUSTIVEIS)) {
+    if (upper === key) return { codigo: key, nome }
+  }
+  // Busca por conteúdo
+  for (const [key, nome] of Object.entries(COMBUSTIVEIS)) {
+    if (upper.includes(key)) return { codigo: key, nome }
+  }
+  return { codigo: upper.split(',')[0] || 'OUT', nome: itens }
 }
 
 export async function POST(req: NextRequest) {
@@ -29,7 +53,7 @@ export async function POST(req: NextRequest) {
 
     const messageParams: any = {
       model: 'claude-sonnet-4-5',
-      max_tokens: 16000,
+      max_tokens: 32000,
       messages: [{
         role: 'user',
         content: [
@@ -43,36 +67,51 @@ export async function POST(req: NextRequest) {
           },
           {
             type: 'text',
-            text: `Extraia TODOS os dados deste extrato de posto de combustível e retorne APENAS um JSON válido, sem texto adicional, sem markdown, sem blocos de código.
+            text: `Extraia TODOS os lancamentos deste extrato de posto de combustivel e retorne APENAS um JSON valido, sem texto adicional, sem markdown, sem blocos de codigo.
+
+Este extrato pode ter diferentes formatos. Identifique o formato e extraia os dados corretamente:
+
+FORMATO 1 (colunas: Documento, Emissao, Vencimento, Placa, KM, Itens, Litros, Vlr.Unitario, Valor):
+- Extraia cada linha como um lancamento
+
+FORMATO 2 (colunas: Data, TN, Motorista, Placa, Marca, KM, Nro.Doc, Qtde, Descricao, Valor):
+- A descricao contem o tipo de combustivel e o preco por litro (ex: "OLEO DIESEL B S10 COMUM R$ 7,630/L")
+- Extraia o tipo de combustivel da descricao
+- Extraia o preco por litro da descricao
+- O valor ja e o total do lancamento
+- Litros = valor / preco_unitario (calcule se necessario)
 
 O JSON deve ter exatamente este formato:
 {
   "posto": {
     "nome": "nome do posto",
     "cnpj": "cnpj",
-    "periodo": "periodo do extrato ex: 01/04/2024 a 15/04/2024"
+    "periodo": "01/03/2026 a 31/03/2026"
   },
   "lancamentos": [
     {
-      "documento": "ST.90993-0",
-      "emissao": "31/03/24",
-      "vencimento": "30/04/24",
-      "placa": "EJV-1I15",
-      "km": 162204,
-      "itens": "DIE,PRO",
-      "litros": 162.204,
-      "vlrUnitario": 5.690,
-      "valor": 974.06
+      "documento": "000028918",
+      "emissao": "02/03/26",
+      "vencimento": "",
+      "placa": "BRY3I78",
+      "km": null,
+      "itens": "GASOLINA TIPO C",
+      "litros": 19.079,
+      "vlrUnitario": 6.390,
+      "valor": 121.91
     }
   ]
 }
 
-Regras:
-- km deve ser numero inteiro (null se nao disponivel)
-- litros, vlrUnitario e valor devem ser numeros decimais com ponto
+Regras criticas:
+- Extraia ABSOLUTAMENTE TODOS os lancamentos, sem pular nenhum
+- km deve ser numero inteiro ou null se nao disponivel
+- litros, vlrUnitario e valor devem ser numeros decimais com ponto (nao virgula)
 - valor sem pontos de milhar (ex: 1774.28 e nao 1.774,28)
-- itens e a string de combustiveis como aparece no extrato
-- Extraia TODAS as linhas sem excecao`
+- placa sem hifens e sem espacos (ex: BRY3I78 nao BRY-3I78)
+- Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
+- itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
+- Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente`
           }
         ]
       }]
@@ -100,8 +139,7 @@ Regras:
 
     const lancamentos: Lancamento[] = (dadosBrutos.lancamentos || []).map((l: any) => {
       const validacao = validarPlaca(l.placa || '')
-      const itens = (l.itens || '').toUpperCase()
-      const codigoComb = Object.keys(COMBUSTIVEIS).find(k => itens.includes(k)) || itens.split(',')[0] || 'OUT'
+      const { codigo: codigoComb, nome: combustivelNome } = mapearCombustivel(l.itens || '')
       return {
         documento: l.documento || '',
         emissao: l.emissao || '',
@@ -110,7 +148,7 @@ Regras:
         placaCorrigida: validacao.placaCorrigida,
         km: l.km || undefined,
         combustivel: codigoComb,
-        combustivelNome: COMBUSTIVEIS[codigoComb] || codigoComb,
+        combustivelNome,
         litros: parseValor(l.litros),
         vlrUnitario: parseValor(l.vlrUnitario),
         valor: parseValor(l.valor),
@@ -139,50 +177,3 @@ Regras:
       provavel: lancamentos.filter(l => l.status === 'provavel').length,
       provalValor: lancamentos.filter(l => l.status === 'provavel').reduce((s, l) => s + l.valor, 0),
       naoIdentificada: lancamentos.filter(l => l.status === 'nao_identificada').length,
-      naoIdentificadaValor: lancamentos.filter(l => l.status === 'nao_identificada').reduce((s, l) => s + l.valor, 0),
-    }
-
-    const kmVeiculos: Record<string, { kmAtual: number; mediaPeriodo?: number }> = {}
-    lancamentos.forEach(l => {
-      if (l.km && l.placaLida) {
-        const key = normalizarPlaca(l.placaLida)
-        if (!kmVeiculos[key] || l.km > kmVeiculos[key].kmAtual) kmVeiculos[key] = { kmAtual: l.km }
-      }
-    })
-
-    const extratosAnteriores: Extrato[] = await redis.get('extratos') || []
-    extratosAnteriores.forEach(ext => {
-      Object.entries(ext.kmVeiculos || {}).forEach(([placa, dados]) => {
-        if (kmVeiculos[placa] && dados.kmAtual) {
-          const diff = kmVeiculos[placa].kmAtual - dados.kmAtual
-          if (diff > 0) kmVeiculos[placa].mediaPeriodo = diff
-        }
-      })
-    })
-
-    const posto: ResumoPosto = {
-      nome: dadosBrutos.posto?.nome || file.name,
-      cnpj: dadosBrutos.posto?.cnpj || '',
-      totalValor, totalLitros,
-      totalVeiculos: placasUnicas.size,
-      porCombustivel, lancamentos,
-    }
-
-    const novoExtrato: Extrato = {
-      id: randomUUID(),
-      arquivo: file.name,
-      dataUpload: new Date().toISOString(),
-      periodo: dadosBrutos.posto?.periodo || '',
-      postos: [posto],
-      totalValor, totalLitros,
-      totalVeiculos: placasUnicas.size,
-      alertas, kmVeiculos,
-    }
-
-    await redis.set('extratos', [...extratosAnteriores, novoExtrato])
-    return NextResponse.json({ sucesso: true, extrato: novoExtrato })
-  } catch (err: any) {
-    console.error('Erro geral:', err.message)
-    return NextResponse.json({ error: err.message || 'Erro interno' }, { status: 500 })
-  }
-}
