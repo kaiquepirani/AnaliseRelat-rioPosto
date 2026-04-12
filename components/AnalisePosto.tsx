@@ -335,10 +335,36 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
                 <div className="grafico-titulo" style={{ margin: 0 }}>
                   Abastecimentos — {p.label}
                 </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 13, color: 'var(--text-2)' }}>
+                <div style={{ display: 'flex', gap: 12, fontSize: 13, color: 'var(--text-2)', alignItems: 'center' }}>
                   <span>{p.nVeiculos} veículos</span>
                   <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{fmt(p.totalValor)}</span>
                   <span>{fmtL(p.totalLitros)}</span>
+                  <button onClick={() => {
+                    const lances = p.lancamentos.slice().sort((a: any, b: any) => {
+                      const da = parsarDataBR(a.emissao), db = parsarDataBR(b.emissao)
+                      return da && db ? da.getTime() - db.getTime() : 0
+                    })
+                    const header = ['Data', 'Placa', 'Prefixo', 'Veículo', 'Grupo', 'Combustível', 'Litros', 'R$/L', 'Valor (R$)', 'KM', 'Documento']
+                    const linhas = lances.map((l: any) => [
+                      l.emissao, l.placaLida, l.nFrota || '', l.modelo ? `${l.marca||''} ${l.modelo}`.trim() : '',
+                      l.grupo || '', l.combustivelNome, l.litros.toFixed(1),
+                      l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '', l.valor.toFixed(2),
+                      l.km || '', l.documento
+                    ])
+                    const csv = [header, ...linhas].map(r => r.map((v: any) => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
+                    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+                    a.download = `posto-${postoSel.replace(/\s+/g,'-')}-${p.label.replace(/\s+/g,'-')}.csv`
+                    a.click()
+                  }} style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '4px 10px', fontSize: 11, fontWeight: 600,
+                    background: 'var(--navy)', color: 'white',
+                    border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                  }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Exportar
+                  </button>
                 </div>
               </div>
               <table className="tabela tabela-sm">
