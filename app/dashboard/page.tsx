@@ -11,6 +11,7 @@ import RankingConsumo from '@/components/RankingConsumo'
 import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
 import AlertasAtipicos from '@/components/AlertasAtipicos'
 import AnalisePosto from '@/components/AnalisePosto'
+import EficienciaKM from '@/components/EficienciaKM'
 
 type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'eficiencia' | 'veiculo' | 'historico'
 
