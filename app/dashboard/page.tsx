@@ -89,13 +89,16 @@ export default function Dashboard() {
       <header className="header">
         <div className="header-inner">
           <div className="logo">
-            <span className="logo-mark">E</span>
-            <div>
-              <div className="logo-title">ETCO Frota</div>
-              <div className="logo-sub">Gestão de consumo de combustível</div>
+            <img src="/logo.png" alt="ETCO Tur" className="logo-img" />
+            <div className="logo-divider" />
+            <div className="logo-text">
+              <div className="logo-title">Gestão de Frota</div>
+              <div className="logo-sub">Controle de combustível</div>
             </div>
           </div>
-          <Upload onUpload={handleUpload} processando={processando} />
+          <div className="header-right">
+            <Upload onUpload={handleUpload} processando={processando} />
+          </div>
         </div>
       </header>
 
