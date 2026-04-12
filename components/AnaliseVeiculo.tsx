@@ -180,7 +180,30 @@ export default function AnaliseVeiculo({ extratos }: { extratos: Extrato[] }) {
           )}
 
           <div className="tabela-hist-wrap">
-            <div className="grafico-titulo">Histórico de abastecimentos</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+              <div className="grafico-titulo" style={{ margin: 0 }}>Histórico de abastecimentos</div>
+              <button onClick={() => {
+                const header = ['Data', 'Posto', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM']
+                const linhas = lancamentosFiltrados.map(l => [
+                  l.emissao, l.postoNome, l.combustivelNome,
+                  l.litros.toFixed(1), l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '',
+                  l.valor.toFixed(2), l.km || ''
+                ])
+                const csv = [header, ...linhas].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
+                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+                a.download = `veiculo-${placaSel}-${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.csv`
+                a.click()
+              }} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '0.5rem 1rem', fontSize: 12, fontWeight: 600,
+                background: 'var(--navy)', color: 'white',
+                border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Exportar Excel
+              </button>
+            </div>
             <table className="tabela tabela-sm">
               <thead>
                 <tr><th>Data</th><th>Posto</th><th>Combustível</th><th>Litros</th><th>Vlr. Unit.</th><th>Valor</th><th>KM</th></tr>
