@@ -66,7 +66,7 @@ export default function TabelaAlertas({ lancamentos }: { lancamentos: Lancamento
         </div>
       )}
 
-      {provaveis.length === 0 && naoIdentificadas.length === 0 && (
+      {naoIdentificadas.length === 0 && (
         <div className="estado-vazio">
           <div className="estado-icone">✓</div>
           <div className="estado-titulo">Nenhum alerta</div>
