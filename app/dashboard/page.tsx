@@ -12,8 +12,9 @@ import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
 import AlertasAtipicos from '@/components/AlertasAtipicos'
 import AnalisePosto from '@/components/AnalisePosto'
 import EficienciaKM from '@/components/EficienciaKM'
+import PrecoAtual from '@/components/PrecoAtual'
 
-type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'eficiencia' | 'veiculo' | 'historico'
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico'
 
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
@@ -81,6 +82,7 @@ export default function Dashboard() {
     { id: 'posto', label: 'Por posto' },
     { id: 'ranking', label: 'Ranking' },
     { id: 'preco', label: 'Preço/litro' },
+    { id: 'precoatual', label: 'Preço atual' },
     { id: 'eficiencia', label: 'Eficiência' },
     { id: 'veiculo', label: 'Por veículo' },
     { id: 'historico', label: 'Histórico' },
@@ -151,6 +153,7 @@ export default function Dashboard() {
             {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
             {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />}
             {abaAtiva === 'preco' && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
+            {abaAtiva === 'precoatual' && <PrecoAtual extratos={extratos} />}
             {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
             {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
             {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
