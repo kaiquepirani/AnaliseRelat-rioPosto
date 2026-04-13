@@ -25,18 +25,28 @@ function labelPeriodo(extratoId: string, lancamentos: any[], tipo: 'mes' | 'quin
 }
 
 export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
+  const [cidadeSel, setCidadeSel] = useState('')
   const [postoSel, setPostoSel] = useState('')
   const [tipo, setTipo] = useState<'mes' | 'quinzena'>('quinzena')
   const [metrica, setMetrica] = useState<'valor' | 'litros' | 'preco'>('valor')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
 
-  // Listar postos únicos
+  // Listar cidades únicas com postos
+  const cidades = useMemo(() => {
+    const set = new Set<string>()
+    extratos.forEach(e => e.postos.forEach(p => { if (p.cidade) set.add(p.cidade.toUpperCase()) }))
+    return Array.from(set).sort()
+  }, [extratos])
+
+  // Listar postos filtrados pela cidade selecionada
   const postos = useMemo(() => {
     const nomes = new Set<string>()
-    extratos.forEach(e => e.postos.forEach(p => nomes.add(p.nome)))
+    extratos.forEach(e => e.postos.forEach(p => {
+      if (!cidadeSel || (p.cidade || '').toUpperCase() === cidadeSel) nomes.add(p.nome)
+    }))
     return Array.from(nomes).sort()
-  }, [extratos])
+  }, [extratos, cidadeSel])
 
   // Dados do posto selecionado por período
   const periodos = useMemo(() => {
@@ -127,10 +137,19 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {/* Filtros */}
       <div className="filtros-veiculo">
+        {cidades.length > 0 && (
+          <div className="filtro-grupo">
+            <label className="filtro-label">Cidade</label>
+            <select className="filtro-select-lg" value={cidadeSel} onChange={e => { setCidadeSel(e.target.value); setPostoSel('') }}>
+              <option value="">Todas as cidades</option>
+              {cidades.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+        )}
         <div className="filtro-grupo">
           <label className="filtro-label">Posto</label>
           <select className="filtro-select-lg" value={postoSel} onChange={e => setPostoSel(e.target.value)}>
-            <option value="">Selecione um posto...</option>
+            <option value="">{cidadeSel ? `Selecione um posto em ${cidadeSel}...` : 'Selecione um posto...'}</option>
             {postos.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
