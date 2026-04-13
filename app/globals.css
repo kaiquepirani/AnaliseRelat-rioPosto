@@ -122,6 +122,14 @@ body { min-height: 100vh; }
 }
 .btn-deletar:hover { background: #fee2e2; }
 
+.btn-renomear {
+  padding: 0.45rem 0.875rem; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface);
+  font-size: 13px; color: var(--navy); cursor: pointer; font-family: inherit; font-weight: 500;
+  transition: all 0.15s;
+}
+.btn-renomear:hover { background: var(--sky-light); border-color: var(--sky); }
+
 /* ── ABAS ── */
 .abas {
   display: flex; gap: 2px; margin-bottom: 1.25rem;
