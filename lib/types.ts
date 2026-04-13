@@ -15,6 +15,7 @@ export interface Lancamento {
   grupo?: string
   marca?: string
   modelo?: string
+  motorista?: string
 }
 
 export interface ResumoPosto {
