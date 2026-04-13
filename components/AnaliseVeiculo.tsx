@@ -183,17 +183,19 @@ export default function AnaliseVeiculo({ extratos }: { extratos: Extrato[] }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div className="grafico-titulo" style={{ margin: 0 }}>Histórico de abastecimentos</div>
               <button onClick={() => {
-                const header = ['Data', 'Posto', 'Motorista', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM']
-                const linhas = lancamentosFiltrados.map(l => [
-                  l.emissao, l.postoNome, l.motorista || '', l.combustivelNome,
-                  l.litros.toFixed(1), l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '',
-                  l.valor.toFixed(2), l.km || ''
-                ])
-                const csv = [header, ...linhas].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n')
-                const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-                const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-                a.download = `veiculo-${placaSel}-${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.csv`
-                a.click()
+                const { exportarXLSX } = require('@/lib/exportar')
+                exportarXLSX(
+                  `veiculo-${placaSel}-${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`,
+                  ['Data', 'Posto', 'Motorista', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM'],
+                  lancamentosFiltrados.map(l => [
+                    l.emissao, l.postoNome, l.motorista || '', l.combustivelNome,
+                    parseFloat(l.litros.toFixed(3)),
+                    l.vlrUnitario > 0 ? parseFloat(l.vlrUnitario.toFixed(3)) : '',
+                    parseFloat(l.valor.toFixed(2)),
+                    l.km || ''
+                  ]),
+                  true
+                )
               }} style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 padding: '0.5rem 1rem', fontSize: 12, fontWeight: 600,
