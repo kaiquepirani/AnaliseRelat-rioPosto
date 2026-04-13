@@ -66,6 +66,7 @@ export default function Confronto({ extratos }: { extratos: Extrato[] }) {
   const [extratosSel, setExtratosSel] = useState<string[]>([])
   const [processando, setProcessando] = useState(false)
   const [resultados, setResultados] = useState<Resultado[] | null>(null)
+  const [viagensSemAbast, setViagensSemAbast] = useState<any[]>([])
   const [erro, setErro] = useState('')
   const [tolerancia, setTolerancia] = useState(1)
   const [toleranciaValor, setToleraciaValor] = useState(10)
@@ -170,6 +171,10 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
     }).filter(a => a.valor > 0)
   }
 
+interface ViagemSemAbast extends Viagem {
+  motivo: string
+}
+
   const confrontar = async () => {
     if (!planilhaArq) return
     if (fonteExtrato === 'pdf' && pdfArqs.length === 0) return
@@ -177,6 +182,7 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
     setProcessando(true)
     setErro('')
     setResultados(null)
+    setViagensSemAbast([])
     try {
       const viagens = await parsarPlanilha(planilhaArq)
       let abastecimentos: Abastecimento[]
@@ -187,7 +193,10 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
         abastecimentos = extrairDoSistema(extratosSel)
       }
 
+      // LADO 1: Cada abastecimento procura viagem correspondente
       const resultados: Resultado[] = []
+      const abastUsados = new Set<number>()
+
       for (const ab of abastecimentos) {
         const candidatas = viagens.filter(v => v.placa && v.placa === ab.placa && diffDias(v.data, ab.data) <= tolerancia)
         if (candidatas.length === 0) {
@@ -196,12 +205,34 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
         }
         const melhor = candidatas.reduce((a, b) => Math.abs(a.combus - ab.valor) < Math.abs(b.combus - ab.valor) ? a : b)
         const diffPct = (Math.abs(melhor.combus - ab.valor) / ab.valor) * 100
+        const idxViagem = viagens.indexOf(melhor)
+        abastUsados.add(idxViagem)
         if (diffPct > toleranciaValor) {
           resultados.push({ abastecimento: ab, status: 'valor_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: `Valor diverge ${diffPct.toFixed(1)}%` })
         } else {
           resultados.push({ abastecimento: ab, status: 'ok', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: 'Confirmado' })
         }
       }
+
+      // LADO 2: Viagens da planilha que não tiveram abastecimento correspondente
+      const viagensSemAbast: ViagemSemAbast[] = viagens
+        .map((v, i) => ({ ...v, _idx: i }))
+        .filter((v: any) => {
+          if (!v.combus || v.combus <= 0) return false // viagem sem combustível previsto
+          if (abastUsados.has(v._idx)) return false    // já foi usada
+          // Verificar se existe abastecimento para essa placa no período
+          const temAbast = abastecimentos.some(ab => ab.placa === v.placa && diffDias(ab.data, v.data) <= tolerancia)
+          if (temAbast) return false // já foi cruzada (pode ter sobrado por tolerância)
+          return true
+        })
+        .map((v: any) => ({
+          ...v,
+          motivo: v.placa
+            ? `Nenhum abastecimento encontrado para ${v.prefixo} (${v.placa}) em ${fmtData(v.data)} (±${tolerancia}d)`
+            : `Prefixo ${v.prefixo} não encontrado na frota`
+        }))
+
+      setViagensSemAbast(viagensSemAbast)
       setResultados(resultados.sort((a, b) => ({ sem_viagem: 0, valor_divergente: 1, ok: 2 }[a.status] - { sem_viagem: 0, valor_divergente: 1, ok: 2 }[b.status])))
     } catch (e: any) {
       setErro(e.message || 'Erro ao processar')
@@ -376,32 +407,52 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
 
       {resultados && (
         <>
+          {/* Cards resumo */}
           <div className="cards-grid">
-            <div className="card"><div className="card-label">Total analisado</div><div className="card-valor">{resultados.length}</div><div className="card-sub">{fmt(resultados.reduce((s,r)=>s+r.abastecimento.valor,0))}</div></div>
-            <div className={`card ${semViagem.length > 0 ? 'card-alerta' : 'card-ok'}`}><div className="card-label">Sem viagem correspondente</div><div className="card-valor">{semViagem.length}</div><div className="card-sub">{fmt(semViagem.reduce((s,r)=>s+r.abastecimento.valor,0))}</div></div>
-            <div className={`card ${divergentes.length > 0 ? 'card-alerta' : 'card-ok'}`}><div className="card-label">Valor divergente</div><div className="card-valor">{divergentes.length}</div><div className="card-sub">{fmt(divergentes.reduce((s,r)=>s+r.abastecimento.valor,0))}</div></div>
-            <div className="card card-ok"><div className="card-label">Confirmados</div><div className="card-valor">{confirmados.length}</div><div className="card-sub">{fmt(confirmados.reduce((s,r)=>s+r.abastecimento.valor,0))}</div></div>
+            <div className={`card ${semViagem.length > 0 ? 'card-alerta' : 'card-ok'}`}>
+              <div className="card-label">🔴 Abast. sem viagem na planilha</div>
+              <div className="card-valor">{semViagem.length}</div>
+              <div className="card-sub">{fmt(semViagem.reduce((s,r)=>s+r.abastecimento.valor,0))}</div>
+            </div>
+            <div className={`card ${viagensSemAbast.length > 0 ? 'card-alerta' : 'card-ok'}`}>
+              <div className="card-label">🟠 Viagens sem abastecimento</div>
+              <div className="card-valor">{viagensSemAbast.length}</div>
+              <div className="card-sub">{fmt(viagensSemAbast.reduce((s,v)=>s+(v.combus||0),0))}</div>
+            </div>
+            <div className={`card ${divergentes.length > 0 ? 'card-alerta' : 'card-ok'}`}>
+              <div className="card-label">🟡 Valor divergente</div>
+              <div className="card-valor">{divergentes.length}</div>
+              <div className="card-sub">{fmt(divergentes.reduce((s,r)=>s+r.abastecimento.valor,0))}</div>
+            </div>
+            <div className="card card-ok">
+              <div className="card-label">✅ Confirmados</div>
+              <div className="card-valor">{confirmados.length}</div>
+              <div className="card-sub">{fmt(confirmados.reduce((s,r)=>s+r.abastecimento.valor,0))}</div>
+            </div>
           </div>
 
+          {/* LADO 1A: Abastecimentos sem viagem */}
           {semViagem.length > 0 && (
             <div className="alerta-secao">
               <div className="alerta-header alerta-vermelho">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                Sem viagem correspondente — {semViagem.length} abastecimentos · {fmt(semViagem.reduce((s,r)=>s+r.abastecimento.valor,0))}
+                🔴 Abastecimentos do posto SEM viagem na planilha — {semViagem.length} registros · {fmt(semViagem.reduce((s,r)=>s+r.abastecimento.valor,0))}
+              </div>
+              <div style={{fontSize:12,color:'var(--text-2)',padding:'8px 16px',background:'#fff5f5',borderBottom:'1px solid var(--border)'}}>
+                Esses abastecimentos constam no extrato do posto mas não há viagem lançada na sua planilha para esse veículo nessa data.
               </div>
               <table className="tabela tabela-sm">
-                <thead><tr><th>Data</th><th>Placa</th><th>Grupo</th><th>Cupom</th><th>Valor posto</th><th>Observação</th></tr></thead>
+                <thead><tr><th>Data</th><th>Placa</th><th>Prefixo</th><th>Grupo</th><th>Cupom</th><th>Valor posto</th></tr></thead>
                 <tbody>
                   {semViagem.map((r, i) => {
                     const veiculo = FROTA.find(v => normalizarPlaca(v.placa) === r.abastecimento.placa)
                     return (
                       <tr key={i} className="tr-vermelho">
                         <td>{fmtData(r.abastecimento.data)}</td>
-                        <td><code>{r.abastecimento.placa}</code>{veiculo && <div style={{fontSize:11,color:'var(--text-3)'}}>Prefixo {veiculo.nFrota}</div>}</td>
+                        <td><code>{r.abastecimento.placa}</code></td>
+                        <td>{veiculo?.nFrota || '—'}</td>
                         <td style={{fontSize:12}}>{veiculo?.grupo||'—'}</td>
                         <td style={{fontSize:12}}>{r.abastecimento.cupom}</td>
                         <td style={{fontWeight:600}}>{fmt(r.abastecimento.valor)}</td>
-                        <td style={{fontSize:12,color:'var(--red)'}}>{r.observacao}</td>
                       </tr>
                     )
                   })}
@@ -410,14 +461,45 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
             </div>
           )}
 
+          {/* LADO 1B: Viagens sem abastecimento */}
+          {viagensSemAbast.length > 0 && (
+            <div className="alerta-secao">
+              <div className="alerta-header" style={{background:'#fff7ed',color:'#c2410c',borderBottom:'1px solid #fed7aa'}}>
+                🟠 Viagens da planilha SEM abastecimento no extrato — {viagensSemAbast.length} registros · {fmt(viagensSemAbast.reduce((s,v)=>s+(v.combus||0),0))}
+              </div>
+              <div style={{fontSize:12,color:'var(--text-2)',padding:'8px 16px',background:'#fff7ed',borderBottom:'1px solid var(--border)'}}>
+                Essas viagens têm combustível lançado na sua planilha mas não foi encontrado abastecimento correspondente no extrato do posto.
+              </div>
+              <table className="tabela tabela-sm">
+                <thead><tr><th>Data</th><th>Prefixo</th><th>Placa</th><th>Motorista</th><th>Destino</th><th>Valor planilha</th><th>Motivo</th></tr></thead>
+                <tbody>
+                  {viagensSemAbast.map((v, i) => (
+                    <tr key={i} style={{background:'#fff7ed'}}>
+                      <td>{fmtData(v.data)}</td>
+                      <td>{v.prefixo}</td>
+                      <td><code>{v.placa || '—'}</code></td>
+                      <td style={{fontSize:12}}>{v.motorista||'—'}</td>
+                      <td style={{fontSize:12}}>{v.destino||'—'}</td>
+                      <td style={{fontWeight:600}}>{fmt(v.combus||0)}</td>
+                      <td style={{fontSize:11,color:'#c2410c'}}>{v.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Valor divergente */}
           {divergentes.length > 0 && (
             <div className="alerta-secao">
               <div className="alerta-header alerta-amarelo">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                Valor divergente — {divergentes.length} ocorrências
+                🟡 Valor divergente — {divergentes.length} ocorrências
+              </div>
+              <div style={{fontSize:12,color:'var(--text-2)',padding:'8px 16px',background:'#fefce8',borderBottom:'1px solid var(--border)'}}>
+                Abastecimento encontrado para o veículo na data, mas o valor difere entre o extrato e a planilha.
               </div>
               <table className="tabela tabela-sm">
-                <thead><tr><th>Data</th><th>Placa</th><th>Destino da viagem</th><th>Valor posto</th><th>Valor planilha</th><th>Diferença</th><th>Dias</th></tr></thead>
+                <thead><tr><th>Data</th><th>Placa</th><th>Motorista</th><th>Destino</th><th>Valor posto</th><th>Valor planilha</th><th>Diferença</th><th>Dias</th></tr></thead>
                 <tbody>
                   {divergentes.map((r, i) => {
                     const diff = r.diffValor || 0
@@ -426,10 +508,11 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
                       <tr key={i} className="tr-amarelo">
                         <td>{fmtData(r.abastecimento.data)}</td>
                         <td><code>{r.abastecimento.placa}</code></td>
+                        <td style={{fontSize:12}}>{r.viagem?.motorista||'—'}</td>
                         <td style={{fontSize:12}}>{r.viagem?.destino||'—'}</td>
                         <td style={{fontWeight:600}}>{fmt(r.abastecimento.valor)}</td>
                         <td>{fmt(r.viagem?.combus||0)}</td>
-                        <td><span className={`badge-diff ${diff<0?'badge-vermelho':'badge-neutro'}`}>{diff>0?'+':''}{fmt(diff)} ({diffPct}%)</span></td>
+                        <td><span style={{color:diff<0?'var(--red)':'var(--green)',fontWeight:600}}>{diff>0?'+':''}{fmt(diff)} ({diffPct}%)</span></td>
                         <td>{r.diffDias}d</td>
                       </tr>
                     )
@@ -439,14 +522,14 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
             </div>
           )}
 
+          {/* Confirmados */}
           {confirmados.length > 0 && (
             <div className="alerta-secao">
               <div className="alerta-header" style={{background:'var(--green-bg)',color:'var(--green)',borderBottom:'1px solid #86efac'}}>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-                Confirmados — {confirmados.length} abastecimentos · {fmt(confirmados.reduce((s,r)=>s+r.abastecimento.valor,0))}
+                ✅ Confirmados — {confirmados.length} abastecimentos · {fmt(confirmados.reduce((s,r)=>s+r.abastecimento.valor,0))}
               </div>
               <table className="tabela tabela-sm">
-                <thead><tr><th>Data</th><th>Placa</th><th>Destino</th><th>Valor posto</th><th>Valor planilha</th><th>Diferença</th><th>Motorista</th></tr></thead>
+                <thead><tr><th>Data</th><th>Placa</th><th>Motorista</th><th>Destino</th><th>Valor posto</th><th>Valor planilha</th><th>Diferença</th></tr></thead>
                 <tbody>
                   {confirmados.map((r, i) => {
                     const diff = r.diffValor||0
@@ -454,11 +537,11 @@ Regras: data DD/MM/AAAA, placa sem hífen, valor número decimal com ponto, extr
                       <tr key={i}>
                         <td>{fmtData(r.abastecimento.data)}</td>
                         <td><code>{r.abastecimento.placa}</code></td>
+                        <td style={{fontSize:12}}>{r.viagem?.motorista||'—'}</td>
                         <td style={{fontSize:12}}>{r.viagem?.destino||'—'}</td>
                         <td>{fmt(r.abastecimento.valor)}</td>
                         <td>{fmt(r.viagem?.combus||0)}</td>
-                        <td><span className={`badge-diff ${Math.abs(diff)<1?'badge-verde':'badge-neutro'}`}>{diff>0?'+':''}{fmt(diff)}</span></td>
-                        <td style={{fontSize:12}}>{r.viagem?.motorista||'—'}</td>
+                        <td style={{color:Math.abs(diff)<1?'var(--green)':'var(--text-2)',fontWeight:600}}>{diff>0?'+':''}{fmt(diff)}</td>
                       </tr>
                     )
                   })}
