@@ -319,20 +319,26 @@ export function validarPlaca(placaLida: string): {
   placaCorrigida?: string
 } {
   const norm = normalizarPlaca(placaLida)
-  if (!norm || norm.length < 4) return { status: 'nao_identificada' }
+  if (!norm || norm.length < 2) return { status: 'nao_identificada' }
 
-  // 1. Correspondência exata
+  // 0. Verificar se é um prefixo (só números) — busca direta pelo nFrota
+  if (/^\d+$/.test(norm)) {
+    const porPrefixo = FROTA.find(v => v.nFrota === norm)
+    if (porPrefixo) return { status: 'confirmada', veiculo: porPrefixo }
+    // Prefixo não encontrado — não identificado mas não gera alerta de placa inválida
+    return { status: 'nao_identificada' }
+  }
+
+  // 1. Correspondência exata de placa
   const exata = FROTA.find(v => normalizarPlaca(v.placa) === norm)
   if (exata) return { status: 'confirmada', veiculo: exata }
 
   // 2. Correspondência via conversão Mercosul (antigo <-> novo padrão)
-  // Se a placa lida for Mercosul mas a frota tem o formato antigo, ou vice-versa
   const varsLida = variacoes(norm)
   for (const variacao of varsLida) {
     if (variacao === norm) continue
     const mercosulMatch = FROTA.find(v => normalizarPlaca(v.placa) === variacao)
     if (mercosulMatch) {
-      // É uma conversão Mercosul válida — confirmar sem alerta
       return { status: 'confirmada', veiculo: mercosulMatch }
     }
   }
