@@ -19,12 +19,26 @@ import GerenciarFrota from '@/components/GerenciarFrota'
 
 type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota'
 
+interface DuplicataInfo {
+  extratoExistente: {
+    id: string
+    nome: string
+    periodo: string
+    totalValor: number
+    dataUpload: string
+  }
+  formData: FormData
+}
+
+const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
 export default function Dashboard() {
   const [extratos, setExtratos] = useState<Extrato[]>([])
   const [carregando, setCarregando] = useState(true)
   const [processando, setProcessando] = useState(false)
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [extratoSelecionado, setExtratoSelecionado] = useState<string>('todos')
+  const [duplicataInfo, setDuplicataInfo] = useState<DuplicataInfo | null>(null)
 
   const buscarExtratos = useCallback(async () => {
     const res = await fetch('/api/extratos')
@@ -35,12 +49,29 @@ export default function Dashboard() {
 
   useEffect(() => { buscarExtratos() }, [buscarExtratos])
 
+  // Envia o FormData para /api/processar e trata duplicata
+  const enviarForm = async (form: FormData, forcar = false): Promise<boolean> => {
+    if (forcar) form.set('forcarSalvar', 'true')
+    const res = await fetch('/api/processar', { method: 'POST', body: form })
+    const data = await res.json()
+
+    if (data.duplicata) {
+      setDuplicataInfo({ extratoExistente: data.extratoExistente, formData: form })
+      return false
+    }
+    if (data.sucesso) {
+      await buscarExtratos()
+      return true
+    }
+    alert('Erro ao processar: ' + (data.error || 'Tente novamente'))
+    return false
+  }
+
   const handleUpload = async (arquivo: File) => {
     setProcessando(true)
     const isExcel = arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls')
     try {
       if (isExcel) {
-        // Processar Excel no cliente e enviar como JSON
         const buf = await arquivo.arrayBuffer()
         const wb = XLSX.read(buf, { type: 'array', cellDates: true })
         const dadosAbas = wb.SheetNames.map(nome => ({
@@ -49,18 +80,11 @@ export default function Dashboard() {
         }))
         const form = new FormData()
         form.append('excel', JSON.stringify({ arquivo: arquivo.name, abas: dadosAbas }))
-        const res = await fetch('/api/processar', { method: 'POST', body: form })
-        const data = await res.json()
-        if (data.sucesso) await buscarExtratos()
-        else alert('Erro ao processar Excel: ' + (data.error || 'Tente novamente'))
+        await enviarForm(form)
       } else {
-        // PDF — envia direto para Claude
         const form = new FormData()
         form.append('pdf', arquivo)
-        const res = await fetch('/api/processar', { method: 'POST', body: form })
-        const data = await res.json()
-        if (data.sucesso) await buscarExtratos()
-        else alert('Erro ao processar: ' + (data.error || 'Tente novamente'))
+        await enviarForm(form)
       }
     } catch {
       alert('Falha na comunicação com o servidor.')
@@ -68,6 +92,19 @@ export default function Dashboard() {
       setProcessando(false)
     }
   }
+
+  const handleConfirmarDuplicata = async () => {
+    if (!duplicataInfo) return
+    setDuplicataInfo(null)
+    setProcessando(true)
+    try {
+      await enviarForm(duplicataInfo.formData, true)
+    } finally {
+      setProcessando(false)
+    }
+  }
+
+  const handleCancelarDuplicata = () => setDuplicataInfo(null)
 
   const handleDeletar = async (id: string) => {
     if (!confirm('Remover este extrato do histórico?')) return
@@ -129,8 +166,6 @@ export default function Dashboard() {
     provavel: extratosVisiveis.reduce((s, e) => s + e.alertas.provavel, 0),
     naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
   }
-
-  const totalAlertas = alertasAgregados.naoIdentificada + alertasAgregados.provavel
 
   const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
     { id: 'resumo', label: 'Resumo' },
@@ -277,6 +312,78 @@ export default function Dashboard() {
           </>
         )}
       </main>
+
+      {/* ── Modal de duplicata ── */}
+      {duplicataInfo && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: '1rem',
+        }}>
+          <div style={{
+            background: 'white', borderRadius: 16, padding: '2rem',
+            maxWidth: 460, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+          }}>
+            {/* Ícone + título */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.25rem' }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12, background: '#fef9c3',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22, flexShrink: 0,
+              }}>⚠️</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b' }}>Extrato possivelmente duplicado</div>
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Este extrato parece já ter sido lançado</div>
+              </div>
+            </div>
+
+            {/* Card extrato existente */}
+            <div style={{
+              background: '#f8fafc', border: '1px solid #e2e8f0',
+              borderRadius: 10, padding: '0.875rem 1rem', marginBottom: '1rem',
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+                Extrato já salvo
+              </div>
+              <div style={{ fontWeight: 600, color: '#1e293b', fontSize: 14, marginBottom: 4 }}>
+                {duplicataInfo.extratoExistente.nome}
+              </div>
+              <div style={{ fontSize: 13, color: '#475569', display: 'flex', flexWrap: 'wrap', gap: '4px 16px' }}>
+                <span>📅 {duplicataInfo.extratoExistente.periodo}</span>
+                <span>💰 {fmt(duplicataInfo.extratoExistente.totalValor)}</span>
+                <span style={{ color: '#94a3b8' }}>
+                  Enviado em {new Date(duplicataInfo.extratoExistente.dataUpload).toLocaleDateString('pt-BR')}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 13, color: '#64748b', marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              O sistema identificou um extrato do <strong>mesmo posto</strong>, com <strong>período sobreposto</strong> e <strong>valor total similar</strong> já cadastrado.
+              Deseja salvar mesmo assim?
+            </div>
+
+            {/* Botões */}
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={handleCancelarDuplicata} style={{
+                padding: '0.6rem 1.25rem', fontSize: 13, fontWeight: 600,
+                background: 'white', color: '#475569',
+                border: '1px solid #e2e8f0', borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                Cancelar
+              </button>
+              <button onClick={handleConfirmarDuplicata} style={{
+                padding: '0.6rem 1.25rem', fontSize: 13, fontWeight: 700,
+                background: '#2D3A6B', color: 'white',
+                border: 'none', borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>
+                Salvar mesmo assim
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
