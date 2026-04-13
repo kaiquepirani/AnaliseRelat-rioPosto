@@ -43,13 +43,59 @@ function mapearCombustivel(itens: string): { codigo: string; nome: string } {
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
-    const file = formData.get('pdf') as File
-    if (!file) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 })
+    const excelJson = formData.get('excel') as string | null
+    const file = formData.get('pdf') as File | null
 
-    const bytes = await file.arrayBuffer()
-    const base64 = Buffer.from(bytes).toString('base64')
+    if (!file && !excelJson) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 })
 
-    console.log('PDF recebido:', file.name, 'tamanho base64:', base64.length)
+    let dadosBrutos: any
+
+    // ── EXCEL: dados já parseados no cliente ──
+    if (excelJson) {
+      const { arquivo, abas } = JSON.parse(excelJson)
+      console.log('Excel recebido:', arquivo, 'abas:', abas.map((a: any) => a.nome))
+
+      // Enviar para Claude interpretar as abas
+      const textoAbas = abas.map((a: any) => {
+        const linhas = (a.dados as any[][]).slice(0, 200).map((row: any[]) =>
+          row.map(v => v === null ? '' : String(v)).join('\t')
+        ).join('\n')
+        return `=== ABA: ${a.nome} ===\n${linhas}`
+      }).join('\n\n')
+
+      const resposta = await client.messages.create({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 32000,
+        messages: [{
+          role: 'user',
+          content: `Analise este extrato de posto de combustivel em formato Excel (tabulado) e retorne APENAS um JSON valido sem markdown.
+
+${textoAbas}
+
+O JSON deve ter este formato:
+{
+  "posto": { "nome": "nome do posto", "cnpj": "", "periodo": "01/03/2026 a 31/03/2026" },
+  "lancamentos": [
+    { "documento": "123", "emissao": "DD/MM/AAAA", "vencimento": "", "placa": "ABC1234", "motorista": "NOME", "km": null, "itens": "DIESEL S10", "litros": 50.0, "vlrUnitario": 6.50, "valor": 325.00 }
+  ]
+}
+
+Regras: placa sem hifen, valor com ponto decimal, extraia TODOS os lancamentos, motorista se disponivel ou null.`
+        }]
+      })
+
+      const texto = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
+      try {
+        dadosBrutos = JSON.parse(texto.replace(/```json|```/g, '').trim())
+        dadosBrutos.posto = dadosBrutos.posto || { nome: arquivo, cnpj: '', periodo: '' }
+      } catch {
+        return NextResponse.json({ error: 'Falha ao interpretar Excel', raw: texto }, { status: 500 })
+      }
+    } else {
+      // ── PDF: envia para Claude como documento ──
+      const bytes = await file!.arrayBuffer()
+      const base64 = Buffer.from(bytes).toString('base64')
+      console.log('PDF recebido:', file!.name, 'tamanho base64:', base64.length)
 
     const messageParams: any = {
       model: 'claude-sonnet-4-5',
@@ -119,20 +165,17 @@ Regras criticas:
       }]
     }
 
-    const resposta = await client.messages.create(messageParams)
-    const textoResposta = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
-    
-    console.log('Resposta Claude (primeiros 500 chars):', textoResposta.substring(0, 500))
-
-    let dadosBrutos: any
-    try {
-      const cleaned = textoResposta.replace(/```json|```/g, '').trim()
-      dadosBrutos = JSON.parse(cleaned)
-      console.log('Lancamentos encontrados:', dadosBrutos?.lancamentos?.length || 0)
-    } catch (e) {
-      console.error('Erro ao parsear JSON:', e)
-      return NextResponse.json({ error: 'Falha ao interpretar resposta', raw: textoResposta }, { status: 500 })
-    }
+      const resposta = await client.messages.create(messageParams)
+      const textoResposta = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
+      console.log('Resposta Claude PDF (primeiros 500 chars):', textoResposta.substring(0, 500))
+      try {
+        dadosBrutos = JSON.parse(textoResposta.replace(/```json|```/g, '').trim())
+        console.log('Lancamentos encontrados:', dadosBrutos?.lancamentos?.length || 0)
+      } catch (e) {
+        console.error('Erro ao parsear JSON:', e)
+        return NextResponse.json({ error: 'Falha ao interpretar resposta', raw: textoResposta }, { status: 500 })
+      }
+    } // fim else PDF
 
     const parseValor = (v: any) => {
       if (typeof v === 'number') return v
