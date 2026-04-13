@@ -40,6 +40,14 @@ function mapearCombustivel(itens: string): { codigo: string; nome: string } {
   return { codigo: upper.split(',')[0] || 'OUT', nome: itens }
 }
 
+function parsarDataEmissao(s: string): Date | null {
+  const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+  if (!m) return null
+  let ano = parseInt(m[3])
+  if (ano < 100) ano += ano < 50 ? 2000 : 1900
+  return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
@@ -259,14 +267,6 @@ Regras criticas:
     }
 
     // Calcular período real com base nas datas dos lançamentos
-    function parsarDataEmissao(s: string): Date | null {
-      const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
-      if (!m) return null
-      let ano = parseInt(m[3])
-      if (ano < 100) ano += ano < 50 ? 2000 : 1900
-      return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
-    }
-
     const datas = lancamentos
       .map(l => parsarDataEmissao(l.emissao))
       .filter(Boolean) as Date[]
