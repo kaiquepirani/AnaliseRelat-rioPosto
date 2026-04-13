@@ -116,20 +116,19 @@ export default function Dashboard() {
 
   const totalAlertas = alertasAgregados.naoIdentificada + alertasAgregados.provavel
 
-  const abas: { id: Aba; label: string; badge?: number | string }[] = [
+  const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
     { id: 'resumo', label: 'Resumo' },
-    { id: 'postos', label: 'Postos', badge: todosPostos.length },
+    { id: 'posto', label: 'Por posto' },
+    { id: 'veiculo', label: 'Por veículo' },
+    { id: 'confronto', label: 'Confronto', vermelho: true },
+    { id: 'postos', label: 'Postos', badge: todosPostos.length, separadorAntes: true },
     { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
-    { id: 'posto', label: 'Por posto' },
-    { id: 'ranking', label: 'Ranking' },
+    { id: 'ranking', label: 'Ranking', separadorAntes: true },
+    { id: 'eficiencia', label: 'Eficiência' },
+    { id: 'historico', label: 'Histórico' },
     { id: 'preco', label: 'Preço/litro' },
     { id: 'precoatual', label: 'Preço atual' },
-    { id: 'eficiencia', label: 'Eficiência' },
-    { id: 'veiculo', label: 'Por veículo' },
-    { id: 'historico', label: 'Histórico' },
-    { id: 'confronto', label: 'Confronto' },
-    { id: 'frota', label: '🚌 Frota' },
   ]
 
   return (
@@ -145,7 +144,14 @@ export default function Dashboard() {
             </div>
           </div>
           <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
-          <div className="header-right">
+          <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button onClick={() => setAbaAtiva('frota')} style={{
+              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+              background: abaAtiva === 'frota' ? 'white' : 'rgba(255,255,255,0.15)',
+              color: abaAtiva === 'frota' ? 'var(--navy)' : 'white',
+              border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
+              cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+            }}>🚌 Frota</button>
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
         </div>
@@ -213,12 +219,21 @@ export default function Dashboard() {
           <>
             <div className="abas">
               {abas.map(aba => (
-                <button key={aba.id} className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`} onClick={() => setAbaAtiva(aba.id)}>
-                  {aba.label}
-                  {aba.badge !== undefined && aba.badge !== 0 && (
-                    <span className="aba-badge">{aba.badge}</span>
+                <span key={aba.id} style={{ display: 'contents' }}>
+                  {aba.separadorAntes && (
+                    <span style={{ width: 1, background: 'var(--border)', margin: '4px 4px', flexShrink: 0 }} />
                   )}
-                </button>
+                  <button
+                    className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`}
+                    onClick={() => setAbaAtiva(aba.id)}
+                    style={aba.vermelho && abaAtiva !== aba.id ? { color: '#dc2626' } : aba.vermelho && abaAtiva === aba.id ? { color: 'white', background: '#dc2626' } : {}}
+                  >
+                    {aba.label}
+                    {aba.badge !== undefined && aba.badge !== 0 && (
+                      <span className="aba-badge">{aba.badge}</span>
+                    )}
+                  </button>
+                </span>
               ))}
             </div>
 
