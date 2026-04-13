@@ -14,3 +14,17 @@ export async function DELETE(req: NextRequest) {
   await redis.set('extratos', filtrados)
   return NextResponse.json({ sucesso: true })
 }
+
+export async function PATCH(req: NextRequest) {
+  const { id, nome } = await req.json()
+  const extratos: Extrato[] = await redis.get('extratos') || []
+  const atualizados = extratos.map(e => {
+    if (e.id !== id) return e
+    return {
+      ...e,
+      postos: e.postos.map((p, i) => i === 0 ? { ...p, nome } : p),
+    }
+  })
+  await redis.set('extratos', atualizados)
+  return NextResponse.json({ sucesso: true })
+}
