@@ -29,11 +29,9 @@ const COMBUSTIVEIS: Record<string, string> = {
 
 function mapearCombustivel(itens: string): { codigo: string; nome: string } {
   const upper = itens.toUpperCase().trim()
-  // Busca exata primeiro
   for (const [key, nome] of Object.entries(COMBUSTIVEIS)) {
     if (upper === key) return { codigo: key, nome }
   }
-  // Busca por conteúdo
   for (const [key, nome] of Object.entries(COMBUSTIVEIS)) {
     if (upper.includes(key)) return { codigo: key, nome }
   }
@@ -48,6 +46,46 @@ function parsarDataEmissao(s: string): Date | null {
   return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
 }
 
+// ── Detecção de duplicata ──────────────────────────────────────────────────
+function parsarPeriodo(periodo: string): { ini: Date | null; fim: Date | null } {
+  const partes = periodo.split(' a ')
+  return {
+    ini: partes[0] ? parsarDataEmissao(partes[0].trim()) : null,
+    fim: partes[1] ? parsarDataEmissao(partes[1].trim()) : null,
+  }
+}
+
+function periodosOverlap(a: string, b: string): boolean {
+  const pa = parsarPeriodo(a)
+  const pb = parsarPeriodo(b)
+  if (!pa.ini || !pa.fim || !pb.ini || !pb.fim) return false
+  return pa.ini <= pb.fim && pb.ini <= pa.fim
+}
+
+function nomePosto(extrato: Extrato): string {
+  return (extrato.postos[0]?.nome || '').toUpperCase().trim()
+}
+
+function detectarDuplicata(
+  novo: { postoNome: string; periodo: string; totalValor: number },
+  existentes: Extrato[]
+): Extrato | null {
+  for (const ext of existentes) {
+    const mesmoPostoNome = nomePosto(ext) === novo.postoNome.toUpperCase().trim()
+    if (!mesmoPostoNome) continue
+
+    const periodoSobrepoe = periodosOverlap(ext.periodo, novo.periodo)
+    if (!periodoSobrepoe) continue
+
+    // Valor total dentro de ±2%
+    const diff = Math.abs(ext.totalValor - novo.totalValor)
+    const tolerancia = novo.totalValor * 0.02
+    if (diff <= tolerancia) return ext
+  }
+  return null
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function POST(req: NextRequest) {
   try {
     // Carregar frota atualizada do Redis
@@ -58,6 +96,7 @@ export async function POST(req: NextRequest) {
     const formData = await req.formData()
     const excelJson = formData.get('excel') as string | null
     const file = formData.get('pdf') as File | null
+    const forcarSalvar = formData.get('forcarSalvar') === 'true'
 
     if (!file && !excelJson) return NextResponse.json({ error: 'Nenhum arquivo enviado' }, { status: 400 })
 
@@ -68,7 +107,6 @@ export async function POST(req: NextRequest) {
       const { arquivo, abas } = JSON.parse(excelJson)
       console.log('Excel recebido:', arquivo, 'abas:', abas.map((a: any) => a.nome))
 
-      // Enviar para Claude interpretar as abas
       const textoAbas = abas.map((a: any) => {
         const linhas = (a.dados as any[][]).slice(0, 200).map((row: any[]) =>
           row.map(v => v === null ? '' : String(v)).join('\t')
@@ -110,23 +148,23 @@ Regras: placa sem hifen, valor com ponto decimal, extraia TODOS os lancamentos, 
       const base64 = Buffer.from(bytes).toString('base64')
       console.log('PDF recebido:', file!.name, 'tamanho base64:', base64.length)
 
-    const messageParams: any = {
-      model: 'claude-sonnet-4-5',
-      max_tokens: 32000,
-      messages: [{
-        role: 'user',
-        content: [
-          {
-            type: 'document',
-            source: {
-              type: 'base64',
-              media_type: 'application/pdf',
-              data: base64,
+      const messageParams: any = {
+        model: 'claude-sonnet-4-5',
+        max_tokens: 32000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64,
+              },
             },
-          },
-          {
-            type: 'text',
-            text: `Extraia TODOS os lancamentos deste extrato de posto de combustivel e retorne APENAS um JSON valido, sem texto adicional, sem markdown, sem blocos de codigo.
+            {
+              type: 'text',
+              text: `Extraia TODOS os lancamentos deste extrato de posto de combustivel e retorne APENAS um JSON valido, sem texto adicional, sem markdown, sem blocos de codigo.
 
 Este extrato pode ter diferentes formatos. Identifique o formato e extraia os dados corretamente:
 
@@ -177,10 +215,10 @@ Regras criticas:
 - Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
 - itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
 - Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente`
-          }
-        ]
-      }]
-    }
+            }
+          ]
+        }]
+      }
 
       const resposta = await client.messages.create(messageParams)
       const textoResposta = resposta.content[0].type === 'text' ? resposta.content[0].text : ''
@@ -192,7 +230,7 @@ Regras criticas:
         console.error('Erro ao parsear JSON:', e)
         return NextResponse.json({ error: 'Falha ao interpretar resposta', raw: textoResposta }, { status: 500 })
       }
-    } // fim else PDF
+    }
 
     const parseValor = (v: any) => {
       if (typeof v === 'number') return v
@@ -202,7 +240,6 @@ Regras criticas:
     const lancamentos: Lancamento[] = (dadosBrutos.lancamentos || []).map((l: any) => {
       const validacao = validarPlaca(l.placa || '')
       const { codigo: codigoComb, nome: combustivelNome } = mapearCombustivel(l.itens || '')
-      // Se veio prefixo (só números), usar a placa real da frota no placaLida
       const placaExibir = validacao.veiculo
         ? normalizarPlaca(validacao.veiculo.placa)
         : (l.placa || '')
@@ -283,9 +320,42 @@ Regras criticas:
     if (datas.length > 0) {
       const menor = new Date(Math.min(...datas.map(d => d.getTime())))
       const maior = new Date(Math.max(...datas.map(d => d.getTime())))
-      const fmt = (d: Date) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
-      periodoReal = `${fmt(menor)} a ${fmt(maior)}`
+      const fmtD = (d: Date) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
+      periodoReal = `${fmtD(menor)} a ${fmtD(maior)}`
     }
+
+    // ── Verificar duplicata (antes de salvar) ──────────────────────────────
+    if (!forcarSalvar) {
+      const duplicata = detectarDuplicata(
+        { postoNome: posto.nome, periodo: periodoReal, totalValor },
+        extratosAnteriores
+      )
+      if (duplicata) {
+        return NextResponse.json({
+          duplicata: true,
+          extratoExistente: {
+            id: duplicata.id,
+            nome: duplicata.postos[0]?.nome || duplicata.arquivo,
+            periodo: duplicata.periodo,
+            totalValor: duplicata.totalValor,
+            dataUpload: duplicata.dataUpload,
+          },
+          // Devolve o extrato processado para que o cliente possa salvar se confirmar
+          extratoProcessado: {
+            arquivo: file?.name || dadosBrutos.posto?.nome || 'Extrato',
+            periodo: periodoReal,
+            postoNome: posto.nome,
+            totalValor,
+            totalLitros,
+            totalVeiculos: placasUnicas.size,
+            alertas,
+            kmVeiculos,
+            postos: [posto],
+          }
+        })
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────
 
     const novoExtrato: Extrato = {
       id: randomUUID(),
