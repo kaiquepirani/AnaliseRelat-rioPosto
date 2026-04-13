@@ -254,7 +254,7 @@ Regras criticas:
 
     const novoExtrato: Extrato = {
       id: randomUUID(),
-      arquivo: file.name,
+      arquivo: file?.name || dadosBrutos.posto?.nome || 'Extrato',
       dataUpload: new Date().toISOString(),
       periodo: dadosBrutos.posto?.periodo || '',
       postos: [posto],
