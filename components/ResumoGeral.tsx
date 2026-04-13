@@ -128,10 +128,15 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
       </div>
 
       {/* Gráfico histórico mensal por posto */}
-      {dadosMensais.length > 1 && (
+      {dadosMensais.length > 0 && (
         <div className="grafico-card">
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'1rem', flexWrap:'wrap', gap:8 }}>
-            <div className="grafico-titulo" style={{ margin:0 }}>Gasto mensal por posto</div>
+            <div>
+              <div className="grafico-titulo" style={{ margin:0 }}>Gasto mensal por posto</div>
+              {dadosMensais.length === 1 && (
+                <div style={{ fontSize:11, color:'var(--text-3)', marginTop:3 }}>Apenas 1 mês — o gráfico crescerá conforme novos extratos forem lançados</div>
+              )}
+            </div>
             <div style={{ display:'flex', gap:4, background:'var(--surface)', border:'1px solid var(--border)', borderRadius:8, padding:4 }}>
               {(['valor','litros'] as const).map(op => (
                 <button key={op} onClick={() => setMetrica(op)} style={{
