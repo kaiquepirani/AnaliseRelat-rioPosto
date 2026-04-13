@@ -73,38 +73,23 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   }
 
   const exportarExcel = () => {
-    const linhas = naoIdentificadas.map(l => {
-      const chave = chaveJustificativa(l)
-      return {
-        'Placa': l.placaLida,
-        'Data': l.emissao,
-        'Posto': mapaPostos[chave] || '—',
-        'Combustível': l.combustivelNome,
-        'Litros': l.litros,
-        'Valor (R$)': l.valor,
-        'Documento': l.documento,
-        'Status': justificativas[chave] ? 'Justificado' : 'Pendente',
-        'Justificativa': justificativas[chave] || '',
-      }
-    })
-
-    const header = Object.keys(linhas[0])
-    const csv = [
-      header.join(';'),
-      ...linhas.map(row => header.map(h => {
-        const v = String((row as any)[h]).replace(/"/g, '""')
-        return `"${v}"`
-      }).join(';'))
-    ].join('\n')
-
-    const bom = '\uFEFF'
-    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `alertas-placas-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    const { exportarXLSX } = require('@/lib/exportar')
+    exportarXLSX(
+      `alertas-placas-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`,
+      ['Placa', 'Data', 'Posto', 'Combustível', 'Litros', 'Valor (R$)', 'Documento', 'Status', 'Justificativa'],
+      naoIdentificadas.map(l => {
+        const chave = chaveJustificativa(l)
+        return [
+          l.placaLida, l.emissao, mapaPostos[chave] || '—', l.combustivelNome,
+          parseFloat(l.litros.toFixed(3)),
+          parseFloat(l.valor.toFixed(2)),
+          l.documento,
+          justificativas[chave] ? 'Justificado' : 'Pendente',
+          justificativas[chave] || ''
+        ]
+      }),
+      true
+    )
   }
 
   if (naoIdentificadas.length === 0) {
