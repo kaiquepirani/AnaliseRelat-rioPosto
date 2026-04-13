@@ -94,6 +94,7 @@ O JSON deve ter exatamente este formato:
       "emissao": "02/03/26",
       "vencimento": "",
       "placa": "BRY3I78",
+      "motorista": "JOAO",
       "km": null,
       "itens": "GASOLINA TIPO C",
       "litros": 19.079,
@@ -109,6 +110,7 @@ Regras criticas:
 - litros, vlrUnitario e valor devem ser numeros decimais com ponto (nao virgula)
 - valor sem pontos de milhar (ex: 1774.28 e nao 1.774,28)
 - placa sem hifens e sem espacos (ex: BRY3I78 nao BRY-3I78)
+- motorista deve ser o nome do motorista/convenio se disponivel no extrato, ou null se nao houver
 - Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
 - itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
 - Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente`
@@ -157,6 +159,7 @@ Regras criticas:
         grupo: validacao.veiculo?.grupo,
         marca: validacao.veiculo?.marca,
         modelo: validacao.veiculo?.modelo,
+        motorista: l.motorista || undefined,
       }
     })
 
