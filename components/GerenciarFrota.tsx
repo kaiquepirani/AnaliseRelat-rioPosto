@@ -45,7 +45,7 @@ export default function GerenciarFrota() {
     }).sort((a, b) => a.nFrota.localeCompare(b.nFrota, undefined, { numeric: true }))
   }, [frota, busca, grupoBusca])
 
-  const grupos = useMemo(() => [...new Set(frota.map(v => v.grupo).filter(Boolean))].sort(), [frota])
+  const grupos = useMemo(() => Array.from(new Set(frota.map(v => v.grupo).filter(Boolean))).sort(), [frota])
 
   const abrirNovo = () => {
     setEditando(null)
