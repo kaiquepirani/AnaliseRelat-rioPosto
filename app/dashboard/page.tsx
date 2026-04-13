@@ -168,12 +168,6 @@ export default function Dashboard() {
               border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
               cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
             }}>🚌 Frota</button>
-            <button onClick={buscarExtratos} style={{
-              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
-              background: 'rgba(255,255,255,0.15)', color: 'white',
-              border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
-              cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-            }}>↺ Atualizar</button>
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
         </div>
