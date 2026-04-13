@@ -87,13 +87,13 @@ ${textoAbas}
 
 O JSON deve ter este formato:
 {
-  "posto": { "nome": "nome do posto", "cnpj": "", "periodo": "01/03/2026 a 31/03/2026" },
+  "posto": { "nome": "nome do posto", "cnpj": "", "cidade": "UBATUBA", "periodo": "01/03/2026 a 31/03/2026" },
   "lancamentos": [
     { "documento": "123", "emissao": "DD/MM/AAAA", "vencimento": "", "placa": "ABC1234", "motorista": "NOME", "km": null, "itens": "DIESEL S10", "litros": 50.0, "vlrUnitario": 6.50, "valor": 325.00 }
   ]
 }
 
-Regras: placa sem hifen, valor com ponto decimal, extraia TODOS os lancamentos, motorista se disponivel ou null.`
+Regras: placa sem hifen, valor com ponto decimal, extraia TODOS os lancamentos, motorista se disponivel ou null, cidade extraida do endereco do posto (apenas nome da cidade sem estado).`
         }]
       })
 
@@ -145,6 +145,7 @@ O JSON deve ter exatamente este formato:
   "posto": {
     "nome": "nome do posto",
     "cnpj": "cnpj",
+    "cidade": "UBATUBA",
     "periodo": "01/03/2026 a 31/03/2026"
   },
   "lancamentos": [
@@ -172,6 +173,7 @@ Regras criticas:
 - se o extrato tiver SOMENTE prefixo/numero do veiculo sem a placa, coloque o prefixo no campo "placa" (ex: "4821")
 - se o extrato tiver TANTO placa quanto prefixo, use a placa e ignore o prefixo
 - motorista deve ser o nome do motorista/convenio se disponivel no extrato, ou null se nao houver
+- cidade deve ser extraida do endereco do posto (ex: "UBATUBA", "AGUAS DE LINDOIA") — apenas o nome da cidade, sem estado
 - Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
 - itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
 - Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente`
@@ -266,6 +268,7 @@ Regras criticas:
     const posto: ResumoPosto = {
       nome: dadosBrutos.posto?.nome || file?.name || 'Extrato',
       cnpj: dadosBrutos.posto?.cnpj || '',
+      cidade: dadosBrutos.posto?.cidade || '',
       totalValor, totalLitros,
       totalVeiculos: placasUnicas.size,
       porCombustivel, lancamentos,
