@@ -261,7 +261,7 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} />}
+            {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
             {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratosVisiveis} />}
             {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
