@@ -156,6 +156,8 @@ Regras criticas:
 - litros, vlrUnitario e valor devem ser numeros decimais com ponto (nao virgula)
 - valor sem pontos de milhar (ex: 1774.28 e nao 1.774,28)
 - placa sem hifens e sem espacos (ex: BRY3I78 nao BRY-3I78)
+- se o extrato tiver SOMENTE prefixo/numero do veiculo sem a placa, coloque o prefixo no campo "placa" (ex: "4821")
+- se o extrato tiver TANTO placa quanto prefixo, use a placa e ignore o prefixo
 - motorista deve ser o nome do motorista/convenio se disponivel no extrato, ou null se nao houver
 - Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
 - itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
@@ -185,11 +187,15 @@ Regras criticas:
     const lancamentos: Lancamento[] = (dadosBrutos.lancamentos || []).map((l: any) => {
       const validacao = validarPlaca(l.placa || '')
       const { codigo: codigoComb, nome: combustivelNome } = mapearCombustivel(l.itens || '')
+      // Se veio prefixo (só números), usar a placa real da frota no placaLida
+      const placaExibir = validacao.veiculo
+        ? normalizarPlaca(validacao.veiculo.placa)
+        : (l.placa || '')
       return {
         documento: l.documento || '',
         emissao: l.emissao || '',
         vencimento: l.vencimento || '',
-        placaLida: l.placa || '',
+        placaLida: placaExibir,
         placaCorrigida: validacao.placaCorrigida,
         km: l.km || undefined,
         combustivel: codigoComb,
