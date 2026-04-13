@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 import { Extrato } from '@/lib/types'
 import Upload from '@/components/Upload'
 import ResumoGeral from '@/components/ResumoGeral'
@@ -35,13 +36,31 @@ export default function Dashboard() {
 
   const handleUpload = async (arquivo: File) => {
     setProcessando(true)
-    const form = new FormData()
-    form.append('pdf', arquivo)
+    const isExcel = arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls')
     try {
-      const res = await fetch('/api/processar', { method: 'POST', body: form })
-      const data = await res.json()
-      if (data.sucesso) await buscarExtratos()
-      else alert('Erro ao processar: ' + (data.error || 'Tente novamente'))
+      if (isExcel) {
+        // Processar Excel no cliente e enviar como JSON
+        const buf = await arquivo.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+        const dadosAbas = wb.SheetNames.map(nome => ({
+          nome,
+          dados: XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, defval: null })
+        }))
+        const form = new FormData()
+        form.append('excel', JSON.stringify({ arquivo: arquivo.name, abas: dadosAbas }))
+        const res = await fetch('/api/processar', { method: 'POST', body: form })
+        const data = await res.json()
+        if (data.sucesso) await buscarExtratos()
+        else alert('Erro ao processar Excel: ' + (data.error || 'Tente novamente'))
+      } else {
+        // PDF — envia direto para Claude
+        const form = new FormData()
+        form.append('pdf', arquivo)
+        const res = await fetch('/api/processar', { method: 'POST', body: form })
+        const data = await res.json()
+        if (data.sucesso) await buscarExtratos()
+        else alert('Erro ao processar: ' + (data.error || 'Tente novamente'))
+      }
     } catch {
       alert('Falha na comunicação com o servidor.')
     } finally {
