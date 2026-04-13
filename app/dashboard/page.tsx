@@ -74,6 +74,27 @@ export default function Dashboard() {
     await buscarExtratos()
   }
 
+  const [renomeando, setRenomeando] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+
+  const iniciarRenomear = () => {
+    const e = extratos.find(x => x.id === extratoSelecionado)
+    if (!e) return
+    setNovoNome(e.postos[0]?.nome || e.periodo || e.arquivo)
+    setRenomeando(true)
+  }
+
+  const handleRenomear = async () => {
+    if (!novoNome.trim()) return
+    await fetch('/api/extratos', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: extratoSelecionado, nome: novoNome.trim() })
+    })
+    await buscarExtratos()
+    setRenomeando(false)
+  }
+
   const extratosVisiveis = extratoSelecionado === 'todos'
     ? extratos
     : extratos.filter(e => e.id === extratoSelecionado)
@@ -140,9 +161,41 @@ export default function Dashboard() {
             ))}
           </select>
           {extratoSelecionado !== 'todos' && (
-            <button className="btn-deletar" onClick={() => handleDeletar(extratoSelecionado)}>
-              Remover extrato
-            </button>
+            <>
+              {renomeando ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    value={novoNome}
+                    onChange={e => setNovoNome(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleRenomear(); if (e.key === 'Escape') setRenomeando(false) }}
+                    autoFocus
+                    style={{
+                      padding: '0.35rem 0.7rem', fontSize: 13, borderRadius: 6,
+                      border: '2px solid var(--navy)', fontFamily: 'inherit',
+                      background: 'white', color: 'var(--navy)', minWidth: 260,
+                    }}
+                  />
+                  <button onClick={handleRenomear} style={{
+                    padding: '0.35rem 0.9rem', fontSize: 12, fontWeight: 700,
+                    background: 'var(--navy)', color: 'white', border: 'none',
+                    borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                  }}>Salvar</button>
+                  <button onClick={() => setRenomeando(false)} style={{
+                    padding: '0.35rem 0.7rem', fontSize: 12, fontWeight: 600,
+                    background: 'transparent', color: 'var(--text-2)',
+                    border: '1px solid var(--border)', borderRadius: 6,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="btn-renomear" onClick={iniciarRenomear}>
+                  ✏️ Renomear
+                </button>
+              )}
+              <button className="btn-deletar" onClick={() => handleDeletar(extratoSelecionado)}>
+                Remover extrato
+              </button>
+            </>
           )}
         </div>
 
