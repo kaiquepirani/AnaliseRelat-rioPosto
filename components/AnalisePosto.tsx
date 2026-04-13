@@ -344,18 +344,20 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
                       const da = parsarDataBR(a.emissao), db = parsarDataBR(b.emissao)
                       return da && db ? da.getTime() - db.getTime() : 0
                     })
-                    const header = ['Data', 'Placa', 'Prefixo', 'Veículo', 'Grupo', 'Motorista', 'Combustível', 'Litros', 'R$/L', 'Valor (R$)', 'KM', 'Documento']
-                    const linhas = lances.map((l: any) => [
-                      l.emissao, l.placaLida, l.nFrota || '', l.modelo ? `${l.marca||''} ${l.modelo}`.trim() : '',
-                      l.grupo || '', l.motorista || '', l.combustivelNome, l.litros.toFixed(1),
-                      l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '', l.valor.toFixed(2),
-                      l.km || '', l.documento
-                    ])
-                    const csv = [header, ...linhas].map(r => r.map((v: any) => `"${String(v).replace(/"/g,'""')}"`).join(';')).join('\n')
-                    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-                    const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
-                    a.download = `posto-${postoSel.replace(/\s+/g,'-')}-${p.label.replace(/\s+/g,'-')}.csv`
-                    a.click()
+                    const { exportarXLSX } = require('@/lib/exportar')
+                    exportarXLSX(
+                      `posto-${postoSel.replace(/\s+/g,'-')}-${p.label.replace(/\s+/g,'-')}.xlsx`,
+                      ['Data', 'Placa', 'Prefixo', 'Veículo', 'Grupo', 'Motorista', 'Combustível', 'Litros', 'R$/L', 'Valor (R$)', 'KM', 'Documento'],
+                      lances.map((l: any) => [
+                        l.emissao, l.placaLida, l.nFrota || '', l.modelo ? `${l.marca||''} ${l.modelo}`.trim() : '',
+                        l.grupo || '', l.motorista || '', l.combustivelNome,
+                        parseFloat(l.litros.toFixed(3)),
+                        l.vlrUnitario > 0 ? parseFloat(l.vlrUnitario.toFixed(3)) : '',
+                        parseFloat(l.valor.toFixed(2)),
+                        l.km || '', l.documento
+                      ]),
+                      true
+                    )
                   }} style={{
                     display: 'flex', alignItems: 'center', gap: 6,
                     padding: '4px 10px', fontSize: 11, fontWeight: 600,
