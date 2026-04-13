@@ -344,10 +344,10 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
                       const da = parsarDataBR(a.emissao), db = parsarDataBR(b.emissao)
                       return da && db ? da.getTime() - db.getTime() : 0
                     })
-                    const header = ['Data', 'Placa', 'Prefixo', 'Veículo', 'Grupo', 'Combustível', 'Litros', 'R$/L', 'Valor (R$)', 'KM', 'Documento']
+                    const header = ['Data', 'Placa', 'Prefixo', 'Veículo', 'Grupo', 'Motorista', 'Combustível', 'Litros', 'R$/L', 'Valor (R$)', 'KM', 'Documento']
                     const linhas = lances.map((l: any) => [
                       l.emissao, l.placaLida, l.nFrota || '', l.modelo ? `${l.marca||''} ${l.modelo}`.trim() : '',
-                      l.grupo || '', l.combustivelNome, l.litros.toFixed(1),
+                      l.grupo || '', l.motorista || '', l.combustivelNome, l.litros.toFixed(1),
                       l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '', l.valor.toFixed(2),
                       l.km || '', l.documento
                     ])
@@ -375,6 +375,7 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
                     <th>Prefixo</th>
                     <th>Veículo</th>
                     <th>Grupo</th>
+                    <th>Motorista</th>
                     <th>Combustível</th>
                     <th>Litros</th>
                     <th>R$/L</th>
@@ -399,6 +400,7 @@ export default function AnalisePosto({ extratos }: { extratos: Extrato[] }) {
                       <td>{l.nFrota ? <span style={{ fontSize: 11, background: 'var(--sky-light)', color: 'var(--navy)', padding: '2px 7px', borderRadius: 20, fontWeight: 600 }}>{l.nFrota}</span> : '—'}</td>
                       <td style={{ fontSize: 12 }}>{l.modelo ? `${l.marca || ''} ${l.modelo}`.trim() : '—'}</td>
                       <td style={{ fontSize: 12 }}>{l.grupo || '—'}</td>
+                      <td style={{ fontSize: 12 }}>{l.motorista || '—'}</td>
                       <td>
                         <span style={{ background: 'var(--navy)', color: 'white', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>
                           {l.combustivelNome}
