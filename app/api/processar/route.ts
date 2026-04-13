@@ -17,14 +17,18 @@ const COMBUSTIVEIS: Record<string, string> = {
   'DIESEL S10': 'Diesel S10',
   'OLEO DIESEL B S10': 'Diesel S10',
   'OLEO DIESEL S10': 'Diesel S10',
+  'SHELL EVOLUX DIESEL S10': 'Diesel S10',
   'DIESEL': 'Diesel',
   'GASOLINA TIPO C': 'Gasolina',
   'GASOLINA COMUM': 'Gasolina',
   'GASOLINA': 'Gasolina',
+  'GASOLINA VPOWER NITRO': 'Gasolina Aditivada',
   'ETANOL': 'Etanol',
   'ETANOL HIDRA': 'Etanol',
   'ETANOL ADITIVADO': 'Etanol Aditivado',
   'GNV': 'GNV',
+  'ARLA 32 GRANEL': 'Arla 32',
+  'ARLA 32': 'Arla 32',
 }
 
 function mapearCombustivel(itens: string): { codigo: string; nome: string } {
@@ -178,6 +182,17 @@ FORMATO 2 (colunas: Data, TN, Motorista, Placa, Marca, KM, Nro.Doc, Qtde, Descri
 - O valor ja e o total do lancamento
 - Litros = valor / preco_unitario (calcule se necessario)
 
+FORMATO 3 (sistema Max System Posto / Zero Dezoito Sistemas — colunas: Cupom, Data, Hora, Descricao do Produto, Kilom., Qtde, Total, Media):
+- Os lancamentos sao agrupados por placa. Cada grupo comeca com uma linha "Placa: XXXXX  Frota/Mot.: ..."
+- A placa esta na linha de cabecalho do grupo, campo "Placa:"
+- Cada linha de lancamento tem: Cupom (numero do documento), Data (DD/MM/AA), Hora, Descricao do Produto (tipo de combustivel), Kilom. (km — pode estar em branco ou ser "0", "00", "01" ou numero real), Qtde (litros), Total (valor R$), Media (km/L — ignore)
+- O campo Kilom. so e valido quando for um numero maior que 100; valores "0", "00", "01" ou em branco devem ser tratados como null
+- vlrUnitario = Total / Qtde (calcule)
+- O motorista nao esta disponivel neste formato — use null
+- Linhas "Total....:" sao resumo da placa — IGNORE, nao extraia como lancamento
+- A ultima pagina contem apenas o RESUMO geral por produto — IGNORE completamente
+- Produtos como "ARLA 32 GRANEL" devem ser extraidos normalmente como lancamentos separados
+
 O JSON deve ter exatamente este formato:
 {
   "posto": {
@@ -213,8 +228,11 @@ Regras criticas:
 - motorista deve ser o nome do motorista/convenio se disponivel no extrato, ou null se nao houver
 - cidade deve ser extraida do endereco do posto (ex: "UBATUBA", "AGUAS DE LINDOIA") — apenas o nome da cidade, sem estado
 - Se houver linhas de TOTAL DA PLACA ou RESUMO, ignore-as, extraia apenas lancamentos individuais
-- itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C")
-- Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente`
+- itens deve ser o tipo de produto/combustivel (ex: "GASOLINA TIPO C", "OLEO DIESEL S10", "ETANOL", "DIE", "10C", "SHELL EVOLUX DIESEL S10", "ARLA 32 GRANEL")
+- Se um lancamento tiver multiplos itens (ex: combustivel + oleo lubrificante), crie um lancamento para cada item separadamente
+- No FORMATO 3: o campo emissao deve ser apenas a data no formato DD/MM/AA (ex: "16/03/26"), sem a hora
+- No FORMATO 3: o campo documento e o numero do Cupom (ex: "319028")
+- No FORMATO 3: a cidade nao esta no PDF — use "SAO FRANCISCO" para AUTO POSTO PRAIA DE SAO FRANCISCO, ou extraia do nome do posto quando possivel`
             }
           ]
         }]
