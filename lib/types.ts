@@ -21,6 +21,7 @@ export interface Lancamento {
 export interface ResumoPosto {
   nome: string
   cnpj: string
+  cidade?: string
   totalValor: number
   totalLitros: number
   totalVeiculos: number
