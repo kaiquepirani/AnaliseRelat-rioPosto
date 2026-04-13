@@ -6,7 +6,7 @@ export interface FrotaVeiculo {
   modelo: string
 }
 
-export const FROTA: FrotaVeiculo[] = [
+export const FROTA_PADRAO: FrotaVeiculo[] = [
   { nFrota: "2100", placa: "AYG1B86", grupo: "Spin 6+1", marca: "GM", modelo: "SPIN 1.8 LTZ" },
   { nFrota: "1800", placa: "AZC7A27", grupo: "Carro Baixo Convencional", marca: "VW", modelo: "GOL 1.0" },
   { nFrota: "3400", placa: "BFZ8041", grupo: "Doblo", marca: "FIAT", modelo: "DOBLÒ TECHNOBRAS" },
@@ -258,6 +258,12 @@ export const FROTA: FrotaVeiculo[] = [
   { nFrota: "2426", placa: "TIO0B96", grupo: "Spin 6+1", marca: "CHEVROLET", modelo: "SPIN PREMIER" },
   { nFrota: "4826", placa: "UFI3J94", grupo: "VAN MASTER", marca: "RENAULT", modelo: "" }
 ]
+
+// FROTA dinâmica — em runtime usa Redis, em build usa o padrão
+// A validarPlaca usa esta variável que pode ser atualizada via setFrota()
+let FROTA: FrotaVeiculo[] = FROTA_PADRAO
+export { FROTA }
+export function setFrota(f: FrotaVeiculo[]) { FROTA = f }
 
 // Mapeamento de conversão Mercosul: dígito -> letra equivalente (posição 4 da placa)
 const MERCOSUL: Record<string, string> = {
