@@ -254,16 +254,19 @@ interface ViagemSemAbast extends Viagem {
         const { viagem: melhor, idx, tipoMatch } = match
         const diffPct = (Math.abs(melhor.combus - ab.valor) / ab.valor) * 100
         abastUsados.add(idx)
-        const obs = tipoMatch === 'prefixo' ? `Prefixo bate (${prefixoDoAbast(ab) || melhor.prefixo}), mas placa diverge: posto=${ab.placa} / planilha=${melhor.placa||'?'}`
-                  : tipoMatch === 'similar' ? `Placa similar: posto=${ab.placa} / planilha=${melhor.placa||'?'} (possível erro de digitação)`
-                  : 'Confirmado'
+        const obs = tipoMatch === 'prefixo'
+          ? `Veículo trocado no prefixo ${prefixoDoAbast(ab) || melhor.prefixo}: posto=${ab.placa} / planilha=${melhor.placa||'?'}`
+          : tipoMatch === 'similar'
+          ? `Placa corrigida: posto=${ab.placa} → planilha=${melhor.placa||'?'}`
+          : 'Confirmado'
 
-        // Se o match foi por prefixo ou placa similar → seção de placa divergente (independente do valor)
-        if (tipoMatch !== 'placa') {
+        // Só "veículo trocado" (prefixo igual, placa diferente) vai para placa_divergente
+        if (tipoMatch === 'prefixo') {
           resultados.push({ abastecimento: ab, status: 'placa_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
         } else if (diffPct > toleranciaValor) {
           resultados.push({ abastecimento: ab, status: 'valor_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
         } else {
+          // Similar (erro digitação / Mercosul) → confirmado
           resultados.push({ abastecimento: ab, status: 'ok', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
         }
       }
