@@ -77,6 +77,7 @@ export default function Dashboard() {
 
   const [renomeando, setRenomeando] = useState(false)
   const [novoNome, setNovoNome] = useState('')
+  const [reprocessando, setReprocessando] = useState(false)
 
   const iniciarRenomear = () => {
     const e = extratos.find(x => x.id === extratoSelecionado)
@@ -94,6 +95,21 @@ export default function Dashboard() {
     })
     await buscarExtratos()
     setRenomeando(false)
+  }
+
+  const handleReprocessar = async () => {
+    if (!confirm('Reprocessar este extrato com a frota atual? Os status das placas serão atualizados.')) return
+    setReprocessando(true)
+    try {
+      await fetch('/api/reprocessar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: extratoSelecionado })
+      })
+      await buscarExtratos()
+    } finally {
+      setReprocessando(false)
+    }
   }
 
   const extratosVisiveis = extratoSelecionado === 'todos'
@@ -208,6 +224,14 @@ export default function Dashboard() {
               )}
               <button className="btn-deletar" onClick={() => handleDeletar(extratoSelecionado)}>
                 Remover extrato
+              </button>
+              <button onClick={handleReprocessar} disabled={reprocessando} style={{
+                padding: '0.45rem 0.875rem', border: '1px solid #86efac',
+                borderRadius: 'var(--radius-sm)', background: reprocessando ? 'var(--border)' : '#f0fdf4',
+                fontSize: 13, color: '#16a34a', cursor: reprocessando ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', fontWeight: 500, transition: 'all 0.15s', whiteSpace: 'nowrap',
+              }}>
+                {reprocessando ? '⟳ Reprocessando...' : '⟳ Reprocessar frota'}
               </button>
             </>
           )}
