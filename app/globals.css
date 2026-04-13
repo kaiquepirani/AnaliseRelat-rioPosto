@@ -298,3 +298,124 @@ code {
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ══════════════════════════════════════
+   RESPONSIVO MOBILE
+   ══════════════════════════════════════ */
+
+@media (max-width: 768px) {
+
+  /* Header */
+  .header-inner {
+    height: auto;
+    padding: 0.6rem 1rem;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .logo-nome-cursivo { display: none; }
+  .logo-img { height: 40px; }
+  .header-right {
+    width: 100%;
+    display: flex;
+    gap: 6px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+  .header-right button {
+    padding: 0.4rem 0.75rem !important;
+    font-size: 11px !important;
+  }
+  .upload-area {
+    padding: 0.4rem 0.75rem;
+    font-size: 11px;
+  }
+  .upload-texto { font-size: 11px; }
+
+  /* Main */
+  .main { padding: 0.75rem; }
+
+  /* Filtro bar */
+  .filtro-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0.75rem;
+  }
+  .filtro-select { min-width: unset; width: 100%; }
+  .btn-deletar, .btn-renomear { width: 100%; text-align: center; }
+
+  /* Abas — scroll horizontal com fundo fixo */
+  .abas {
+    gap: 1px;
+    padding: 3px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .abas::-webkit-scrollbar { display: none; }
+  .aba {
+    padding: 0.45rem 0.65rem;
+    font-size: 11px;
+  }
+
+  /* Cards */
+  .cards-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    margin-bottom: 1rem;
+  }
+  .card { padding: 0.875rem 1rem; }
+  .card-valor { font-size: 18px; }
+
+  /* Gráficos */
+  .graficos-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+  .grafico-card { padding: 1rem; }
+
+  /* Tabelas — scroll horizontal */
+  .tabela-comb-wrap,
+  .tabela-hist-wrap {
+    padding: 0.75rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tabela th, .tabela td { padding: 7px 10px; font-size: 11px; }
+  .tabela-sm th, .tabela-sm td { padding: 5px 8px; }
+
+  /* Filtros de veículo/posto */
+  .filtros-veiculo {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 0.75rem;
+  }
+  .filtro-grupo { width: 100%; }
+  .filtro-select-lg { min-width: unset; width: 100%; }
+  .filtro-date { width: 100%; }
+  .btn-limpar { width: 100%; }
+
+  /* Posto card */
+  .posto-header { flex-wrap: wrap; gap: 0.5rem; padding: 0.875rem 1rem; }
+  .posto-numeros { text-align: left; }
+
+  /* Alertas */
+  .alerta-header { font-size: 12px; flex-wrap: wrap; }
+  .alerta-secao { overflow-x: auto; }
+
+  /* Veiculo header */
+  .veiculo-header { gap: 8px; }
+  .veiculo-placa { font-size: 18px; }
+
+  /* Esconder colunas menos importantes em tabelas pequenas */
+  .tabela .col-hidden-mobile { display: none; }
+}
+
+@media (max-width: 480px) {
+  .cards-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+  .card-valor { font-size: 16px; }
+  .card-sub { font-size: 11px; }
+  .aba { padding: 0.4rem 0.55rem; font-size: 10.5px; }
+  .header-inner { padding: 0.5rem 0.75rem; }
+  .main { padding: 0.5rem; }
+  .grafico-card { padding: 0.75rem; }
+  .grafico-titulo { font-size: 11px; }
+}
