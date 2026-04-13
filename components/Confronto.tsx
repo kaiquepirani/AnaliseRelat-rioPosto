@@ -407,8 +407,9 @@ interface ViagemSemAbast extends Viagem {
 
       {resultados && (
         <>
-          {/* Cards resumo */}
-          <div className="cards-grid">
+          {/* Cards resumo + botão exportar */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div className="cards-grid" style={{ flex: 1, margin: 0 }}>
             <div className={`card ${semViagem.length > 0 ? 'card-alerta' : 'card-ok'}`}>
               <div className="card-label">🔴 Abast. sem viagem na planilha</div>
               <div className="card-valor">{semViagem.length}</div>
@@ -429,7 +430,58 @@ interface ViagemSemAbast extends Viagem {
               <div className="card-valor">{confirmados.length}</div>
               <div className="card-sub">{fmt(confirmados.reduce((s,r)=>s+r.abastecimento.valor,0))}</div>
             </div>
-          </div>
+            </div>{/* fim cards-grid */}
+            <button onClick={() => {
+              const wb = XLSX.utils.book_new()
+              const nomeArq = `confronto-${new Date().toLocaleDateString('pt-BR').replace(/\//g,'-')}.xlsx`
+
+              // Aba 1: Abastecimentos sem viagem
+              if (semViagem.length > 0) {
+                const rows = semViagem.map(r => {
+                  const v = FROTA.find(x => normalizarPlaca(x.placa) === r.abastecimento.placa)
+                  return [fmtData(r.abastecimento.data), r.abastecimento.placa, v?.nFrota||'', v?.grupo||'', r.abastecimento.cupom, r.abastecimento.valor]
+                })
+                const ws = XLSX.utils.aoa_to_sheet([['Data','Placa','Prefixo','Grupo','Cupom','Valor (R$)'], ...rows])
+                ws['!cols'] = [10,10,8,20,10,12].map(w => ({ wch: w }))
+                XLSX.utils.book_append_sheet(wb, ws, '🔴 Abast sem viagem')
+              }
+
+              // Aba 2: Viagens sem abastecimento
+              if (viagensSemAbast.length > 0) {
+                const rows = viagensSemAbast.map(v => [fmtData(v.data), v.prefixo, v.placa||'', v.motorista||'', v.destino||'', v.combus||0, v.motivo])
+                const ws = XLSX.utils.aoa_to_sheet([['Data','Prefixo','Placa','Motorista','Destino','Valor planilha (R$)','Motivo'], ...rows])
+                ws['!cols'] = [10,8,10,20,25,18,40].map(w => ({ wch: w }))
+                XLSX.utils.book_append_sheet(wb, ws, '🟠 Viagens sem abast')
+              }
+
+              // Aba 3: Divergentes
+              if (divergentes.length > 0) {
+                const rows = divergentes.map(r => [fmtData(r.abastecimento.data), r.abastecimento.placa, r.viagem?.motorista||'', r.viagem?.destino||'', r.abastecimento.valor, r.viagem?.combus||0, (r.diffValor||0), r.diffDias||0])
+                const ws = XLSX.utils.aoa_to_sheet([['Data','Placa','Motorista','Destino','Valor posto (R$)','Valor planilha (R$)','Diferença (R$)','Dias'], ...rows])
+                ws['!cols'] = [10,10,20,25,16,18,14,6].map(w => ({ wch: w }))
+                XLSX.utils.book_append_sheet(wb, ws, '🟡 Valor divergente')
+              }
+
+              // Aba 4: Confirmados
+              if (confirmados.length > 0) {
+                const rows = confirmados.map(r => [fmtData(r.abastecimento.data), r.abastecimento.placa, r.viagem?.motorista||'', r.viagem?.destino||'', r.abastecimento.valor, r.viagem?.combus||0, (r.diffValor||0)])
+                const ws = XLSX.utils.aoa_to_sheet([['Data','Placa','Motorista','Destino','Valor posto (R$)','Valor planilha (R$)','Diferença (R$)'], ...rows])
+                ws['!cols'] = [10,10,20,25,16,18,14].map(w => ({ wch: w }))
+                XLSX.utils.book_append_sheet(wb, ws, '✅ Confirmados')
+              }
+
+              XLSX.writeFile(wb, nomeArq)
+            }} style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              padding: '0.6rem 1.2rem', fontSize: 13, fontWeight: 600,
+              background: 'var(--navy)', color: 'white',
+              border: 'none', borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', alignSelf: 'flex-start',
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Exportar Excel
+            </button>
+          </div>{/* fim flex wrapper */}
 
           {/* LADO 1A: Abastecimentos sem viagem */}
           {semViagem.length > 0 && (
