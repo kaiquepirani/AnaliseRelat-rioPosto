@@ -52,11 +52,12 @@ interface Abastecimento {
 
 interface Resultado {
   abastecimento: Abastecimento
-  status: 'ok' | 'sem_viagem' | 'valor_divergente'
+  status: 'ok' | 'sem_viagem' | 'valor_divergente' | 'placa_divergente'
   viagem?: Viagem
   diffValor?: number
   diffDias?: number
   observacao: string
+  tipoMatch?: string
 }
 
 export default function Confronto({ extratos }: { extratos: Extrato[] }) {
@@ -194,23 +195,76 @@ interface ViagemSemAbast extends Viagem {
       }
 
       // LADO 1: Cada abastecimento procura viagem correspondente
+      // Prioridade de match: 1) placa exata, 2) mesmo prefixo, 3) placa similar (Levenshtein ≤2)
       const resultados: Resultado[] = []
       const abastUsados = new Set<number>()
 
+      // Mapa prefixo → placa do extrato (veiculo identificado na frota)
+      const prefixoDoAbast = (ab: Abastecimento): string => {
+        const v = FROTA.find(x => normalizarPlaca(x.placa) === ab.placa)
+        return v?.nFrota || ''
+      }
+
+      // Levenshtein simples
+      const levenshtein = (a: string, b: string): number => {
+        const m = a.length, n = b.length
+        const dp: number[][] = Array.from({length: m+1}, (_, i) => Array.from({length: n+1}, (_, j) => i === 0 ? j : j === 0 ? i : 0))
+        for (let i = 1; i <= m; i++)
+          for (let j = 1; j <= n; j++)
+            dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1])
+        return dp[m][n]
+      }
+
+      const encontrarViagem = (ab: Abastecimento, viagens: Viagem[]): { viagem: Viagem; idx: number; tipoMatch: string } | null => {
+        const pref = prefixoDoAbast(ab)
+        const candidatasPorData = viagens.filter(v => diffDias(v.data, ab.data) <= tolerancia)
+
+        // 1. Placa exata
+        let cands = candidatasPorData.filter(v => v.placa === ab.placa)
+        if (cands.length > 0) {
+          const melhor = cands.reduce((a, b) => Math.abs(a.combus - ab.valor) < Math.abs(b.combus - ab.valor) ? a : b)
+          return { viagem: melhor, idx: viagens.indexOf(melhor), tipoMatch: 'placa' }
+        }
+
+        // 2. Mesmo prefixo
+        if (pref) {
+          cands = candidatasPorData.filter(v => v.prefixo === pref)
+          if (cands.length > 0) {
+            const melhor = cands.reduce((a, b) => Math.abs(a.combus - ab.valor) < Math.abs(b.combus - ab.valor) ? a : b)
+            return { viagem: melhor, idx: viagens.indexOf(melhor), tipoMatch: 'prefixo' }
+          }
+        }
+
+        // 3. Placa similar (Levenshtein ≤ 2 — captura erros de digitação)
+        cands = candidatasPorData.filter(v => v.placa && levenshtein(v.placa, ab.placa) <= 2)
+        if (cands.length > 0) {
+          const melhor = cands.reduce((a, b) => Math.abs(a.combus - ab.valor) < Math.abs(b.combus - ab.valor) ? a : b)
+          return { viagem: melhor, idx: viagens.indexOf(melhor), tipoMatch: 'similar' }
+        }
+
+        return null
+      }
+
       for (const ab of abastecimentos) {
-        const candidatas = viagens.filter(v => v.placa && v.placa === ab.placa && diffDias(v.data, ab.data) <= tolerancia)
-        if (candidatas.length === 0) {
+        const match = encontrarViagem(ab, viagens)
+        if (!match) {
           resultados.push({ abastecimento: ab, status: 'sem_viagem', observacao: `Nenhuma viagem para ${ab.placa} em ${fmtData(ab.data)} (±${tolerancia}d)` })
           continue
         }
-        const melhor = candidatas.reduce((a, b) => Math.abs(a.combus - ab.valor) < Math.abs(b.combus - ab.valor) ? a : b)
+        const { viagem: melhor, idx, tipoMatch } = match
         const diffPct = (Math.abs(melhor.combus - ab.valor) / ab.valor) * 100
-        const idxViagem = viagens.indexOf(melhor)
-        abastUsados.add(idxViagem)
-        if (diffPct > toleranciaValor) {
-          resultados.push({ abastecimento: ab, status: 'valor_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: `Valor diverge ${diffPct.toFixed(1)}%` })
+        abastUsados.add(idx)
+        const obs = tipoMatch === 'prefixo' ? `Prefixo bate (${prefixoDoAbast(ab) || melhor.prefixo}), mas placa diverge: posto=${ab.placa} / planilha=${melhor.placa||'?'}`
+                  : tipoMatch === 'similar' ? `Placa similar: posto=${ab.placa} / planilha=${melhor.placa||'?'} (possível erro de digitação)`
+                  : 'Confirmado'
+
+        // Se o match foi por prefixo ou placa similar → seção de placa divergente (independente do valor)
+        if (tipoMatch !== 'placa') {
+          resultados.push({ abastecimento: ab, status: 'placa_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
+        } else if (diffPct > toleranciaValor) {
+          resultados.push({ abastecimento: ab, status: 'valor_divergente', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
         } else {
-          resultados.push({ abastecimento: ab, status: 'ok', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: 'Confirmado' })
+          resultados.push({ abastecimento: ab, status: 'ok', viagem: melhor, diffValor: melhor.combus - ab.valor, diffDias: diffDias(melhor.data, ab.data), observacao: obs, tipoMatch })
         }
       }
 
@@ -218,22 +272,31 @@ interface ViagemSemAbast extends Viagem {
       const viagensSemAbast: ViagemSemAbast[] = viagens
         .map((v, i) => ({ ...v, _idx: i }))
         .filter((v: any) => {
-          if (!v.combus || v.combus <= 0) return false // viagem sem combustível previsto
-          if (abastUsados.has(v._idx)) return false    // já foi usada
-          // Verificar se existe abastecimento para essa placa no período
-          const temAbast = abastecimentos.some(ab => ab.placa === v.placa && diffDias(ab.data, v.data) <= tolerancia)
-          if (temAbast) return false // já foi cruzada (pode ter sobrado por tolerância)
-          return true
+          if (!v.combus || v.combus <= 0) return false
+          if (abastUsados.has(v._idx)) return false
+          // Verificar por placa exata, prefixo ou placa similar
+          const temAbast = abastecimentos.some(ab => {
+            if (diffDias(ab.data, v.data) > tolerancia) return false
+            if (ab.placa === v.placa) return true
+            const pref = prefixoDoAbast(ab)
+            if (pref && pref === v.prefixo) return true
+            if (v.placa && levenshtein(ab.placa, v.placa) <= 2) return true
+            return false
+          })
+          return !temAbast
         })
         .map((v: any) => ({
           ...v,
           motivo: v.placa
-            ? `Nenhum abastecimento encontrado para ${v.prefixo} (${v.placa}) em ${fmtData(v.data)} (±${tolerancia}d)`
+            ? `Nenhum abastecimento encontrado para prefixo ${v.prefixo} (${v.placa}) em ${fmtData(v.data)} (±${tolerancia}d)`
             : `Prefixo ${v.prefixo} não encontrado na frota`
         }))
 
       setViagensSemAbast(viagensSemAbast)
-      setResultados(resultados.sort((a, b) => ({ sem_viagem: 0, valor_divergente: 1, ok: 2 }[a.status] - { sem_viagem: 0, valor_divergente: 1, ok: 2 }[b.status])))
+      setResultados(resultados.sort((a, b) => (
+        { sem_viagem: 0, placa_divergente: 1, valor_divergente: 2, ok: 3 }[a.status] -
+        { sem_viagem: 0, placa_divergente: 1, valor_divergente: 2, ok: 3 }[b.status]
+      )))
     } catch (e: any) {
       setErro(e.message || 'Erro ao processar')
     } finally {
@@ -242,6 +305,7 @@ interface ViagemSemAbast extends Viagem {
   }
 
   const semViagem = resultados?.filter(r => r.status === 'sem_viagem') || []
+  const placaDivergente = resultados?.filter(r => r.status === 'placa_divergente') || []
   const divergentes = resultados?.filter(r => r.status === 'valor_divergente') || []
   const confirmados = resultados?.filter(r => r.status === 'ok') || []
 
@@ -420,6 +484,11 @@ interface ViagemSemAbast extends Viagem {
               <div className="card-valor">{viagensSemAbast.length}</div>
               <div className="card-sub">{fmt(viagensSemAbast.reduce((s,v)=>s+(v.combus||0),0))}</div>
             </div>
+            <div className={`card ${placaDivergente.length > 0 ? 'card-alerta' : 'card-ok'}`}>
+              <div className="card-label">⚠️ Placa divergente / erro</div>
+              <div className="card-valor">{placaDivergente.length}</div>
+              <div className="card-sub">{fmt(placaDivergente.reduce((s,r)=>s+r.abastecimento.valor,0))}</div>
+            </div>
             <div className={`card ${divergentes.length > 0 ? 'card-alerta' : 'card-ok'}`}>
               <div className="card-label">🟡 Valor divergente</div>
               <div className="card-valor">{divergentes.length}</div>
@@ -454,7 +523,22 @@ interface ViagemSemAbast extends Viagem {
                 XLSX.utils.book_append_sheet(wb, ws, '🟠 Viagens sem abast')
               }
 
-              // Aba 3: Divergentes
+              // Aba 3: Placa divergente
+              if (placaDivergente.length > 0) {
+                const rows = placaDivergente.map(r => [
+                  fmtData(r.abastecimento.data),
+                  r.abastecimento.placa, r.viagem?.placa||'',
+                  r.viagem?.prefixo||'', r.viagem?.motorista||'', r.viagem?.destino||'',
+                  r.abastecimento.valor, r.viagem?.combus||0, (r.diffValor||0),
+                  r.tipoMatch === 'prefixo' ? 'Prefixo igual / placa diferente' : 'Placa similar (erro de digitação)',
+                  r.observacao
+                ])
+                const ws = XLSX.utils.aoa_to_sheet([['Data','Placa Posto','Placa Planilha','Prefixo','Motorista','Destino','Valor posto (R$)','Valor planilha (R$)','Diferença (R$)','Tipo','Observação'], ...rows])
+                ws['!cols'] = [10,12,12,8,20,25,16,18,14,25,45].map(w => ({ wch: w }))
+                XLSX.utils.book_append_sheet(wb, ws, '⚠️ Placa divergente')
+              }
+
+              // Aba 4: Valor divergente
               if (divergentes.length > 0) {
                 const rows = divergentes.map(r => [fmtData(r.abastecimento.data), r.abastecimento.placa, r.viagem?.motorista||'', r.viagem?.destino||'', r.abastecimento.valor, r.viagem?.combus||0, (r.diffValor||0), r.diffDias||0])
                 const ws = XLSX.utils.aoa_to_sheet([['Data','Placa','Motorista','Destino','Valor posto (R$)','Valor planilha (R$)','Diferença (R$)','Dias'], ...rows])
@@ -536,6 +620,55 @@ interface ViagemSemAbast extends Viagem {
                       <td style={{fontSize:11,color:'#c2410c'}}>{v.motivo}</td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Placa divergente */}
+          {placaDivergente.length > 0 && (
+            <div className="alerta-secao">
+              <div className="alerta-header" style={{background:'#faf5ff',color:'#7e22ce',borderBottom:'1px solid #e9d5ff'}}>
+                ⚠️ Placa divergente — precisa corrigir — {placaDivergente.length} registros · {fmt(placaDivergente.reduce((s,r)=>s+r.abastecimento.valor,0))}
+              </div>
+              <div style={{fontSize:12,color:'var(--text-2)',padding:'8px 16px',background:'#faf5ff',borderBottom:'1px solid var(--border)'}}>
+                Valor e data batem, mas a placa no extrato do posto é diferente da planilha. Pode ser veículo trocado no prefixo ou erro de digitação — verifique e corrija.
+              </div>
+              <table className="tabela tabela-sm">
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Placa Posto</th>
+                    <th>Placa Planilha</th>
+                    <th>Prefixo</th>
+                    <th>Motorista</th>
+                    <th>Destino</th>
+                    <th>Valor posto</th>
+                    <th>Valor planilha</th>
+                    <th>Diferença</th>
+                    <th>Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {placaDivergente.map((r, i) => {
+                    const diff = r.diffValor || 0
+                    return (
+                      <tr key={i} style={{background:'#faf5ff'}}>
+                        <td>{fmtData(r.abastecimento.data)}</td>
+                        <td><code style={{color:'#7e22ce'}}>{r.abastecimento.placa}</code></td>
+                        <td><code style={{color:'var(--text-2)'}}>{r.viagem?.placa||'—'}</code></td>
+                        <td>{r.viagem?.prefixo||'—'}</td>
+                        <td style={{fontSize:12}}>{r.viagem?.motorista||'—'}</td>
+                        <td style={{fontSize:12}}>{r.viagem?.destino||'—'}</td>
+                        <td style={{fontWeight:600}}>{fmt(r.abastecimento.valor)}</td>
+                        <td>{fmt(r.viagem?.combus||0)}</td>
+                        <td style={{color:Math.abs(diff)<1?'var(--green)':'var(--red)',fontWeight:600}}>{diff>0?'+':''}{fmt(diff)}</td>
+                        <td><span style={{fontSize:11,background:'#e9d5ff',color:'#7e22ce',padding:'2px 7px',borderRadius:20,fontWeight:600,whiteSpace:'nowrap'}}>
+                          {r.tipoMatch === 'prefixo' ? 'Veículo trocado' : 'Erro digitação'}
+                        </span></td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
