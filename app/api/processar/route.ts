@@ -258,11 +258,32 @@ Regras criticas:
       porCombustivel, lancamentos,
     }
 
+    // Calcular período real com base nas datas dos lançamentos
+    function parsarDataEmissao(s: string): Date | null {
+      const m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+      if (!m) return null
+      let ano = parseInt(m[3])
+      if (ano < 100) ano += ano < 50 ? 2000 : 1900
+      return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
+    }
+
+    const datas = lancamentos
+      .map(l => parsarDataEmissao(l.emissao))
+      .filter(Boolean) as Date[]
+
+    let periodoReal = dadosBrutos.posto?.periodo || ''
+    if (datas.length > 0) {
+      const menor = new Date(Math.min(...datas.map(d => d.getTime())))
+      const maior = new Date(Math.max(...datas.map(d => d.getTime())))
+      const fmt = (d: Date) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`
+      periodoReal = `${fmt(menor)} a ${fmt(maior)}`
+    }
+
     const novoExtrato: Extrato = {
       id: randomUUID(),
       arquivo: file?.name || dadosBrutos.posto?.nome || 'Extrato',
       dataUpload: new Date().toISOString(),
-      periodo: dadosBrutos.posto?.periodo || '',
+      periodo: periodoReal,
       postos: [posto],
       totalValor, totalLitros,
       totalVeiculos: placasUnicas.size,
