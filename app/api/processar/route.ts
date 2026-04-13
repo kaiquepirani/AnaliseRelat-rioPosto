@@ -245,7 +245,7 @@ Regras criticas:
     })
 
     const posto: ResumoPosto = {
-      nome: dadosBrutos.posto?.nome || file.name,
+      nome: dadosBrutos.posto?.nome || file?.name || 'Extrato',
       cnpj: dadosBrutos.posto?.cnpj || '',
       totalValor, totalLitros,
       totalVeiculos: placasUnicas.size,
