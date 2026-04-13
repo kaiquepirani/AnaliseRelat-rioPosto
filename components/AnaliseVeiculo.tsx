@@ -183,9 +183,9 @@ export default function AnaliseVeiculo({ extratos }: { extratos: Extrato[] }) {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
               <div className="grafico-titulo" style={{ margin: 0 }}>Histórico de abastecimentos</div>
               <button onClick={() => {
-                const header = ['Data', 'Posto', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM']
+                const header = ['Data', 'Posto', 'Motorista', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM']
                 const linhas = lancamentosFiltrados.map(l => [
-                  l.emissao, l.postoNome, l.combustivelNome,
+                  l.emissao, l.postoNome, l.motorista || '', l.combustivelNome,
                   l.litros.toFixed(1), l.vlrUnitario > 0 ? l.vlrUnitario.toFixed(3) : '',
                   l.valor.toFixed(2), l.km || ''
                 ])
@@ -206,13 +206,14 @@ export default function AnaliseVeiculo({ extratos }: { extratos: Extrato[] }) {
             </div>
             <table className="tabela tabela-sm">
               <thead>
-                <tr><th>Data</th><th>Posto</th><th>Combustível</th><th>Litros</th><th>Vlr. Unit.</th><th>Valor</th><th>KM</th></tr>
+                <tr><th>Data</th><th>Posto</th><th>Motorista</th><th>Combustível</th><th>Litros</th><th>Vlr. Unit.</th><th>Valor</th><th>KM</th></tr>
               </thead>
               <tbody>
                 {lancamentosFiltrados.map((l, i) => (
                   <tr key={i}>
                     <td>{l.emissao}</td>
                     <td>{l.postoNome}</td>
+                    <td style={{ fontSize: 12 }}>{l.motorista || '—'}</td>
                     <td>{l.combustivelNome}</td>
                     <td>{fmtL(l.litros)}</td>
                     <td>{l.vlrUnitario > 0 ? `R$ ${l.vlrUnitario.toFixed(3)}` : '—'}</td>
