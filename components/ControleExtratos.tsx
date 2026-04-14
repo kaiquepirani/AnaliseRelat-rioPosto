@@ -10,23 +10,23 @@ type Frequencia = 'semanal' | 'quinzenal' | 'mensal' | 'esporadico'
 interface PostoEsperado {
   id: string
   nome: string
-  chave: string // palavra-chave para match
+  chave: string
   frequencia: Frequencia
 }
 
 const POSTOS_PADRAO: PostoEsperado[] = [
-  { id: '1', nome: 'Auto Posto Skina Italianos',        chave: 'SKINA ITALIANOS',           frequencia: 'semanal'    },
-  { id: '2', nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO',               frequencia: 'semanal'    },
-  { id: '3', nome: 'Auto Posto Praia de São Francisco', chave: 'PRAIA DE SAO FRANCISCO',    frequencia: 'quinzenal'  },
-  { id: '4', nome: 'Cooperativa dos Cafeicultores',     chave: 'COOPERATIVA DOS CAFEICULTORES', frequencia: 'quinzenal' },
-  { id: '5', nome: 'Mocafor Mococa',                    chave: 'MOCAFOR',                   frequencia: 'quinzenal'  },
-  { id: '6', nome: 'Irmãos Miguel Morungaba',           chave: 'IRMAOS MIGUEL',             frequencia: 'quinzenal'  },
-  { id: '7', nome: 'Itapirense Escolar',                chave: 'ITAPIRENSE',                frequencia: 'quinzenal'  },
-  { id: '8', nome: 'Posto JL Aguaí',                   chave: 'JL AGUAI',                  frequencia: 'quinzenal'  },
-  { id: '9', nome: 'Posto Abastece Rio Claro',          chave: 'ABASTECE RIO CLARO',        frequencia: 'quinzenal'  },
-  { id: '10', nome: 'Posto RVM Mogi Mirim',             chave: 'RVM MOGI',                  frequencia: 'quinzenal'  },
-  { id: '11', nome: 'Auto Posto São Benedito',          chave: 'SAO BENEDITO',              frequencia: 'mensal'     },
-  { id: '12', nome: 'Tanque Águas (Interno)',           chave: 'TANQUE AGUAS',              frequencia: 'esporadico' },
+  { id: '1',  nome: 'Auto Posto Skina Italianos',        chave: 'SKINA ITALIANOS',               frequencia: 'semanal'    },
+  { id: '2',  nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO',                   frequencia: 'semanal'    },
+  { id: '3',  nome: 'Auto Posto Praia de São Francisco', chave: 'PRAIA DE SAO FRANCISCO',        frequencia: 'quinzenal'  },
+  { id: '4',  nome: 'Cooperativa dos Cafeicultores',     chave: 'COOPERATIVA DOS CAFEICULTORES', frequencia: 'quinzenal'  },
+  { id: '5',  nome: 'Mocafor Mococa',                    chave: 'MOCAFOR',                       frequencia: 'quinzenal'  },
+  { id: '6',  nome: 'Irmãos Miguel Morungaba',           chave: 'IRMAOS MIGUEL',                 frequencia: 'quinzenal'  },
+  { id: '7',  nome: 'Itapirense Escolar',                chave: 'ITAPIRENSE',                    frequencia: 'quinzenal'  },
+  { id: '8',  nome: 'Posto JL Aguaí',                   chave: 'JL AGUAI',                      frequencia: 'quinzenal'  },
+  { id: '9',  nome: 'Posto Abastece Rio Claro',          chave: 'ABASTECE RIO CLARO',            frequencia: 'quinzenal'  },
+  { id: '10', nome: 'Posto RVM Mogi Mirim',              chave: 'RVM MOGI',                      frequencia: 'quinzenal'  },
+  { id: '11', nome: 'Auto Posto São Benedito',           chave: 'SAO BENEDITO',                  frequencia: 'mensal'     },
+  { id: '12', nome: 'Tanque Águas (Interno)',            chave: 'TANQUE AGUAS',                  frequencia: 'esporadico' },
 ]
 
 const FREQUENCIA_LABEL: Record<Frequencia, string> = {
@@ -56,6 +56,20 @@ function parsarDataBR(s: string): Date | null {
   return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
 }
 
+// Verifica se o período do extrato cobre o mês/ano selecionado
+// Um extrato cobre o mês se: dataFim >= primeiro dia do mês E dataInicio <= último dia do mês
+function extratoCobreMes(periodo: string, mes: number, ano: number): boolean {
+  const partes = periodo.split(' a ')
+  const dataInicio = parsarDataBR(partes[0]?.trim() || '')
+  const dataFim = parsarDataBR(partes[1]?.trim() || '')
+  if (!dataInicio || !dataFim) return false
+
+  const primeiroDiaMes = new Date(ano, mes, 1)
+  const ultimoDiaMes = new Date(ano, mes + 1, 0) // último dia do mês
+
+  return dataInicio <= ultimoDiaMes && dataFim >= primeiroDiaMes
+}
+
 function matchPosto(nomeExtrato: string, chave: string): boolean {
   const n = nomeExtrato.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const c = chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -73,7 +87,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const [novaFreq, setNovaFreq] = useState<Frequencia>('quinzenal')
   const [adicionando, setAdicionando] = useState(false)
 
-  // Carregar postos personalizados do localStorage
   useEffect(() => {
     try {
       const salvo = localStorage.getItem('controle_postos')
@@ -86,16 +99,11 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
     try { localStorage.setItem('controle_postos', JSON.stringify(lista)) } catch {}
   }
 
-  // Extratos do mês selecionado
+  // Extratos que cobrem o mês selecionado (início OU fim dentro do mês)
   const extratosMes = useMemo(() => {
-    return extratos.filter(e => {
-      const d = parsarDataBR(e.periodo.split(' a ')[0])
-      if (!d) return false
-      return d.getMonth() === mesSel && d.getFullYear() === anoSel
-    })
+    return extratos.filter(e => extratoCobreMes(e.periodo, mesSel, anoSel))
   }, [extratos, mesSel, anoSel])
 
-  // Status de cada posto no mês
   const statusPostos = useMemo(() => {
     return postos.map(posto => {
       const extratosDoPost = extratosMes.filter(e =>
@@ -103,12 +111,14 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       )
 
       const totalValor = extratosDoPost.reduce((s, e) =>
-        s + e.postos.filter(p => matchPosto(p.nome, posto.chave))
-              .reduce((ss, p) => ss + p.totalValor, 0), 0)
+        s + e.postos
+          .filter(p => matchPosto(p.nome, posto.chave))
+          .reduce((ss, p) => ss + p.totalValor, 0), 0)
 
       const totalLitros = extratosDoPost.reduce((s, e) =>
-        s + e.postos.filter(p => matchPosto(p.nome, posto.chave))
-              .reduce((ss, p) => ss + p.totalLitros, 0), 0)
+        s + e.postos
+          .filter(p => matchPosto(p.nome, posto.chave))
+          .reduce((ss, p) => ss + p.totalLitros, 0), 0)
 
       const esperado = ESPERADO_MES[posto.frequencia]
       const recebido = extratosDoPost.length
@@ -124,7 +134,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         status = 'parcial'
       }
 
-      // Períodos recebidos
       const periodos = extratosDoPost.map(e => e.periodo)
 
       return { posto, extratosDoPost, totalValor, totalLitros, esperado, recebido, status, periodos }
@@ -136,9 +145,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const totalFaltando = statusPostos.filter(s => s.status === 'faltando').length
   const totalValorMes = statusPostos.reduce((s, p) => s + p.totalValor, 0)
 
-  const removerPosto = (id: string) => {
-    salvarPostos(postos.filter(p => p.id !== id))
-  }
+  const removerPosto = (id: string) => salvarPostos(postos.filter(p => p.id !== id))
 
   const alterarFrequencia = (id: string, freq: Frequencia) => {
     salvarPostos(postos.map(p => p.id === id ? { ...p, frequencia: freq } : p))
@@ -159,7 +166,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
     setAdicionando(false)
   }
 
-  // Anos disponíveis
   const anos = useMemo(() => {
     const set = new Set<number>()
     set.add(hoje.getFullYear())
@@ -171,10 +177,10 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   }, [extratos])
 
   const statusColor = (s: string) => {
-    if (s === 'ok') return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
-    if (s === 'parcial') return { bg: '#fffbeb', border: '#fcd34d', color: '#d97706', icon: '⚠️' }
-    if (s === 'faltando') return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
-    return { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
+    if (s === 'ok')        return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
+    if (s === 'parcial')   return { bg: '#fffbeb', border: '#fcd34d', color: '#d97706', icon: '⚠️' }
+    if (s === 'faltando')  return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
+    return                        { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
   }
 
   return (
@@ -269,44 +275,39 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                     </select>
                   </td>
                   <td>
-                    <button
-                      onClick={() => removerPosto(p.id)}
-                      style={{ padding: '3px 8px', fontSize: 11, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}
-                    >Remover</button>
+                    <button onClick={() => removerPosto(p.id)} style={{
+                      padding: '3px 8px', fontSize: 11,
+                      background: '#fef2f2', color: '#dc2626',
+                      border: '1px solid #fca5a5', borderRadius: 5,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                    }}>Remover</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
 
-          {/* Adicionar novo posto */}
           {adicionando ? (
             <div style={{ background: 'white', border: '1px solid var(--border)', borderRadius: 8, padding: '1rem', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--navy)' }}>Novo posto</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <div className="filtro-grupo" style={{ flex: 2, minWidth: 180 }}>
                   <label className="filtro-label">Nome de exibição</label>
-                  <input
-                    value={novoNome}
-                    onChange={e => setNovoNome(e.target.value)}
+                  <input value={novoNome} onChange={e => setNovoNome(e.target.value)}
                     placeholder="Ex: Posto Silva Campinas"
                     style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }}
                   />
                 </div>
                 <div className="filtro-grupo" style={{ flex: 2, minWidth: 180 }}>
                   <label className="filtro-label">Palavra-chave do extrato</label>
-                  <input
-                    value={novaChave}
-                    onChange={e => setNovaChave(e.target.value.toUpperCase())}
+                  <input value={novaChave} onChange={e => setNovaChave(e.target.value.toUpperCase())}
                     placeholder="Ex: POSTO SILVA"
                     style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }}
                   />
                 </div>
                 <div className="filtro-grupo">
                   <label className="filtro-label">Frequência</label>
-                  <select
-                    value={novaFreq}
-                    onChange={e => setNovaFreq(e.target.value as Frequencia)}
+                  <select value={novaFreq} onChange={e => setNovaFreq(e.target.value as Frequencia)}
                     style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit' }}
                   >
                     <option value="semanal">Semanal</option>
@@ -320,12 +321,18 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                 A palavra-chave é usada para reconhecer o posto nos extratos. Use parte do nome como aparece no sistema (ex: "SKINA ITALIANOS", "SAO BENEDITO").
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={adicionarPosto} disabled={!novoNome.trim() || !novaChave.trim()}
-                  style={{ padding: '6px 16px', fontSize: 13, fontWeight: 600, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', opacity: !novoNome.trim() || !novaChave.trim() ? 0.5 : 1 }}
-                >Adicionar</button>
-                <button onClick={() => { setAdicionando(false); setNovoNome(''); setNovaChave('') }}
-                  style={{ padding: '6px 12px', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
-                >Cancelar</button>
+                <button onClick={adicionarPosto} disabled={!novoNome.trim() || !novaChave.trim()} style={{
+                  padding: '6px 16px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--navy)', color: 'white',
+                  border: 'none', borderRadius: 6, cursor: 'pointer',
+                  fontFamily: 'inherit', opacity: !novoNome.trim() || !novaChave.trim() ? 0.5 : 1,
+                }}>Adicionar</button>
+                <button onClick={() => { setAdicionando(false); setNovoNome(''); setNovaChave('') }} style={{
+                  padding: '6px 12px', fontSize: 13,
+                  background: 'white', color: 'var(--text-2)',
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}>Cancelar</button>
               </div>
             </div>
           ) : (
@@ -339,7 +346,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         </div>
       )}
 
-      {/* ── Tabela de status por posto ── */}
+      {/* ── Lista de status por posto ── */}
       <div className="tabela-hist-wrap">
         <div className="grafico-titulo" style={{ marginBottom: '1rem' }}>
           Controle de extratos — {nomeMes(mesSel)} {anoSel}
@@ -363,21 +370,14 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                   </div>
                 </div>
 
-                {/* Status de uploads */}
+                {/* Contadores */}
                 <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {posto.frequencia !== 'esporadico' ? (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>
-                        {recebido}/{esperado}
-                      </div>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>extratos</div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>
+                      {posto.frequencia !== 'esporadico' ? `${recebido}/${esperado}` : recebido}
                     </div>
-                  ) : (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>{recebido}</div>
-                      <div style={{ fontSize: 11, color: '#64748b' }}>extratos</div>
-                    </div>
-                  )}
+                    <div style={{ fontSize: 11, color: '#64748b' }}>extratos</div>
+                  </div>
 
                   {recebido > 0 && (
                     <>
