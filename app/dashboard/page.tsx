@@ -158,7 +158,6 @@ export default function Dashboard() {
   const todosLancamentos = extratosVisiveis.flatMap(e => e.postos.flatMap(p => p.lancamentos))
   const todosPostos = extratosVisiveis.flatMap(e => e.postos)
 
-  // Contagem de terceiros para badge na aba
   const totalTerceiros = todosLancamentos.filter(l => l.grupo === 'Abastecimentos de Terceiros/Vales').length
 
   const alertasAgregados = {
@@ -312,7 +311,8 @@ export default function Dashboard() {
 
             {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
-            {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratosVisiveis} />}
+            {/* TabelaAlertas recebe extratos completos para garantir mapa de postos correto */}
+            {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
             {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
             {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />}
@@ -371,7 +371,7 @@ export default function Dashboard() {
             </div>
 
             <div style={{ fontSize: 13, color: '#64748b', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              O sistema identificou um extrato do <strong>mesmo posto</strong>, com <strong>período sobreposto</strong> e <strong>valor total similar</strong> já cadastrado.
+              O sistema identificou um extrato do <strong>mesmo posto</strong>, com <strong>período idêntico</strong> e <strong>valor total similar</strong> já cadastrado.
               Deseja salvar mesmo assim?
             </div>
 
