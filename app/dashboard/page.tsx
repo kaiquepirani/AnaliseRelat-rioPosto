@@ -17,8 +17,9 @@ import PrecoAtual from '@/components/PrecoAtual'
 import Confronto from '@/components/Confronto'
 import GerenciarFrota from '@/components/GerenciarFrota'
 import AbastecimentosTerceiros from '@/components/AbastecimentosTerceiros'
+import ControleExtratos from '@/components/ControleExtratos'
 
-type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota' | 'terceiros'
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota' | 'terceiros' | 'controle'
 
 interface DuplicataInfo {
   extratoExistente: {
@@ -54,7 +55,6 @@ export default function Dashboard() {
     if (forcar) form.set('forcarSalvar', 'true')
     const res = await fetch('/api/processar', { method: 'POST', body: form })
     const data = await res.json()
-
     if (data.duplicata) {
       setDuplicataInfo({ extratoExistente: data.extratoExistente, formData: form })
       return false
@@ -169,12 +169,52 @@ export default function Dashboard() {
     naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
   }
 
+  // Badge de controle: postos faltando no mês atual
+  const hoje = new Date()
+  const faltandoMesAtual = (() => {
+    try {
+      const salvo = typeof window !== 'undefined' ? localStorage.getItem('controle_postos') : null
+      const POSTOS_PADRAO = [
+        { id: '1', chave: 'SKINA ITALIANOS', frequencia: 'semanal' },
+        { id: '2', chave: 'POSTO TIAGO', frequencia: 'semanal' },
+        { id: '3', chave: 'PRAIA DE SAO FRANCISCO', frequencia: 'quinzenal' },
+        { id: '4', chave: 'COOPERATIVA DOS CAFEICULTORES', frequencia: 'quinzenal' },
+        { id: '5', chave: 'MOCAFOR', frequencia: 'quinzenal' },
+        { id: '6', chave: 'IRMAOS MIGUEL', frequencia: 'quinzenal' },
+        { id: '7', chave: 'ITAPIRENSE', frequencia: 'quinzenal' },
+        { id: '8', chave: 'JL AGUAI', frequencia: 'quinzenal' },
+        { id: '9', chave: 'ABASTECE RIO CLARO', frequencia: 'quinzenal' },
+        { id: '10', chave: 'RVM MOGI', frequencia: 'quinzenal' },
+        { id: '11', chave: 'SAO BENEDITO', frequencia: 'mensal' },
+        { id: '12', chave: 'TANQUE AGUAS', frequencia: 'esporadico' },
+      ]
+      const postos = salvo ? JSON.parse(salvo) : POSTOS_PADRAO
+      const esperadoMes: Record<string, number> = { semanal: 4, quinzenal: 2, mensal: 1, esporadico: 0 }
+      const extratosMes = extratos.filter(e => {
+        const parts = e.periodo.split(' a ')[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+        if (!parts) return false
+        let ano = parseInt(parts[3]); if (ano < 100) ano += ano < 50 ? 2000 : 1900
+        return parseInt(parts[2]) - 1 === hoje.getMonth() && ano === hoje.getFullYear()
+      })
+      return postos.filter((p: any) => {
+        if (p.frequencia === 'esporadico') return false
+        const recebido = extratosMes.filter((e: Extrato) =>
+          e.postos.some(ep => ep.nome.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(
+            p.chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+          ))
+        ).length
+        return recebido < esperadoMes[p.frequencia]
+      }).length
+    } catch { return 0 }
+  })()
+
   const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
     { id: 'resumo', label: 'Resumo' },
     { id: 'posto', label: 'Por posto' },
     { id: 'veiculo', label: 'Por veículo' },
     { id: 'confronto', label: 'Confronto', vermelho: true },
-    { id: 'terceiros', label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined, separadorAntes: true },
+    { id: 'controle', label: 'Controle', badge: faltandoMesAtual > 0 ? faltandoMesAtual : undefined, separadorAntes: true },
+    { id: 'terceiros', label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined },
     { id: 'postos', label: 'Postos', badge: todosPostos.length, separadorAntes: true },
     { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
@@ -250,9 +290,7 @@ export default function Dashboard() {
                   }}>Cancelar</button>
                 </div>
               ) : (
-                <button className="btn-renomear" onClick={iniciarRenomear}>
-                  ✏️ Renomear
-                </button>
+                <button className="btn-renomear" onClick={iniciarRenomear}>✏️ Renomear</button>
               )}
               <button className="btn-deletar" onClick={() => handleDeletar(extratoSelecionado)}>
                 Remover extrato
@@ -311,7 +349,6 @@ export default function Dashboard() {
 
             {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
-            {/* TabelaAlertas recebe extratos completos para garantir mapa de postos correto */}
             {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
             {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
@@ -324,6 +361,7 @@ export default function Dashboard() {
             {abaAtiva === 'confronto' && <Confronto extratos={extratos} />}
             {abaAtiva === 'frota' && <GerenciarFrota />}
             {abaAtiva === 'terceiros' && <AbastecimentosTerceiros extratos={extratosVisiveis} />}
+            {abaAtiva === 'controle' && <ControleExtratos extratos={extratos} />}
           </>
         )}
       </main>
@@ -350,7 +388,6 @@ export default function Dashboard() {
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>Este extrato parece já ter sido lançado</div>
               </div>
             </div>
-
             <div style={{
               background: '#f8fafc', border: '1px solid #e2e8f0',
               borderRadius: 10, padding: '0.875rem 1rem', marginBottom: '1rem',
@@ -369,29 +406,22 @@ export default function Dashboard() {
                 </span>
               </div>
             </div>
-
             <div style={{ fontSize: 13, color: '#64748b', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-              O sistema identificou um extrato do <strong>mesmo posto</strong>, com <strong>período idêntico</strong> e <strong>valor total similar</strong> já cadastrado.
-              Deseja salvar mesmo assim?
+              O sistema identificou um extrato do <strong>mesmo posto</strong>, com <strong>período idêntico</strong> e <strong>valor total similar</strong> já cadastrado. Deseja salvar mesmo assim?
             </div>
-
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={handleCancelarDuplicata} style={{
                 padding: '0.6rem 1.25rem', fontSize: 13, fontWeight: 600,
                 background: 'white', color: '#475569',
                 border: '1px solid #e2e8f0', borderRadius: 8,
                 cursor: 'pointer', fontFamily: 'inherit',
-              }}>
-                Cancelar
-              </button>
+              }}>Cancelar</button>
               <button onClick={handleConfirmarDuplicata} style={{
                 padding: '0.6rem 1.25rem', fontSize: 13, fontWeight: 700,
                 background: '#2D3A6B', color: 'white',
                 border: 'none', borderRadius: 8,
                 cursor: 'pointer', fontFamily: 'inherit',
-              }}>
-                Salvar mesmo assim
-              </button>
+              }}>Salvar mesmo assim</button>
             </div>
           </div>
         </div>
