@@ -59,11 +59,15 @@ function parsarPeriodo(periodo: string): { ini: Date | null; fim: Date | null } 
   }
 }
 
-function periodosOverlap(a: string, b: string): boolean {
+function periodosIdenticos(a: string, b: string): boolean {
+  // Exige período IDÊNTICO (mesmas datas de início e fim), não apenas sobreposição
   const pa = parsarPeriodo(a)
   const pb = parsarPeriodo(b)
   if (!pa.ini || !pa.fim || !pb.ini || !pb.fim) return false
-  return pa.ini <= pb.fim && pb.ini <= pa.fim
+  return (
+    pa.ini.getTime() === pb.ini.getTime() &&
+    pa.fim.getTime() === pb.fim.getTime()
+  )
 }
 
 function nomePosto(extrato: Extrato): string {
@@ -71,19 +75,21 @@ function nomePosto(extrato: Extrato): string {
 }
 
 function detectarDuplicata(
-  novo: { postoNome: string; periodo: string; totalValor: number },
+  novo: { postoNome: string; periodo: string; totalValor: number; arquivo: string },
   existentes: Extrato[]
 ): Extrato | null {
   for (const ext of existentes) {
+    // 1. Mesmo posto
     const mesmoPostoNome = nomePosto(ext) === novo.postoNome.toUpperCase().trim()
     if (!mesmoPostoNome) continue
 
-    const periodoSobrepoe = periodosOverlap(ext.periodo, novo.periodo)
-    if (!periodoSobrepoe) continue
+    // 2. Período IDÊNTICO (não apenas sobreposto)
+    const periodoIgual = periodosIdenticos(ext.periodo, novo.periodo)
+    if (!periodoIgual) continue
 
-    // Valor total dentro de ±2%
+    // 3. Valor total dentro de ±0,5% (muito próximo — mesmo extrato)
     const diff = Math.abs(ext.totalValor - novo.totalValor)
-    const tolerancia = novo.totalValor * 0.02
+    const tolerancia = novo.totalValor * 0.005
     if (diff <= tolerancia) return ext
   }
   return null
@@ -316,7 +322,9 @@ Regras criticas:
       }
     })
 
+    // Lê extratos do Redis com cache bust para garantir dados frescos
     const extratosAnteriores: Extrato[] = await redis.get('extratos') || []
+
     extratosAnteriores.forEach(ext => {
       Object.entries(ext.kmVeiculos || {}).forEach(([placa, dados]) => {
         if (kmVeiculos[placa] && dados.kmAtual) {
@@ -349,9 +357,16 @@ Regras criticas:
     }
 
     // ── Verificar duplicata (antes de salvar) ──────────────────────────────
+    // Só alerta se: mesmo posto + período IDÊNTICO + valor dentro de ±0,5%
+    // Extrato deletado não estará em extratosAnteriores, então não dispara alerta
     if (!forcarSalvar) {
       const duplicata = detectarDuplicata(
-        { postoNome: posto.nome, periodo: periodoReal, totalValor },
+        {
+          postoNome: posto.nome,
+          periodo: periodoReal,
+          totalValor,
+          arquivo: file?.name || dadosBrutos.posto?.nome || '',
+        },
         extratosAnteriores
       )
       if (duplicata) {
