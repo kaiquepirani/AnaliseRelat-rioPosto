@@ -1,5 +1,5 @@
 'use client'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Extrato } from '@/lib/types'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -37,10 +37,7 @@ const FREQUENCIA_LABEL: Record<Frequencia, string> = {
 }
 
 const ESPERADO_MES: Record<Frequencia, number> = {
-  semanal:    4,
-  quinzenal:  2,
-  mensal:     1,
-  esporadico: 0,
+  semanal: 4, quinzenal: 2, mensal: 1, esporadico: 0,
 }
 
 function nomeMes(mes: number): string {
@@ -56,24 +53,24 @@ function parsarDataBR(s: string): Date | null {
   return new Date(ano, parseInt(m[2]) - 1, parseInt(m[1]))
 }
 
-// Verifica se o período do extrato cobre o mês/ano selecionado
-// Um extrato cobre o mês se: dataFim >= primeiro dia do mês E dataInicio <= último dia do mês
 function extratoCobreMes(periodo: string, mes: number, ano: number): boolean {
   const partes = periodo.split(' a ')
   const dataInicio = parsarDataBR(partes[0]?.trim() || '')
   const dataFim = parsarDataBR(partes[1]?.trim() || '')
   if (!dataInicio || !dataFim) return false
-
-  const primeiroDiaMes = new Date(ano, mes, 1)
-  const ultimoDiaMes = new Date(ano, mes + 1, 0) // último dia do mês
-
-  return dataInicio <= ultimoDiaMes && dataFim >= primeiroDiaMes
+  const primeiroDia = new Date(ano, mes, 1)
+  const ultimoDia = new Date(ano, mes + 1, 0)
+  return dataInicio <= ultimoDia && dataFim >= primeiroDia
 }
 
 function matchPosto(nomeExtrato: string, chave: string): boolean {
   const n = nomeExtrato.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   const c = chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
   return n.includes(c)
+}
+
+function chaveJustificativa(postoId: string, mes: number, ano: number): string {
+  return `controle_just__${postoId}__${ano}_${mes}`
 }
 
 export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) {
@@ -87,10 +84,17 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const [novaFreq, setNovaFreq] = useState<Frequencia>('quinzenal')
   const [adicionando, setAdicionando] = useState(false)
 
+  // Justificativas: chave -> texto
+  const [justificativas, setJustificativas] = useState<Record<string, string>>({})
+  const [editandoJust, setEditandoJust] = useState<string | null>(null)
+  const [textoJust, setTextoJust] = useState('')
+
   useEffect(() => {
     try {
-      const salvo = localStorage.getItem('controle_postos')
-      if (salvo) setPostos(JSON.parse(salvo))
+      const salvoPostos = localStorage.getItem('controle_postos')
+      if (salvoPostos) setPostos(JSON.parse(salvoPostos))
+      const salvoJust = localStorage.getItem('controle_justificativas')
+      if (salvoJust) setJustificativas(JSON.parse(salvoJust))
     } catch {}
   }, [])
 
@@ -99,7 +103,31 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
     try { localStorage.setItem('controle_postos', JSON.stringify(lista)) } catch {}
   }
 
-  // Extratos que cobrem o mês selecionado (início OU fim dentro do mês)
+  const salvarJustificativa = useCallback((chave: string, texto: string) => {
+    setJustificativas(prev => {
+      const novo = { ...prev }
+      if (texto.trim()) novo[chave] = texto.trim()
+      else delete novo[chave]
+      try { localStorage.setItem('controle_justificativas', JSON.stringify(novo)) } catch {}
+      return novo
+    })
+  }, [])
+
+  const iniciarJustificativa = (chave: string) => {
+    setEditandoJust(chave)
+    setTextoJust(justificativas[chave] || '')
+  }
+
+  const confirmarJustificativa = (chave: string) => {
+    salvarJustificativa(chave, textoJust)
+    setEditandoJust(null)
+    setTextoJust('')
+  }
+
+  const removerJustificativa = (chave: string) => {
+    salvarJustificativa(chave, '')
+  }
+
   const extratosMes = useMemo(() => {
     return extratos.filter(e => extratoCobreMes(e.periodo, mesSel, anoSel))
   }, [extratos, mesSel, anoSel])
@@ -109,23 +137,23 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       const extratosDoPost = extratosMes.filter(e =>
         e.postos.some(p => matchPosto(p.nome, posto.chave))
       )
-
       const totalValor = extratosDoPost.reduce((s, e) =>
-        s + e.postos
-          .filter(p => matchPosto(p.nome, posto.chave))
-          .reduce((ss, p) => ss + p.totalValor, 0), 0)
-
+        s + e.postos.filter(p => matchPosto(p.nome, posto.chave))
+              .reduce((ss, p) => ss + p.totalValor, 0), 0)
       const totalLitros = extratosDoPost.reduce((s, e) =>
-        s + e.postos
-          .filter(p => matchPosto(p.nome, posto.chave))
-          .reduce((ss, p) => ss + p.totalLitros, 0), 0)
+        s + e.postos.filter(p => matchPosto(p.nome, posto.chave))
+              .reduce((ss, p) => ss + p.totalLitros, 0), 0)
 
       const esperado = ESPERADO_MES[posto.frequencia]
       const recebido = extratosDoPost.length
+      const chaveJust = chaveJustificativa(posto.id, mesSel, anoSel)
+      const justificado = !!justificativas[chaveJust]
 
-      let status: 'ok' | 'parcial' | 'faltando' | 'esporadico'
+      let status: 'ok' | 'parcial' | 'faltando' | 'justificado' | 'esporadico'
       if (posto.frequencia === 'esporadico') {
         status = 'esporadico'
+      } else if (justificado) {
+        status = 'justificado'
       } else if (recebido === 0) {
         status = 'faltando'
       } else if (recebido >= esperado) {
@@ -134,36 +162,33 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         status = 'parcial'
       }
 
-      const periodos = extratosDoPost.map(e => e.periodo)
-
-      return { posto, extratosDoPost, totalValor, totalLitros, esperado, recebido, status, periodos }
+      return {
+        posto, extratosDoPost, totalValor, totalLitros,
+        esperado, recebido, status,
+        periodos: extratosDoPost.map(e => e.periodo),
+        chaveJust,
+      }
     })
-  }, [postos, extratosMes])
+  }, [postos, extratosMes, justificativas, mesSel, anoSel])
 
-  const totalOk = statusPostos.filter(s => s.status === 'ok').length
+  const totalOk = statusPostos.filter(s => s.status === 'ok' || s.status === 'justificado').length
   const totalParcial = statusPostos.filter(s => s.status === 'parcial').length
   const totalFaltando = statusPostos.filter(s => s.status === 'faltando').length
   const totalValorMes = statusPostos.reduce((s, p) => s + p.totalValor, 0)
 
   const removerPosto = (id: string) => salvarPostos(postos.filter(p => p.id !== id))
-
   const alterarFrequencia = (id: string, freq: Frequencia) => {
     salvarPostos(postos.map(p => p.id === id ? { ...p, frequencia: freq } : p))
   }
-
   const adicionarPosto = () => {
     if (!novoNome.trim() || !novaChave.trim()) return
-    const novo: PostoEsperado = {
+    salvarPostos([...postos, {
       id: Date.now().toString(),
       nome: novoNome.trim(),
       chave: novaChave.trim().toUpperCase(),
       frequencia: novaFreq,
-    }
-    salvarPostos([...postos, novo])
-    setNovoNome('')
-    setNovaChave('')
-    setNovaFreq('quinzenal')
-    setAdicionando(false)
+    }])
+    setNovoNome(''); setNovaChave(''); setNovaFreq('quinzenal'); setAdicionando(false)
   }
 
   const anos = useMemo(() => {
@@ -177,10 +202,11 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   }, [extratos])
 
   const statusColor = (s: string) => {
-    if (s === 'ok')        return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
-    if (s === 'parcial')   return { bg: '#fffbeb', border: '#fcd34d', color: '#d97706', icon: '⚠️' }
-    if (s === 'faltando')  return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
-    return                        { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
+    if (s === 'ok')         return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
+    if (s === 'justificado')return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
+    if (s === 'parcial')    return { bg: '#fffbeb', border: '#fcd34d', color: '#d97706', icon: '⚠️' }
+    if (s === 'faltando')   return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
+    return                         { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
   }
 
   return (
@@ -203,23 +229,20 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
           </select>
         </div>
         <div style={{ marginLeft: 'auto' }}>
-          <button
-            onClick={() => setEditandoPostos(v => !v)}
-            style={{
-              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 600,
-              background: editandoPostos ? 'var(--navy)' : 'white',
-              color: editandoPostos ? 'white' : 'var(--navy)',
-              border: '1px solid var(--navy)', borderRadius: 8,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >⚙️ {editandoPostos ? 'Fechar configuração' : 'Configurar postos'}</button>
+          <button onClick={() => setEditandoPostos(v => !v)} style={{
+            padding: '0.45rem 1rem', fontSize: 12, fontWeight: 600,
+            background: editandoPostos ? 'var(--navy)' : 'white',
+            color: editandoPostos ? 'white' : 'var(--navy)',
+            border: '1px solid var(--navy)', borderRadius: 8,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>⚙️ {editandoPostos ? 'Fechar configuração' : 'Configurar postos'}</button>
         </div>
       </div>
 
       {/* ── Cards resumo ── */}
       <div className="cards-grid" style={{ marginBottom: '1.5rem' }}>
         <div className="card card-ok">
-          <div className="card-label">Completos</div>
+          <div className="card-label">Completos / Justificados</div>
           <div className="card-valor" style={{ color: '#16a34a' }}>{totalOk}</div>
           <div className="card-sub">postos em dia</div>
         </div>
@@ -231,7 +254,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         <div className="card card-alerta">
           <div className="card-label">Faltando</div>
           <div className="card-valor" style={{ color: '#dc2626' }}>{totalFaltando}</div>
-          <div className="card-sub">nenhum extrato recebido</div>
+          <div className="card-sub">sem extrato e sem justificativa</div>
         </div>
         <div className="card">
           <div className="card-label">Total recebido em {nomeMes(mesSel)}</div>
@@ -241,21 +264,11 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
 
       {/* ── Configuração de postos ── */}
       {editandoPostos && (
-        <div style={{
-          background: '#f8fafc', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem',
-        }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)', marginBottom: '1rem' }}>
-            ⚙️ Configurar postos esperados
-          </div>
+        <div style={{ background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)', marginBottom: '1rem' }}>⚙️ Configurar postos esperados</div>
           <table className="tabela tabela-sm" style={{ marginBottom: '1rem' }}>
             <thead>
-              <tr>
-                <th>Posto</th>
-                <th>Palavra-chave (para reconhecer no extrato)</th>
-                <th>Frequência</th>
-                <th></th>
-              </tr>
+              <tr><th>Posto</th><th>Palavra-chave</th><th>Frequência</th><th></th></tr>
             </thead>
             <tbody>
               {postos.map(p => (
@@ -263,11 +276,8 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                   <td style={{ fontWeight: 600 }}>{p.nome}</td>
                   <td><code style={{ fontSize: 11, background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>{p.chave}</code></td>
                   <td>
-                    <select
-                      value={p.frequencia}
-                      onChange={e => alterarFrequencia(p.id, e.target.value as Frequencia)}
-                      style={{ fontSize: 12, padding: '3px 6px', borderRadius: 5, border: '1px solid var(--border)', fontFamily: 'inherit' }}
-                    >
+                    <select value={p.frequencia} onChange={e => alterarFrequencia(p.id, e.target.value as Frequencia)}
+                      style={{ fontSize: 12, padding: '3px 6px', borderRadius: 5, border: '1px solid var(--border)', fontFamily: 'inherit' }}>
                       <option value="semanal">Semanal</option>
                       <option value="quinzenal">Quinzenal</option>
                       <option value="mensal">Mensal</option>
@@ -275,12 +285,9 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                     </select>
                   </td>
                   <td>
-                    <button onClick={() => removerPosto(p.id)} style={{
-                      padding: '3px 8px', fontSize: 11,
-                      background: '#fef2f2', color: '#dc2626',
-                      border: '1px solid #fca5a5', borderRadius: 5,
-                      cursor: 'pointer', fontFamily: 'inherit',
-                    }}>Remover</button>
+                    <button onClick={() => removerPosto(p.id)} style={{ padding: '3px 8px', fontSize: 11, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Remover
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -293,23 +300,18 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <div className="filtro-grupo" style={{ flex: 2, minWidth: 180 }}>
                   <label className="filtro-label">Nome de exibição</label>
-                  <input value={novoNome} onChange={e => setNovoNome(e.target.value)}
-                    placeholder="Ex: Posto Silva Campinas"
-                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }}
-                  />
+                  <input value={novoNome} onChange={e => setNovoNome(e.target.value)} placeholder="Ex: Posto Silva Campinas"
+                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }} />
                 </div>
                 <div className="filtro-grupo" style={{ flex: 2, minWidth: 180 }}>
                   <label className="filtro-label">Palavra-chave do extrato</label>
-                  <input value={novaChave} onChange={e => setNovaChave(e.target.value.toUpperCase())}
-                    placeholder="Ex: POSTO SILVA"
-                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }}
-                  />
+                  <input value={novaChave} onChange={e => setNovaChave(e.target.value.toUpperCase())} placeholder="Ex: POSTO SILVA"
+                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }} />
                 </div>
                 <div className="filtro-grupo">
                   <label className="filtro-label">Frequência</label>
                   <select value={novaFreq} onChange={e => setNovaFreq(e.target.value as Frequencia)}
-                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit' }}
-                  >
+                    style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit' }}>
                     <option value="semanal">Semanal</option>
                     <option value="quinzenal">Quinzenal</option>
                     <option value="mensal">Mensal</option>
@@ -318,30 +320,17 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                 </div>
               </div>
               <div style={{ fontSize: 11, color: '#64748b' }}>
-                A palavra-chave é usada para reconhecer o posto nos extratos. Use parte do nome como aparece no sistema (ex: "SKINA ITALIANOS", "SAO BENEDITO").
+                Use parte do nome como aparece no sistema (ex: "SKINA ITALIANOS", "SAO BENEDITO").
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <button onClick={adicionarPosto} disabled={!novoNome.trim() || !novaChave.trim()} style={{
-                  padding: '6px 16px', fontSize: 13, fontWeight: 600,
-                  background: 'var(--navy)', color: 'white',
-                  border: 'none', borderRadius: 6, cursor: 'pointer',
-                  fontFamily: 'inherit', opacity: !novoNome.trim() || !novaChave.trim() ? 0.5 : 1,
-                }}>Adicionar</button>
-                <button onClick={() => { setAdicionando(false); setNovoNome(''); setNovaChave('') }} style={{
-                  padding: '6px 12px', fontSize: 13,
-                  background: 'white', color: 'var(--text-2)',
-                  border: '1px solid var(--border)', borderRadius: 6,
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}>Cancelar</button>
+                <button onClick={adicionarPosto} disabled={!novoNome.trim() || !novaChave.trim()} style={{ padding: '6px 16px', fontSize: 13, fontWeight: 600, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', opacity: !novoNome.trim() || !novaChave.trim() ? 0.5 : 1 }}>Adicionar</button>
+                <button onClick={() => { setAdicionando(false); setNovoNome(''); setNovaChave('') }} style={{ padding: '6px 12px', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
               </div>
             </div>
           ) : (
-            <button onClick={() => setAdicionando(true)} style={{
-              padding: '6px 14px', fontSize: 13, fontWeight: 600,
-              background: 'white', color: 'var(--navy)',
-              border: '1px solid var(--navy)', borderRadius: 6,
-              cursor: 'pointer', fontFamily: 'inherit',
-            }}>+ Adicionar posto</button>
+            <button onClick={() => setAdicionando(true)} style={{ padding: '6px 14px', fontSize: 13, fontWeight: 600, background: 'white', color: 'var(--navy)', border: '1px solid var(--navy)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
+              + Adicionar posto
+            </button>
           )}
         </div>
       )}
@@ -353,71 +342,152 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {statusPostos.map(({ posto, status, recebido, esperado, totalValor, totalLitros, periodos }) => {
+          {statusPostos.map(({ posto, status, recebido, esperado, totalValor, totalLitros, periodos, chaveJust }) => {
             const c = statusColor(status)
+            const justTexto = justificativas[chaveJust]
+            const podeJustificar = status === 'faltando' || status === 'parcial' || status === 'justificado'
+
             return (
               <div key={posto.id} style={{
                 background: c.bg, border: `1px solid ${c.border}`,
                 borderRadius: 10, padding: '0.875rem 1rem',
-                display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap',
+                display: 'flex', flexDirection: 'column', gap: 10,
               }}>
-                {/* Ícone + nome */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 260, flex: 1 }}>
-                  <span style={{ fontSize: 18 }}>{c.icon}</span>
-                  <div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)' }}>{posto.nome}</div>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>{FREQUENCIA_LABEL[posto.frequencia]}</div>
-                  </div>
-                </div>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
 
-                {/* Contadores */}
-                <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>
-                      {posto.frequencia !== 'esporadico' ? `${recebido}/${esperado}` : recebido}
+                  {/* Ícone + nome */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 240, flex: 1 }}>
+                    <span style={{ fontSize: 18 }}>{c.icon}</span>
+                    <div>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)' }}>{posto.nome}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{FREQUENCIA_LABEL[posto.frequencia]}</div>
                     </div>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>extratos</div>
                   </div>
 
-                  {recebido > 0 && (
-                    <>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy)' }}>{fmt(totalValor)}</div>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>total R$</div>
+                  {/* Contadores */}
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: c.color }}>
+                        {posto.frequencia !== 'esporadico' ? `${recebido}/${esperado}` : recebido}
                       </div>
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy)' }}>{fmtL(totalLitros)}</div>
-                        <div style={{ fontSize: 11, color: '#64748b' }}>litros</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>extratos</div>
+                    </div>
+                    {recebido > 0 && (
+                      <>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy)' }}>{fmt(totalValor)}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>total R$</div>
+                        </div>
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--navy)' }}>{fmtL(totalLitros)}</div>
+                          <div style={{ fontSize: 11, color: '#64748b' }}>litros</div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Períodos */}
+                  {periodos.length > 0 && (
+                    <div style={{ flex: 2, minWidth: 200 }}>
+                      <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Períodos recebidos:</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {periodos.map((p, i) => (
+                          <div key={i} style={{ fontSize: 11, background: 'white', padding: '2px 8px', borderRadius: 4, border: `1px solid ${c.border}`, color: 'var(--text)', display: 'inline-block' }}>
+                            📅 {p}
+                          </div>
+                        ))}
                       </div>
-                    </>
+                    </div>
                   )}
+
+                  {/* Status + botão justificar */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', marginLeft: 'auto' }}>
+                    {status === 'faltando' && (
+                      <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>Nenhum extrato recebido</div>
+                    )}
+                    {status === 'parcial' && (
+                      <div style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
+                        Faltam {esperado - recebido} extrato{esperado - recebido > 1 ? 's' : ''}
+                      </div>
+                    )}
+                    {podeJustificar && editandoJust !== chaveJust && (
+                      <button onClick={() => iniciarJustificativa(chaveJust)} style={{
+                        padding: '4px 12px', fontSize: 12, fontWeight: 600,
+                        background: justTexto ? '#f0fdf4' : 'white',
+                        color: justTexto ? '#16a34a' : 'var(--navy)',
+                        border: `1px solid ${justTexto ? '#86efac' : 'var(--navy)'}`,
+                        borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        whiteSpace: 'nowrap',
+                      }}>
+                        {justTexto ? '✏️ Editar justificativa' : '+ Justificar'}
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Períodos recebidos */}
-                {periodos.length > 0 && (
-                  <div style={{ flex: 2, minWidth: 200 }}>
-                    <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Períodos recebidos:</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {periodos.map((p, i) => (
-                        <div key={i} style={{
-                          fontSize: 11, background: 'white', padding: '2px 8px',
-                          borderRadius: 4, border: `1px solid ${c.border}`,
-                          color: 'var(--text)', display: 'inline-block',
-                        }}>📅 {p}</div>
-                      ))}
+                {/* Justificativa existente */}
+                {justTexto && editandoJust !== chaveJust && (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
+                    background: '#f0fdf4', border: '1px solid #86efac',
+                    borderRadius: 8, padding: '8px 12px',
+                  }}>
+                    <div style={{ fontSize: 12, color: '#166534', flex: 1 }}>
+                      <strong>Justificativa:</strong> {justTexto}
                     </div>
+                    <button onClick={() => removerJustificativa(chaveJust)} style={{
+                      padding: '3px 8px', fontSize: 11, background: '#fef2f2',
+                      color: '#dc2626', border: '1px solid #fca5a5',
+                      borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0,
+                    }}>Remover</button>
                   </div>
                 )}
 
-                {/* Mensagem de status */}
-                {status === 'faltando' && (
-                  <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600, alignSelf: 'center' }}>
-                    Nenhum extrato recebido este mês
-                  </div>
-                )}
-                {status === 'parcial' && (
-                  <div style={{ fontSize: 12, color: '#d97706', fontWeight: 600, alignSelf: 'center' }}>
-                    Faltam {esperado - recebido} extrato{esperado - recebido > 1 ? 's' : ''}
+                {/* Formulário de justificativa */}
+                {editandoJust === chaveJust && (
+                  <div style={{
+                    background: 'white', border: '1px solid #fcd34d',
+                    borderRadius: 8, padding: '10px 12px',
+                    display: 'flex', flexDirection: 'column', gap: 8,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
+                      Justificativa para {posto.nome} — {nomeMes(mesSel)} {anoSel}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <textarea
+                        autoFocus
+                        value={textoJust}
+                        onChange={e => setTextoJust(e.target.value)}
+                        placeholder="Ex: Férias escolares — sem abastecimento previsto neste período"
+                        style={{
+                          flex: 1, fontSize: 12, padding: '6px 8px',
+                          border: '1px solid #fcd34d', borderRadius: 6,
+                          fontFamily: 'inherit', resize: 'vertical', minHeight: 56,
+                          background: '#fffbeb',
+                        }}
+                      />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button
+                          onClick={() => confirmarJustificativa(chaveJust)}
+                          disabled={!textoJust.trim()}
+                          style={{
+                            padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                            background: 'var(--navy)', color: 'white',
+                            border: 'none', borderRadius: 6, cursor: 'pointer',
+                            fontFamily: 'inherit', opacity: textoJust.trim() ? 1 : 0.5,
+                          }}
+                        >Salvar</button>
+                        <button
+                          onClick={() => { setEditandoJust(null); setTextoJust('') }}
+                          style={{
+                            padding: '6px 10px', fontSize: 12,
+                            background: 'white', color: 'var(--text-2)',
+                            border: '1px solid var(--border)', borderRadius: 6,
+                            cursor: 'pointer', fontFamily: 'inherit',
+                          }}
+                        >Cancelar</button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
