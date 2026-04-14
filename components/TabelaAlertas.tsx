@@ -7,14 +7,6 @@ const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 
 const GRUPO_TERCEIROS = 'Abastecimentos de Terceiros/Vales'
 
-// Responsáveis fixos do grupo Terceiros — sincronizado com frota.ts
-const RESPONSAVEIS_TERCEIROS = [
-  'Fabricio Pinhal',
-  'Vale Motorista Pinhal - Carlos César Amaro',
-  'Sergião Ubatuba (Doação)',
-  'Buiu - A Serviço da Empresa',
-]
-
 function chaveJustificativa(l: Lancamento): string {
   return `${l.placaLida}__${l.documento}`
 }
@@ -25,6 +17,9 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const [editando, setEditando] = useState<string | null>(null)
   const [textoEditando, setTextoEditando] = useState('')
   const [responsavelEditando, setResponsavelEditando] = useState('')
+  const [novoResponsavel, setNovoResponsavel] = useState('')
+  const [adicionandoResponsavel, setAdicionandoResponsavel] = useState(false)
+  const [responsaveisDinamicos, setResponsaveisDinamicos] = useState<string[]>([])
   const [salvando, setSalvando] = useState(false)
 
   // Mapa documento -> nome do posto
@@ -40,18 +35,46 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
     return mapa
   }, [extratos])
 
+  // Carregar responsáveis do grupo Terceiros/Vales da frota
+  const carregarResponsaveis = useCallback(async () => {
+    const res = await fetch('/api/frota')
+    const frota = await res.json()
+    const responsaveis = Array.from(new Set(
+      frota
+        .filter((v: any) => v.grupo === GRUPO_TERCEIROS && v.modelo)
+        .map((v: any) => v.modelo as string)
+    )) as string[]
+    setResponsaveisDinamicos(responsaveis.sort())
+  }, [])
+
   const carregarJustificativas = useCallback(async () => {
     const res = await fetch('/api/justificativas')
     const dados = await res.json()
     setJustificativas(dados)
   }, [])
 
-  useEffect(() => { carregarJustificativas() }, [carregarJustificativas])
+  useEffect(() => {
+    carregarJustificativas()
+    carregarResponsaveis()
+  }, [carregarJustificativas, carregarResponsaveis])
 
   const iniciarEdicao = (chave: string) => {
     setEditando(chave)
     setTextoEditando(justificativas[chave] || '')
     setResponsavelEditando('')
+    setNovoResponsavel('')
+    setAdicionandoResponsavel(false)
+  }
+
+  const confirmarNovoResponsavel = () => {
+    const nome = novoResponsavel.trim()
+    if (!nome) return
+    if (!responsaveisDinamicos.includes(nome)) {
+      setResponsaveisDinamicos(prev => [...prev, nome].sort())
+    }
+    setResponsavelEditando(nome)
+    setNovoResponsavel('')
+    setAdicionandoResponsavel(false)
   }
 
   const salvar = async (chave: string, placa: string) => {
@@ -80,10 +103,14 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(novoVeiculo),
         })
+        // Recarregar responsáveis para refletir novo cadastro
+        await carregarResponsaveis()
       }
 
       setEditando(null)
       setResponsavelEditando('')
+      setNovoResponsavel('')
+      setAdicionandoResponsavel(false)
     } finally {
       setSalvando(false)
     }
@@ -134,29 +161,95 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const comJustificativa = naoIdentificadas.filter(l => justificativas[chaveJustificativa(l)])
   const semJustificativa = naoIdentificadas.filter(l => !justificativas[chaveJustificativa(l)])
 
-  // ── Formulário de justificativa (reutilizado nas duas seções) ──────────
+  // ── Formulário de justificativa ────────────────────────────────────────
   const renderFormEdicao = (chave: string, placa: string) => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
 
-      {/* Dropdown vincular a terceiros */}
+      {/* Vincular a Terceiros/Vales */}
       <div>
         <label style={{ fontSize: 11, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 4 }}>
           Vincular a Terceiros/Vales? <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(opcional)</span>
         </label>
-        <select
-          value={responsavelEditando}
-          onChange={e => setResponsavelEditando(e.target.value)}
-          style={{
-            width: '100%', fontSize: 12, padding: '5px 8px',
-            border: '1px solid #fcd34d', borderRadius: 6,
-            fontFamily: 'inherit', background: '#fffbeb', color: '#92400e',
-          }}
-        >
-          <option value="">— Não vincular —</option>
-          {RESPONSAVEIS_TERCEIROS.map(r => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <select
+            value={responsavelEditando}
+            onChange={e => setResponsavelEditando(e.target.value)}
+            style={{
+              flex: 1, fontSize: 12, padding: '5px 8px',
+              border: '1px solid #fcd34d', borderRadius: 6,
+              fontFamily: 'inherit', background: '#fffbeb', color: '#92400e',
+            }}
+          >
+            <option value="">— Não vincular —</option>
+            {responsaveisDinamicos.map(r => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+
+          {/* Botão + para adicionar novo responsável */}
+          <button
+            onClick={() => { setAdicionandoResponsavel(v => !v); setNovoResponsavel('') }}
+            title="Adicionar novo responsável"
+            style={{
+              width: 28, height: 28, borderRadius: 6, border: '1px solid #fcd34d',
+              background: adicionandoResponsavel ? '#fde68a' : '#fffbeb',
+              color: '#92400e', fontWeight: 700, fontSize: 18,
+              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexShrink: 0, lineHeight: 1,
+            }}
+          >+</button>
+        </div>
+
+        {/* Mini-formulário novo responsável */}
+        {adicionandoResponsavel && (
+          <div style={{
+            marginTop: 6, padding: '8px 10px',
+            background: '#fffbeb', border: '1px solid #fcd34d',
+            borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6,
+          }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e' }}>
+              Novo responsável
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input
+                autoFocus
+                value={novoResponsavel}
+                onChange={e => setNovoResponsavel(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') confirmarNovoResponsavel(); if (e.key === 'Escape') setAdicionandoResponsavel(false) }}
+                placeholder="Ex: João Silva Ubatuba"
+                style={{
+                  flex: 1, fontSize: 12, padding: '5px 8px',
+                  border: '1px solid #fcd34d', borderRadius: 6,
+                  fontFamily: 'inherit', background: 'white',
+                }}
+              />
+              <button
+                onClick={confirmarNovoResponsavel}
+                disabled={!novoResponsavel.trim()}
+                style={{
+                  padding: '5px 10px', fontSize: 12, fontWeight: 600,
+                  background: '#92400e', color: 'white',
+                  border: 'none', borderRadius: 6, cursor: 'pointer',
+                  fontFamily: 'inherit', opacity: novoResponsavel.trim() ? 1 : 0.5,
+                }}
+              >Confirmar</button>
+              <button
+                onClick={() => { setAdicionandoResponsavel(false); setNovoResponsavel('') }}
+                style={{
+                  padding: '5px 8px', fontSize: 12,
+                  background: 'white', color: 'var(--text-2)',
+                  border: '1px solid var(--border)', borderRadius: 6,
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >✕</button>
+            </div>
+            <div style={{ fontSize: 11, color: '#b45309' }}>
+              O responsável será criado ao salvar a justificativa
+            </div>
+          </div>
+        )}
+
+        {/* Confirmação do vínculo */}
         {responsavelEditando && (
           <div style={{
             fontSize: 11, color: '#92400e', background: '#fef3c7',
@@ -171,7 +264,6 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
       {/* Textarea justificativa */}
       <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
         <textarea
-          autoFocus
           value={textoEditando}
           onChange={e => setTextoEditando(e.target.value)}
           placeholder="Descreva o motivo deste abastecimento..."
@@ -189,13 +281,14 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
             style={{
               padding: '5px 10px', fontSize: 12, fontWeight: 600,
               background: 'var(--navy)', color: 'white',
-              border: 'none', borderRadius: 6, cursor: salvando ? 'not-allowed' : 'pointer',
+              border: 'none', borderRadius: 6,
+              cursor: salvando || !textoEditando.trim() ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', whiteSpace: 'nowrap',
               opacity: salvando || !textoEditando.trim() ? 0.6 : 1,
             }}
           >{salvando ? 'Salvando...' : 'Salvar'}</button>
           <button
-            onClick={() => { setEditando(null); setResponsavelEditando('') }}
+            onClick={() => { setEditando(null); setResponsavelEditando(''); setAdicionandoResponsavel(false) }}
             style={{
               padding: '5px 10px', fontSize: 12,
               background: 'var(--bg)', color: 'var(--text-2)',
