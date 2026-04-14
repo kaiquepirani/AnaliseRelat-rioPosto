@@ -7,10 +7,16 @@ export async function POST(req: NextRequest) {
   try {
     const { id } = await req.json()
 
-    // Carregar frota atualizada do Redis
-    const frotaAtual = await redis.get('frota') as any[] | null
-    if (frotaAtual && frotaAtual.length > 0) setFrota(frotaAtual)
-    else setFrota(FROTA_PADRAO)
+    // Carregar frota do Redis e fazer merge com FROTA_PADRAO
+    // Garante que placas novas adicionadas no código sempre estejam presentes
+    const frotaRedis = await redis.get('frota') as any[] | null
+    if (frotaRedis && frotaRedis.length > 0) {
+      const placasRedis = new Set(frotaRedis.map((v: any) => v.placa))
+      const novasDoDefault = FROTA_PADRAO.filter(v => !placasRedis.has(v.placa))
+      setFrota([...frotaRedis, ...novasDoDefault])
+    } else {
+      setFrota(FROTA_PADRAO)
+    }
 
     const extratos: Extrato[] = await redis.get('extratos') || []
     const idx = extratos.findIndex(e => e.id === id)
@@ -47,8 +53,8 @@ export async function POST(req: NextRequest) {
     const totalValor = postosAtualizados.reduce((s, p) => s + p.totalValor, 0)
     const totalLitros = postosAtualizados.reduce((s, p) => s + p.totalLitros, 0)
     const todasPlacas = new Set(postosAtualizados.flatMap(p => p.lancamentos.map(l => normalizarPlaca(l.placaLida))))
-
     const todosLanc = postosAtualizados.flatMap(p => p.lancamentos)
+
     const alertas = {
       confirmada: todosLanc.filter(l => l.status === 'confirmada').length,
       confirmadaValor: todosLanc.filter(l => l.status === 'confirmada').reduce((s, l) => s + l.valor, 0),
