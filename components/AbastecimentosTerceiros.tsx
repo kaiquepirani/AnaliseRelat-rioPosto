@@ -20,31 +20,12 @@ interface LancamentoComPosto extends Lancamento {
 }
 
 export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrato[] }) {
+  const [responsavelSel, setResponsavelSel] = useState('')
   const [placaSel, setPlacaSel] = useState('')
   const [dataInicio, setDataInicio] = useState('')
   const [dataFim, setDataFim] = useState('')
 
-  // Apenas veículos do grupo Terceiros/Vales
-  const veiculos = useMemo(() => {
-    const mapa: Record<string, { placa: string; modelo: string; grupo: string }> = {}
-    extratos.forEach(e => {
-      e.postos.forEach(p => {
-        p.lancamentos.forEach(l => {
-          if (l.grupo !== GRUPO_TERCEIROS) return
-          if (!mapa[l.placaLida]) {
-            mapa[l.placaLida] = {
-              placa: l.placaLida,
-              modelo: l.modelo || '',
-              grupo: l.grupo || '',
-            }
-          }
-        })
-      })
-    })
-    return Object.values(mapa).sort((a, b) => a.placa.localeCompare(b.placa))
-  }, [extratos])
-
-  // Todos os lançamentos de terceiros (sem filtro de placa) para resumo geral
+  // Todos os lançamentos de terceiros
   const todosLancamentos = useMemo(() => {
     const resultado: LancamentoComPosto[] = []
     extratos.forEach(e => {
@@ -63,27 +44,57 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
     })
   }, [extratos])
 
-  // Lançamentos filtrados por placa e período
-  const lancamentosFiltrados = useMemo(() => {
-    const base = placaSel
-      ? todosLancamentos.filter(l => l.placaLida === placaSel)
-      : todosLancamentos
+  // Lista de responsáveis únicos
+  const responsaveis = useMemo(() => {
+    const set = new Set<string>()
+    todosLancamentos.forEach(l => { if (l.modelo) set.add(l.modelo) })
+    return Array.from(set).sort()
+  }, [todosLancamentos])
 
+  // Veículos disponíveis conforme responsável selecionado
+  const veiculos = useMemo(() => {
+    const mapa: Record<string, { placa: string; modelo: string }> = {}
+    todosLancamentos.forEach(l => {
+      if (responsavelSel && l.modelo !== responsavelSel) return
+      if (!mapa[l.placaLida]) {
+        mapa[l.placaLida] = { placa: l.placaLida, modelo: l.modelo || '' }
+      }
+    })
+    return Object.values(mapa).sort((a, b) => a.placa.localeCompare(b.placa))
+  }, [todosLancamentos, responsavelSel])
+
+  // Lançamentos filtrados por responsável, placa e período
+  const lancamentosFiltrados = useMemo(() => {
     const inicio = dataInicio ? new Date(dataInicio) : null
     const fim = dataFim ? new Date(dataFim + 'T23:59:59') : null
-
-    return base.filter(l => {
+    return todosLancamentos.filter(l => {
+      if (responsavelSel && l.modelo !== responsavelSel) return false
+      if (placaSel && l.placaLida !== placaSel) return false
       const d = parsarDataBR(l.emissao)
       if (inicio && d && d < inicio) return false
       if (fim && d && d > fim) return false
       return true
     })
-  }, [todosLancamentos, placaSel, dataInicio, dataFim])
+  }, [todosLancamentos, responsavelSel, placaSel, dataInicio, dataFim])
 
-  // Resumo por veículo (para tabela geral)
+  // Resumo por responsável (tabela geral)
+  const resumoPorResponsavel = useMemo(() => {
+    const mapa: Record<string, { responsavel: string; placas: Set<string>; valor: number; litros: number; qtd: number }> = {}
+    todosLancamentos.forEach(l => {
+      const resp = l.modelo || '—'
+      if (!mapa[resp]) mapa[resp] = { responsavel: resp, placas: new Set(), valor: 0, litros: 0, qtd: 0 }
+      mapa[resp].placas.add(l.placaLida)
+      mapa[resp].valor += l.valor
+      mapa[resp].litros += l.litros
+      mapa[resp].qtd += 1
+    })
+    return Object.values(mapa).sort((a, b) => b.valor - a.valor)
+  }, [todosLancamentos])
+
+  // Resumo por veículo dentro do filtro atual
   const resumoPorVeiculo = useMemo(() => {
     const mapa: Record<string, { placa: string; modelo: string; valor: number; litros: number; qtd: number }> = {}
-    todosLancamentos.forEach(l => {
+    lancamentosFiltrados.forEach(l => {
       if (!mapa[l.placaLida]) {
         mapa[l.placaLida] = { placa: l.placaLida, modelo: l.modelo || '', valor: 0, litros: 0, qtd: 0 }
       }
@@ -92,22 +103,22 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
       mapa[l.placaLida].qtd += 1
     })
     return Object.values(mapa).sort((a, b) => b.valor - a.valor)
-  }, [todosLancamentos])
+  }, [lancamentosFiltrados])
 
   const totalValor = lancamentosFiltrados.reduce((s, l) => s + l.valor, 0)
   const totalLitros = lancamentosFiltrados.reduce((s, l) => s + l.litros, 0)
   const totalGeral = todosLancamentos.reduce((s, l) => s + l.valor, 0)
   const totalLitrosGeral = todosLancamentos.reduce((s, l) => s + l.litros, 0)
 
-  const veiculoSel = veiculos.find(v => v.placa === placaSel)
+  const temFiltro = responsavelSel || placaSel || dataInicio || dataFim
 
   const handleExportar = () => {
     const { exportarXLSX } = require('@/lib/exportar')
-    const nomeArq = placaSel
-      ? `terceiros-${placaSel}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`
-      : `terceiros-todos-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`
+    const sufixo = responsavelSel
+      ? responsavelSel.split(' ')[0]
+      : placaSel || 'todos'
     exportarXLSX(
-      nomeArq,
+      `terceiros-${sufixo}-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`,
       ['Data', 'Placa', 'Responsável', 'Posto', 'Motorista', 'Combustível', 'Litros', 'Vlr. Unit. (R$)', 'Valor (R$)', 'KM'],
       lancamentosFiltrados.map(l => [
         l.emissao,
@@ -129,13 +140,13 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
     const { exportarXLSX } = require('@/lib/exportar')
     exportarXLSX(
       `terceiros-resumo-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`,
-      ['Placa', 'Responsável', 'Abastecimentos', 'Litros', 'Valor Total (R$)'],
-      resumoPorVeiculo.map(v => [
-        v.placa,
-        v.modelo,
-        v.qtd,
-        parseFloat(v.litros.toFixed(3)),
-        parseFloat(v.valor.toFixed(2)),
+      ['Responsável', 'Veículos', 'Abastecimentos', 'Litros', 'Valor Total (R$)'],
+      resumoPorResponsavel.map(r => [
+        r.responsavel,
+        r.placas.size,
+        r.qtd,
+        parseFloat(r.litros.toFixed(3)),
+        parseFloat(r.valor.toFixed(2)),
       ]),
       true
     )
@@ -167,8 +178,8 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
           <div className="card-valor">{fmtL(totalLitrosGeral)}</div>
         </div>
         <div className="card">
-          <div className="card-label">Veículos cadastrados</div>
-          <div className="card-valor">{resumoPorVeiculo.length}</div>
+          <div className="card-label">Responsáveis</div>
+          <div className="card-valor">{resumoPorResponsavel.length}</div>
         </div>
         <div className="card">
           <div className="card-label">Total abastecimentos</div>
@@ -176,10 +187,10 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
         </div>
       </div>
 
-      {/* ── Resumo por veículo ── */}
+      {/* ── Resumo por responsável ── */}
       <div className="tabela-hist-wrap" style={{ marginBottom: '2rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-          <div className="grafico-titulo" style={{ margin: 0 }}>Resumo por veículo</div>
+          <div className="grafico-titulo" style={{ margin: 0 }}>Resumo por responsável</div>
           <button onClick={handleExportarResumo} style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '0.5rem 1rem', fontSize: 12, fontWeight: 600,
@@ -193,8 +204,8 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
         <table className="tabela">
           <thead>
             <tr>
-              <th>Placa</th>
               <th>Responsável</th>
+              <th>Veículos</th>
               <th>Abastecimentos</th>
               <th>Litros</th>
               <th>Total (R$)</th>
@@ -202,19 +213,27 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
             </tr>
           </thead>
           <tbody>
-            {resumoPorVeiculo.map(v => (
+            {resumoPorResponsavel.map(r => (
               <tr
-                key={v.placa}
-                style={{ cursor: 'pointer', background: placaSel === v.placa ? '#eff6ff' : undefined }}
-                onClick={() => setPlacaSel(placaSel === v.placa ? '' : v.placa)}
+                key={r.responsavel}
+                style={{ cursor: 'pointer', background: responsavelSel === r.responsavel ? '#fef3c7' : undefined }}
+                onClick={() => {
+                  if (responsavelSel === r.responsavel) {
+                    setResponsavelSel('')
+                    setPlacaSel('')
+                  } else {
+                    setResponsavelSel(r.responsavel)
+                    setPlacaSel('')
+                  }
+                }}
               >
-                <td><strong>{v.placa}</strong></td>
-                <td style={{ fontSize: 13, color: 'var(--text-2)' }}>{v.modelo || '—'}</td>
-                <td>{v.qtd}</td>
-                <td>{fmtL(v.litros)}</td>
-                <td style={{ fontWeight: 600, color: '#dc2626' }}>{fmt(v.valor)}</td>
+                <td><strong>{r.responsavel}</strong></td>
+                <td>{r.placas.size}</td>
+                <td>{r.qtd}</td>
+                <td>{fmtL(r.litros)}</td>
+                <td style={{ fontWeight: 600, color: '#dc2626' }}>{fmt(r.valor)}</td>
                 <td style={{ fontSize: 12, color: 'var(--sky)' }}>
-                  {placaSel === v.placa ? '▲ ocultar' : '▼ detalhar'}
+                  {responsavelSel === r.responsavel ? '▲ ocultar' : '▼ filtrar'}
                 </td>
               </tr>
             ))}
@@ -222,16 +241,23 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
         </table>
       </div>
 
-      {/* ── Detalhe por veículo selecionado ── */}
+      {/* ── Filtros ── */}
       <div className="filtros-veiculo" style={{ marginBottom: '1.5rem' }}>
         <div className="filtro-grupo">
-          <label className="filtro-label">Filtrar por veículo</label>
+          <label className="filtro-label">Responsável</label>
+          <select className="filtro-select-lg" value={responsavelSel} onChange={e => { setResponsavelSel(e.target.value); setPlacaSel('') }}>
+            <option value="">Todos os responsáveis</option>
+            {responsaveis.map(r => (
+              <option key={r} value={r}>{r}</option>
+            ))}
+          </select>
+        </div>
+        <div className="filtro-grupo">
+          <label className="filtro-label">Veículo</label>
           <select className="filtro-select-lg" value={placaSel} onChange={e => setPlacaSel(e.target.value)}>
             <option value="">Todos os veículos</option>
             {veiculos.map(v => (
-              <option key={v.placa} value={v.placa}>
-                {v.placa}{v.modelo ? ` — ${v.modelo}` : ''}
-              </option>
+              <option key={v.placa} value={v.placa}>{v.placa}</option>
             ))}
           </select>
         </div>
@@ -243,30 +269,36 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
           <label className="filtro-label">Até</label>
           <input type="date" className="filtro-date" value={dataFim} onChange={e => setDataFim(e.target.value)} />
         </div>
-        {(dataInicio || dataFim || placaSel) && (
-          <button className="btn-limpar" onClick={() => { setDataInicio(''); setDataFim(''); setPlacaSel('') }}>
+        {temFiltro && (
+          <button className="btn-limpar" onClick={() => { setResponsavelSel(''); setPlacaSel(''); setDataInicio(''); setDataFim('') }}>
             Limpar filtros
           </button>
         )}
       </div>
 
-      {/* ── Header do veículo selecionado ── */}
-      {placaSel && veiculoSel && (
-        <div className="veiculo-header" style={{ marginBottom: '1rem' }}>
-          <div className="veiculo-id">
-            <span className="veiculo-placa">{placaSel}</span>
+      {/* ── Header responsável selecionado ── */}
+      {responsavelSel && lancamentosFiltrados.length > 0 && (
+        <div style={{
+          background: '#fef3c7', border: '1px solid #fcd34d',
+          borderRadius: 10, padding: '0.75rem 1rem',
+          marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <span style={{ fontSize: 20 }}>👤</span>
+          <div>
+            <div style={{ fontWeight: 700, color: '#92400e', fontSize: 15 }}>{responsavelSel}</div>
+            <div style={{ fontSize: 12, color: '#b45309' }}>
+              {veiculos.length} veículo{veiculos.length !== 1 ? 's' : ''}: {veiculos.map(v => v.placa).join(', ')}
+            </div>
           </div>
-          {veiculoSel.modelo && (
-            <span className="veiculo-modelo">{veiculoSel.modelo}</span>
-          )}
-          <span className="veiculo-grupo" style={{ background: '#fef3c7', color: '#92400e' }}>
-            Terceiros/Vales
-          </span>
+          <div style={{ marginLeft: 'auto', textAlign: 'right' }}>
+            <div style={{ fontWeight: 700, color: '#dc2626', fontSize: 18 }}>{fmt(totalValor)}</div>
+            <div style={{ fontSize: 12, color: '#b45309' }}>{fmtL(totalLitros)} · {lancamentosFiltrados.length} abastecimentos</div>
+          </div>
         </div>
       )}
 
       {/* ── Cards do filtro atual ── */}
-      {(placaSel || dataInicio || dataFim) && lancamentosFiltrados.length > 0 && (
+      {temFiltro && !responsavelSel && lancamentosFiltrados.length > 0 && (
         <div className="cards-grid" style={{ marginBottom: '1.5rem' }}>
           <div className="card">
             <div className="card-label">Total filtrado</div>
@@ -287,11 +319,43 @@ export default function AbastecimentosTerceiros({ extratos }: { extratos: Extrat
         </div>
       )}
 
+      {/* ── Resumo por veículo quando filtrado por responsável com múltiplas placas ── */}
+      {responsavelSel && resumoPorVeiculo.length > 1 && (
+        <div className="tabela-hist-wrap" style={{ marginBottom: '1.5rem' }}>
+          <div className="grafico-titulo" style={{ marginBottom: '0.75rem' }}>
+            Veículos de {responsavelSel.split(' ')[0]}
+          </div>
+          <table className="tabela tabela-sm">
+            <thead>
+              <tr><th>Placa</th><th>Abastecimentos</th><th>Litros</th><th>Total (R$)</th></tr>
+            </thead>
+            <tbody>
+              {resumoPorVeiculo.map(v => (
+                <tr
+                  key={v.placa}
+                  style={{ cursor: 'pointer', background: placaSel === v.placa ? '#eff6ff' : undefined }}
+                  onClick={() => setPlacaSel(placaSel === v.placa ? '' : v.placa)}
+                >
+                  <td><strong>{v.placa}</strong></td>
+                  <td>{v.qtd}</td>
+                  <td>{fmtL(v.litros)}</td>
+                  <td style={{ fontWeight: 600, color: '#dc2626' }}>{fmt(v.valor)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* ── Tabela de lançamentos ── */}
       <div className="tabela-hist-wrap">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
           <div className="grafico-titulo" style={{ margin: 0 }}>
-            {placaSel ? `Histórico — ${placaSel}` : 'Todos os abastecimentos'}
+            {responsavelSel
+              ? `Abastecimentos — ${responsavelSel}`
+              : placaSel
+              ? `Histórico — ${placaSel}`
+              : 'Todos os abastecimentos'}
             <span style={{ fontWeight: 400, fontSize: 13, color: 'var(--text-2)', marginLeft: 8 }}>
               ({lancamentosFiltrados.length} registros)
             </span>
