@@ -11,11 +11,6 @@ function chaveJustificativa(l: Lancamento): string {
   return `${l.placaLida}__${l.documento}`
 }
 
-// Extrai a placa da chave (formato: "PLACA__DOCUMENTO")
-function placaDaChave(chave: string): string {
-  return chave.split('__')[0] || ''
-}
-
 export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamentos: Lancamento[], extratos?: Extrato[] }) {
   const naoIdentificadas = lancamentos.filter(l => l.status === 'nao_identificada')
   const [justificativas, setJustificativas] = useState<Record<string, string>>({})
@@ -27,14 +22,13 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const [responsaveisDinamicos, setResponsaveisDinamicos] = useState<string[]>([])
   const [salvando, setSalvando] = useState(false)
 
-  // Mapa chave -> { postoNome, placaLida } para garantir que sempre temos a placa
-  const mapaLancamentos = useMemo(() => {
-    const mapa: Record<string, { postoNome: string; placaLida: string }> = {}
+  // Mapa chave -> postoNome (só para exibição)
+  const mapaPostos = useMemo(() => {
+    const mapa: Record<string, string> = {}
     extratos.forEach(e => {
       e.postos.forEach(p => {
         p.lancamentos.forEach(l => {
-          const chave = `${l.placaLida}__${l.documento}`
-          mapa[chave] = { postoNome: p.nome, placaLida: l.placaLida }
+          mapa[`${l.placaLida}__${l.documento}`] = p.nome
         })
       })
     })
@@ -82,15 +76,11 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
     setAdicionandoResponsavel(false)
   }
 
-  const salvar = async (chave: string) => {
+  // placa vem diretamente do lançamento — sem depender do mapa
+  const salvar = async (chave: string, placa: string) => {
     if (!textoEditando.trim()) return
     setSalvando(true)
-
-    // Placa: tenta do mapa de lançamentos, depois da chave como fallback
-    const placaDoMapa = mapaLancamentos[chave]?.placaLida || ''
-    const placaDaChaveStr = placaDaChave(chave)
-    const placa = (placaDoMapa || placaDaChaveStr).toUpperCase().replace(/[^A-Z0-9]/g, '')
-
+    const placaLimpa = placa.toUpperCase().replace(/[^A-Z0-9]/g, '')
     try {
       // 1. Salvar justificativa
       await fetch('/api/justificativas', {
@@ -101,10 +91,10 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
       setJustificativas(prev => ({ ...prev, [chave]: textoEditando }))
 
       // 2. Se responsável selecionado E placa válida, cadastrar na frota
-      if (responsavelEditando && placa) {
+      if (responsavelEditando && placaLimpa) {
         const novoVeiculo = {
           nFrota: '0',
-          placa,
+          placa: placaLimpa,
           grupo: GRUPO_TERCEIROS,
           marca: '',
           modelo: responsavelEditando,
@@ -145,7 +135,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
       naoIdentificadas.map(l => {
         const chave = chaveJustificativa(l)
         return [
-          l.placaLida, l.emissao, mapaLancamentos[chave]?.postoNome || '—', l.combustivelNome,
+          l.placaLida, l.emissao, mapaPostos[chave] || '—', l.combustivelNome,
           parseFloat(l.litros.toFixed(3)),
           parseFloat(l.valor.toFixed(2)),
           l.documento,
@@ -171,10 +161,9 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const comJustificativa = naoIdentificadas.filter(l => justificativas[chaveJustificativa(l)])
   const semJustificativa = naoIdentificadas.filter(l => !justificativas[chaveJustificativa(l)])
 
-  // ── Formulário de justificativa ────────────────────────────────────────
-  const renderFormEdicao = (chave: string) => {
-    const placaDoMapa = mapaLancamentos[chave]?.placaLida || ''
-    const placaExibir = placaDoMapa || placaDaChave(chave)
+  // ── Formulário de justificativa — recebe o lançamento completo ─────────
+  const renderFormEdicao = (chave: string, l: Lancamento) => {
+    const placa = l.placaLida || ''
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -261,17 +250,17 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
             </div>
           )}
 
-          {/* Confirmação do vínculo */}
-          {responsavelEditando && placaExibir && (
+          {/* Confirmação ou aviso */}
+          {responsavelEditando && placa && (
             <div style={{
               fontSize: 11, color: '#92400e', background: '#fef3c7',
               border: '1px solid #fcd34d', borderRadius: 5,
               padding: '4px 8px', marginTop: 4,
             }}>
-              ✓ A placa <strong>{placaExibir}</strong> será cadastrada em Terceiros/Vales como <strong>{responsavelEditando}</strong> e não gerará mais alertas
+              ✓ A placa <strong>{placa}</strong> será cadastrada em Terceiros/Vales como <strong>{responsavelEditando}</strong> e não gerará mais alertas
             </div>
           )}
-          {responsavelEditando && !placaExibir && (
+          {responsavelEditando && !placa && (
             <div style={{
               fontSize: 11, color: '#dc2626', background: '#fef2f2',
               border: '1px solid #fca5a5', borderRadius: 5,
@@ -297,7 +286,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
           />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <button
-              onClick={() => salvar(chave)}
+              onClick={() => salvar(chave, placa)}
               disabled={salvando || !textoEditando.trim()}
               style={{
                 padding: '5px 10px', fontSize: 12, fontWeight: 600,
@@ -379,7 +368,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
             <tbody>
               {semJustificativa.map((l, i) => {
                 const chave = chaveJustificativa(l)
-                const posto = mapaLancamentos[chave]?.postoNome || '—'
+                const posto = mapaPostos[chave] || '—'
                 return (
                   <tr key={i} className="tr-vermelho">
                     <td><code>{l.placaLida || '—'}</code></td>
@@ -391,7 +380,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td><small>{l.documento}</small></td>
                     <td style={{ minWidth: 300 }}>
                       {editando === chave
-                        ? renderFormEdicao(chave)
+                        ? renderFormEdicao(chave, l)
                         : (
                           <button
                             onClick={() => iniciarEdicao(chave)}
@@ -436,7 +425,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
             <tbody>
               {comJustificativa.map((l, i) => {
                 const chave = chaveJustificativa(l)
-                const posto = mapaLancamentos[chave]?.postoNome || '—'
+                const posto = mapaPostos[chave] || '—'
                 return (
                   <tr key={i}>
                     <td><code>{l.placaLida || '—'}</code></td>
@@ -448,7 +437,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td><small>{l.documento}</small></td>
                     <td style={{ minWidth: 300 }}>
                       {editando === chave
-                        ? renderFormEdicao(chave)
+                        ? renderFormEdicao(chave, l)
                         : (
                           <div style={{
                             fontSize: 12, color: 'var(--text)',
