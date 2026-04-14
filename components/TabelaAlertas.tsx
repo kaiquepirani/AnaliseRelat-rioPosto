@@ -76,13 +76,11 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
     setAdicionandoResponsavel(false)
   }
 
-  // placa vem diretamente do lançamento — sem depender do mapa
   const salvar = async (chave: string, placa: string) => {
     if (!textoEditando.trim()) return
     setSalvando(true)
     const placaLimpa = placa.toUpperCase().replace(/[^A-Z0-9]/g, '')
     try {
-      // 1. Salvar justificativa
       await fetch('/api/justificativas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -90,7 +88,6 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
       })
       setJustificativas(prev => ({ ...prev, [chave]: textoEditando }))
 
-      // 2. Se responsável selecionado E placa válida, cadastrar na frota
       if (responsavelEditando && placaLimpa) {
         const novoVeiculo = {
           nFrota: '0',
@@ -131,14 +128,14 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
     const { exportarXLSX } = require('@/lib/exportar')
     exportarXLSX(
       `alertas-placas-${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.xlsx`,
-      ['Placa', 'Data', 'Posto', 'Combustível', 'Litros', 'Valor (R$)', 'Documento', 'Status', 'Justificativa'],
+      ['Placa', 'Data', 'Posto', 'Motorista', 'Combustível', 'Litros', 'Valor (R$)', 'Status', 'Justificativa'],
       naoIdentificadas.map(l => {
         const chave = chaveJustificativa(l)
         return [
-          l.placaLida, l.emissao, mapaPostos[chave] || '—', l.combustivelNome,
+          l.placaLida, l.emissao, mapaPostos[chave] || '—',
+          l.motorista || '—', l.combustivelNome,
           parseFloat(l.litros.toFixed(3)),
           parseFloat(l.valor.toFixed(2)),
-          l.documento,
           justificativas[chave] ? 'Justificado' : 'Pendente',
           justificativas[chave] || ''
         ]
@@ -161,37 +158,25 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const comJustificativa = naoIdentificadas.filter(l => justificativas[chaveJustificativa(l)])
   const semJustificativa = naoIdentificadas.filter(l => !justificativas[chaveJustificativa(l)])
 
-  // ── Formulário de justificativa — recebe o lançamento completo ─────────
+  // ── Formulário de justificativa ────────────────────────────────────────
   const renderFormEdicao = (chave: string, l: Lancamento) => {
     const placa = l.placaLida || ''
-
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-
-        {/* Vincular a Terceiros/Vales */}
         <div>
           <label style={{ fontSize: 11, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 4 }}>
             Vincular a Terceiros/Vales? <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(opcional)</span>
           </label>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <select
-              value={responsavelEditando}
-              onChange={e => setResponsavelEditando(e.target.value)}
-              style={{
-                flex: 1, fontSize: 12, padding: '5px 8px',
-                border: '1px solid #fcd34d', borderRadius: 6,
-                fontFamily: 'inherit', background: '#fffbeb', color: '#92400e',
-              }}
-            >
+            <select value={responsavelEditando} onChange={e => setResponsavelEditando(e.target.value)} style={{
+              flex: 1, fontSize: 12, padding: '5px 8px',
+              border: '1px solid #fcd34d', borderRadius: 6,
+              fontFamily: 'inherit', background: '#fffbeb', color: '#92400e',
+            }}>
               <option value="">— Não vincular —</option>
-              {responsaveisDinamicos.map(r => (
-                <option key={r} value={r}>{r}</option>
-              ))}
+              {responsaveisDinamicos.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
-
-            {/* Botão + para novo responsável */}
-            <button
-              onClick={() => { setAdicionandoResponsavel(v => !v); setNovoResponsavel('') }}
+            <button onClick={() => { setAdicionandoResponsavel(v => !v); setNovoResponsavel('') }}
               title="Adicionar novo responsável"
               style={{
                 width: 28, height: 28, borderRadius: 6, border: '1px solid #fcd34d',
@@ -199,113 +184,54 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                 color: '#92400e', fontWeight: 700, fontSize: 18,
                 cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 flexShrink: 0, lineHeight: 1,
-              }}
-            >+</button>
+              }}>+</button>
           </div>
 
-          {/* Mini-formulário novo responsável */}
           {adicionandoResponsavel && (
-            <div style={{
-              marginTop: 6, padding: '8px 10px',
-              background: '#fffbeb', border: '1px solid #fcd34d',
-              borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6,
-            }}>
+            <div style={{ marginTop: 6, padding: '8px 10px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e' }}>Novo responsável</div>
               <div style={{ display: 'flex', gap: 6 }}>
-                <input
-                  autoFocus
-                  value={novoResponsavel}
-                  onChange={e => setNovoResponsavel(e.target.value)}
+                <input autoFocus value={novoResponsavel} onChange={e => setNovoResponsavel(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') confirmarNovoResponsavel(); if (e.key === 'Escape') setAdicionandoResponsavel(false) }}
                   placeholder="Ex: João Silva Ubatuba"
-                  style={{
-                    flex: 1, fontSize: 12, padding: '5px 8px',
-                    border: '1px solid #fcd34d', borderRadius: 6,
-                    fontFamily: 'inherit', background: 'white',
-                  }}
-                />
-                <button
-                  onClick={confirmarNovoResponsavel}
-                  disabled={!novoResponsavel.trim()}
-                  style={{
-                    padding: '5px 10px', fontSize: 12, fontWeight: 600,
-                    background: '#92400e', color: 'white',
-                    border: 'none', borderRadius: 6, cursor: 'pointer',
-                    fontFamily: 'inherit', opacity: novoResponsavel.trim() ? 1 : 0.5,
-                  }}
-                >Confirmar</button>
-                <button
-                  onClick={() => { setAdicionandoResponsavel(false); setNovoResponsavel('') }}
-                  style={{
-                    padding: '5px 8px', fontSize: 12,
-                    background: 'white', color: 'var(--text-2)',
-                    border: '1px solid var(--border)', borderRadius: 6,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >✕</button>
+                  style={{ flex: 1, fontSize: 12, padding: '5px 8px', border: '1px solid #fcd34d', borderRadius: 6, fontFamily: 'inherit', background: 'white' }} />
+                <button onClick={confirmarNovoResponsavel} disabled={!novoResponsavel.trim()}
+                  style={{ padding: '5px 10px', fontSize: 12, fontWeight: 600, background: '#92400e', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', opacity: novoResponsavel.trim() ? 1 : 0.5 }}>Confirmar</button>
+                <button onClick={() => { setAdicionandoResponsavel(false); setNovoResponsavel('') }}
+                  style={{ padding: '5px 8px', fontSize: 12, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>✕</button>
               </div>
-              <div style={{ fontSize: 11, color: '#b45309' }}>
-                O responsável será criado ao salvar a justificativa
-              </div>
+              <div style={{ fontSize: 11, color: '#b45309' }}>O responsável será criado ao salvar a justificativa</div>
             </div>
           )}
 
-          {/* Confirmação ou aviso */}
           {responsavelEditando && placa && (
-            <div style={{
-              fontSize: 11, color: '#92400e', background: '#fef3c7',
-              border: '1px solid #fcd34d', borderRadius: 5,
-              padding: '4px 8px', marginTop: 4,
-            }}>
+            <div style={{ fontSize: 11, color: '#92400e', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 5, padding: '4px 8px', marginTop: 4 }}>
               ✓ A placa <strong>{placa}</strong> será cadastrada em Terceiros/Vales como <strong>{responsavelEditando}</strong> e não gerará mais alertas
             </div>
           )}
           {responsavelEditando && !placa && (
-            <div style={{
-              fontSize: 11, color: '#dc2626', background: '#fef2f2',
-              border: '1px solid #fca5a5', borderRadius: 5,
-              padding: '4px 8px', marginTop: 4,
-            }}>
+            <div style={{ fontSize: 11, color: '#dc2626', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 5, padding: '4px 8px', marginTop: 4 }}>
               ⚠️ Placa não identificada — o vínculo não poderá ser cadastrado automaticamente
             </div>
           )}
         </div>
 
-        {/* Textarea justificativa */}
         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-          <textarea
-            value={textoEditando}
-            onChange={e => setTextoEditando(e.target.value)}
+          <textarea value={textoEditando} onChange={e => setTextoEditando(e.target.value)}
             placeholder="Descreva o motivo deste abastecimento..."
-            style={{
-              flex: 1, fontSize: 12, padding: '6px 8px',
-              border: '1px solid var(--border)', borderRadius: 6,
-              fontFamily: 'inherit', resize: 'vertical', minHeight: 56,
-              background: 'white',
-            }}
-          />
+            style={{ flex: 1, fontSize: 12, padding: '6px 8px', border: '1px solid var(--border)', borderRadius: 6, fontFamily: 'inherit', resize: 'vertical', minHeight: 56, background: 'white' }} />
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <button
-              onClick={() => salvar(chave, placa)}
-              disabled={salvando || !textoEditando.trim()}
-              style={{
-                padding: '5px 10px', fontSize: 12, fontWeight: 600,
-                background: 'var(--navy)', color: 'white',
-                border: 'none', borderRadius: 6,
-                cursor: salvando || !textoEditando.trim() ? 'not-allowed' : 'pointer',
-                fontFamily: 'inherit', whiteSpace: 'nowrap',
-                opacity: salvando || !textoEditando.trim() ? 0.6 : 1,
-              }}
-            >{salvando ? 'Salvando...' : 'Salvar'}</button>
-            <button
-              onClick={() => { setEditando(null); setResponsavelEditando(''); setAdicionandoResponsavel(false) }}
-              style={{
-                padding: '5px 10px', fontSize: 12,
-                background: 'var(--bg)', color: 'var(--text-2)',
-                border: '1px solid var(--border)', borderRadius: 6,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >Cancelar</button>
+            <button onClick={() => salvar(chave, placa)} disabled={salvando || !textoEditando.trim()} style={{
+              padding: '5px 10px', fontSize: 12, fontWeight: 600,
+              background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6,
+              cursor: salvando || !textoEditando.trim() ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', whiteSpace: 'nowrap',
+              opacity: salvando || !textoEditando.trim() ? 0.6 : 1,
+            }}>{salvando ? 'Salvando...' : 'Salvar'}</button>
+            <button onClick={() => { setEditando(null); setResponsavelEditando(''); setAdicionandoResponsavel(false) }} style={{
+              padding: '5px 10px', fontSize: 12, background: 'var(--bg)', color: 'var(--text-2)',
+              border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+            }}>Cancelar</button>
           </div>
         </div>
       </div>
@@ -358,10 +284,10 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                 <th>Placa</th>
                 <th>Data</th>
                 <th>Posto</th>
+                <th>Motorista</th>
                 <th>Combustível</th>
                 <th>Litros</th>
                 <th>Valor</th>
-                <th>Documento</th>
                 <th>Justificativa</th>
               </tr>
             </thead>
@@ -374,23 +300,20 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td><code>{l.placaLida || '—'}</code></td>
                     <td>{l.emissao}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{posto}</td>
+                    <td style={{ fontSize: 12, fontWeight: 500 }}>{l.motorista || '—'}</td>
                     <td>{l.combustivelNome}</td>
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
-                    <td><small>{l.documento}</small></td>
                     <td style={{ minWidth: 300 }}>
                       {editando === chave
                         ? renderFormEdicao(chave, l)
                         : (
-                          <button
-                            onClick={() => iniciarEdicao(chave)}
-                            style={{
-                              padding: '5px 12px', fontSize: 12, fontWeight: 600,
-                              background: 'white', color: 'var(--navy)',
-                              border: '1px solid var(--navy)', borderRadius: 6,
-                              cursor: 'pointer', fontFamily: 'inherit',
-                            }}
-                          >+ Adicionar justificativa</button>
+                          <button onClick={() => iniciarEdicao(chave)} style={{
+                            padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                            background: 'white', color: 'var(--navy)',
+                            border: '1px solid var(--navy)', borderRadius: 6,
+                            cursor: 'pointer', fontFamily: 'inherit',
+                          }}>+ Adicionar justificativa</button>
                         )}
                     </td>
                   </tr>
@@ -414,10 +337,10 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                 <th>Placa</th>
                 <th>Data</th>
                 <th>Posto</th>
+                <th>Motorista</th>
                 <th>Combustível</th>
                 <th>Litros</th>
                 <th>Valor</th>
-                <th>Documento</th>
                 <th>Justificativa</th>
                 <th></th>
               </tr>
@@ -431,19 +354,15 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td><code>{l.placaLida || '—'}</code></td>
                     <td>{l.emissao}</td>
                     <td style={{ fontSize: 12, color: 'var(--text-2)' }}>{posto}</td>
+                    <td style={{ fontSize: 12, fontWeight: 500 }}>{l.motorista || '—'}</td>
                     <td>{l.combustivelNome}</td>
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
-                    <td><small>{l.documento}</small></td>
                     <td style={{ minWidth: 300 }}>
                       {editando === chave
                         ? renderFormEdicao(chave, l)
                         : (
-                          <div style={{
-                            fontSize: 12, color: 'var(--text)',
-                            background: 'var(--green-bg)', padding: '6px 10px',
-                            borderRadius: 6, border: '1px solid #86efac', lineHeight: 1.5,
-                          }}>
+                          <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--green-bg)', padding: '6px 10px', borderRadius: 6, border: '1px solid #86efac', lineHeight: 1.5 }}>
                             {justificativas[chave]}
                           </div>
                         )}
@@ -451,12 +370,8 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td>
                       {editando !== chave && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <button onClick={() => iniciarEdicao(chave)}
-                            style={{ padding: '4px 8px', fontSize: 11, background: 'var(--bg)', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}
-                          >Editar</button>
-                          <button onClick={() => remover(chave)}
-                            style={{ padding: '4px 8px', fontSize: 11, background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}
-                          >Remover</button>
+                          <button onClick={() => iniciarEdicao(chave)} style={{ padding: '4px 8px', fontSize: 11, background: 'var(--bg)', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}>Editar</button>
+                          <button onClick={() => remover(chave)} style={{ padding: '4px 8px', fontSize: 11, background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}>Remover</button>
                         </div>
                       )}
                     </td>
