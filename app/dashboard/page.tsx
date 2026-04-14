@@ -16,8 +16,9 @@ import EficienciaKM from '@/components/EficienciaKM'
 import PrecoAtual from '@/components/PrecoAtual'
 import Confronto from '@/components/Confronto'
 import GerenciarFrota from '@/components/GerenciarFrota'
+import AbastecimentosTerceiros from '@/components/AbastecimentosTerceiros'
 
-type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota'
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota' | 'terceiros'
 
 interface DuplicataInfo {
   extratoExistente: {
@@ -49,7 +50,6 @@ export default function Dashboard() {
 
   useEffect(() => { buscarExtratos() }, [buscarExtratos])
 
-  // Envia o FormData para /api/processar e trata duplicata
   const enviarForm = async (form: FormData, forcar = false): Promise<boolean> => {
     if (forcar) form.set('forcarSalvar', 'true')
     const res = await fetch('/api/processar', { method: 'POST', body: form })
@@ -158,6 +158,9 @@ export default function Dashboard() {
   const todosLancamentos = extratosVisiveis.flatMap(e => e.postos.flatMap(p => p.lancamentos))
   const todosPostos = extratosVisiveis.flatMap(e => e.postos)
 
+  // Contagem de terceiros para badge na aba
+  const totalTerceiros = todosLancamentos.filter(l => l.grupo === 'Abastecimentos de Terceiros/Vales').length
+
   const alertasAgregados = {
     confirmadaValor: extratosVisiveis.reduce((s, e) => s + e.alertas.confirmadaValor, 0),
     provalValor: extratosVisiveis.reduce((s, e) => s + e.alertas.provalValor, 0),
@@ -172,6 +175,7 @@ export default function Dashboard() {
     { id: 'posto', label: 'Por posto' },
     { id: 'veiculo', label: 'Por veículo' },
     { id: 'confronto', label: 'Confronto', vermelho: true },
+    { id: 'terceiros', label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined, separadorAntes: true },
     { id: 'postos', label: 'Postos', badge: todosPostos.length, separadorAntes: true },
     { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
@@ -285,7 +289,17 @@ export default function Dashboard() {
                   <button
                     className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`}
                     onClick={() => setAbaAtiva(aba.id)}
-                    style={aba.vermelho && abaAtiva !== aba.id ? { color: '#dc2626' } : aba.vermelho && abaAtiva === aba.id ? { color: 'white', background: '#dc2626' } : {}}
+                    style={
+                      aba.id === 'terceiros' && abaAtiva !== 'terceiros'
+                        ? { color: '#92400e' }
+                        : aba.id === 'terceiros' && abaAtiva === 'terceiros'
+                        ? { color: 'white', background: '#92400e' }
+                        : aba.vermelho && abaAtiva !== aba.id
+                        ? { color: '#dc2626' }
+                        : aba.vermelho && abaAtiva === aba.id
+                        ? { color: 'white', background: '#dc2626' }
+                        : {}
+                    }
                   >
                     {aba.label}
                     {aba.badge !== undefined && aba.badge !== 0 && (
@@ -309,6 +323,7 @@ export default function Dashboard() {
             {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
             {abaAtiva === 'confronto' && <Confronto extratos={extratos} />}
             {abaAtiva === 'frota' && <GerenciarFrota />}
+            {abaAtiva === 'terceiros' && <AbastecimentosTerceiros extratos={extratosVisiveis} />}
           </>
         )}
       </main>
@@ -324,7 +339,6 @@ export default function Dashboard() {
             background: 'white', borderRadius: 16, padding: '2rem',
             maxWidth: 460, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
           }}>
-            {/* Ícone + título */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.25rem' }}>
               <div style={{
                 width: 44, height: 44, borderRadius: 12, background: '#fef9c3',
@@ -337,7 +351,6 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Card extrato existente */}
             <div style={{
               background: '#f8fafc', border: '1px solid #e2e8f0',
               borderRadius: 10, padding: '0.875rem 1rem', marginBottom: '1rem',
@@ -362,7 +375,6 @@ export default function Dashboard() {
               Deseja salvar mesmo assim?
             </div>
 
-            {/* Botões */}
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={handleCancelarDuplicata} style={{
                 padding: '0.6rem 1.25rem', fontSize: 13, fontWeight: 600,
