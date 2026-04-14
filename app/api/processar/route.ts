@@ -92,10 +92,16 @@ function detectarDuplicata(
 
 export async function POST(req: NextRequest) {
   try {
-    // Carregar frota atualizada do Redis
-    const frotaAtual = await redis.get('frota') as any[] | null
-    if (frotaAtual && frotaAtual.length > 0) setFrota(frotaAtual)
-    else setFrota(FROTA_PADRAO)
+    // Carregar frota do Redis e fazer merge com FROTA_PADRAO
+    // Garante que placas novas adicionadas no código sempre estejam presentes
+    const frotaRedis = await redis.get('frota') as any[] | null
+    if (frotaRedis && frotaRedis.length > 0) {
+      const placasRedis = new Set(frotaRedis.map((v: any) => v.placa))
+      const novasDoDefault = FROTA_PADRAO.filter(v => !placasRedis.has(v.placa))
+      setFrota([...frotaRedis, ...novasDoDefault])
+    } else {
+      setFrota(FROTA_PADRAO)
+    }
 
     const formData = await req.formData()
     const excelJson = formData.get('excel') as string | null
@@ -358,7 +364,6 @@ Regras criticas:
             totalValor: duplicata.totalValor,
             dataUpload: duplicata.dataUpload,
           },
-          // Devolve o extrato processado para que o cliente possa salvar se confirmar
           extratoProcessado: {
             arquivo: file?.name || dadosBrutos.posto?.nome || 'Extrato',
             periodo: periodoReal,
