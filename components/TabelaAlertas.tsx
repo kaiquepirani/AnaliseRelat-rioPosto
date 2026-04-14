@@ -5,12 +5,15 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-function motivoAlerta(l: Lancamento): string {
-  if (l.status === 'nao_identificada') {
-    return 'Placa não encontrada na relação de frota nem em registros de veículos alugados'
-  }
-  return ''
-}
+const GRUPO_TERCEIROS = 'Abastecimentos de Terceiros/Vales'
+
+// Responsáveis fixos do grupo Terceiros — sincronizado com frota.ts
+const RESPONSAVEIS_TERCEIROS = [
+  'Fabricio Pinhal',
+  'Vale Motorista Pinhal - Carlos César Amaro',
+  'Sergião Ubatuba (Doação)',
+  'Buiu - A Serviço da Empresa',
+]
 
 function chaveJustificativa(l: Lancamento): string {
   return `${l.placaLida}__${l.documento}`
@@ -21,9 +24,10 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const [justificativas, setJustificativas] = useState<Record<string, string>>({})
   const [editando, setEditando] = useState<string | null>(null)
   const [textoEditando, setTextoEditando] = useState('')
+  const [responsavelEditando, setResponsavelEditando] = useState('')
   const [salvando, setSalvando] = useState(false)
 
-  // Mapear documento -> nome do posto
+  // Mapa documento -> nome do posto
   const mapaPostos = useMemo(() => {
     const mapa: Record<string, string> = {}
     extratos.forEach(e => {
@@ -47,18 +51,42 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const iniciarEdicao = (chave: string) => {
     setEditando(chave)
     setTextoEditando(justificativas[chave] || '')
+    setResponsavelEditando('')
   }
 
-  const salvar = async (chave: string) => {
+  const salvar = async (chave: string, placa: string) => {
+    if (!textoEditando.trim()) return
     setSalvando(true)
-    await fetch('/api/justificativas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chave, texto: textoEditando }),
-    })
-    setJustificativas(prev => ({ ...prev, [chave]: textoEditando }))
-    setEditando(null)
-    setSalvando(false)
+    try {
+      // 1. Salvar justificativa
+      await fetch('/api/justificativas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chave, texto: textoEditando }),
+      })
+      setJustificativas(prev => ({ ...prev, [chave]: textoEditando }))
+
+      // 2. Se responsável selecionado, cadastrar placa na frota como Terceiros/Vales
+      if (responsavelEditando) {
+        const novoVeiculo = {
+          nFrota: '0',
+          placa: placa.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+          grupo: GRUPO_TERCEIROS,
+          marca: '',
+          modelo: responsavelEditando,
+        }
+        await fetch('/api/frota', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(novoVeiculo),
+        })
+      }
+
+      setEditando(null)
+      setResponsavelEditando('')
+    } finally {
+      setSalvando(false)
+    }
   }
 
   const remover = async (chave: string) => {
@@ -106,6 +134,80 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
   const comJustificativa = naoIdentificadas.filter(l => justificativas[chaveJustificativa(l)])
   const semJustificativa = naoIdentificadas.filter(l => !justificativas[chaveJustificativa(l)])
 
+  // ── Formulário de justificativa (reutilizado nas duas seções) ──────────
+  const renderFormEdicao = (chave: string, placa: string) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+
+      {/* Dropdown vincular a terceiros */}
+      <div>
+        <label style={{ fontSize: 11, fontWeight: 600, color: '#92400e', display: 'block', marginBottom: 4 }}>
+          Vincular a Terceiros/Vales? <span style={{ fontWeight: 400, color: 'var(--text-2)' }}>(opcional)</span>
+        </label>
+        <select
+          value={responsavelEditando}
+          onChange={e => setResponsavelEditando(e.target.value)}
+          style={{
+            width: '100%', fontSize: 12, padding: '5px 8px',
+            border: '1px solid #fcd34d', borderRadius: 6,
+            fontFamily: 'inherit', background: '#fffbeb', color: '#92400e',
+          }}
+        >
+          <option value="">— Não vincular —</option>
+          {RESPONSAVEIS_TERCEIROS.map(r => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+        {responsavelEditando && (
+          <div style={{
+            fontSize: 11, color: '#92400e', background: '#fef3c7',
+            border: '1px solid #fcd34d', borderRadius: 5,
+            padding: '4px 8px', marginTop: 4,
+          }}>
+            ✓ A placa <strong>{placa}</strong> será cadastrada em Terceiros/Vales como <strong>{responsavelEditando}</strong> e não gerará mais alertas
+          </div>
+        )}
+      </div>
+
+      {/* Textarea justificativa */}
+      <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+        <textarea
+          autoFocus
+          value={textoEditando}
+          onChange={e => setTextoEditando(e.target.value)}
+          placeholder="Descreva o motivo deste abastecimento..."
+          style={{
+            flex: 1, fontSize: 12, padding: '6px 8px',
+            border: '1px solid var(--border)', borderRadius: 6,
+            fontFamily: 'inherit', resize: 'vertical', minHeight: 56,
+            background: 'white',
+          }}
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <button
+            onClick={() => salvar(chave, placa)}
+            disabled={salvando || !textoEditando.trim()}
+            style={{
+              padding: '5px 10px', fontSize: 12, fontWeight: 600,
+              background: 'var(--navy)', color: 'white',
+              border: 'none', borderRadius: 6, cursor: salvando ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', whiteSpace: 'nowrap',
+              opacity: salvando || !textoEditando.trim() ? 0.6 : 1,
+            }}
+          >{salvando ? 'Salvando...' : 'Salvar'}</button>
+          <button
+            onClick={() => { setEditando(null); setResponsavelEditando('') }}
+            style={{
+              padding: '5px 10px', fontSize: 12,
+              background: 'var(--bg)', color: 'var(--text-2)',
+              border: '1px solid var(--border)', borderRadius: 6,
+              cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div className="alertas">
       {/* Resumo */}
@@ -119,7 +221,7 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
           <div className={`card ${semJustificativa.length === 0 ? 'card-ok' : 'card-alerta'}`}>
             <div className="card-label">Sem justificativa</div>
             <div className="card-valor">{semJustificativa.length}</div>
-          <div className="card-sub">{fmt(semJustificativa.reduce((s, l) => s + l.valor, 0))}</div>
+            <div className="card-sub">{fmt(semJustificativa.reduce((s, l) => s + l.valor, 0))}</div>
           </div>
           <div className="card card-ok">
             <div className="card-label">Justificados</div>
@@ -172,54 +274,20 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
                     <td><small>{l.documento}</small></td>
-                    <td style={{ minWidth: 260 }}>
-                      {editando === chave ? (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                          <textarea
-                            autoFocus
-                            value={textoEditando}
-                            onChange={e => setTextoEditando(e.target.value)}
-                            placeholder="Descreva o motivo deste abastecimento..."
+                    <td style={{ minWidth: 300 }}>
+                      {editando === chave
+                        ? renderFormEdicao(chave, l.placaLida)
+                        : (
+                          <button
+                            onClick={() => iniciarEdicao(chave)}
                             style={{
-                              flex: 1, fontSize: 12, padding: '6px 8px',
-                              border: '1px solid var(--border)', borderRadius: 6,
-                              fontFamily: 'inherit', resize: 'vertical', minHeight: 60,
-                              background: 'white',
+                              padding: '5px 12px', fontSize: 12, fontWeight: 600,
+                              background: 'white', color: 'var(--navy)',
+                              border: '1px solid var(--navy)', borderRadius: 6,
+                              cursor: 'pointer', fontFamily: 'inherit',
                             }}
-                          />
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <button
-                              onClick={() => salvar(chave)}
-                              disabled={salvando || !textoEditando.trim()}
-                              style={{
-                                padding: '5px 10px', fontSize: 12, fontWeight: 600,
-                                background: 'var(--navy)', color: 'white',
-                                border: 'none', borderRadius: 6, cursor: 'pointer',
-                                fontFamily: 'inherit', whiteSpace: 'nowrap',
-                              }}
-                            >Salvar</button>
-                            <button
-                              onClick={() => setEditando(null)}
-                              style={{
-                                padding: '5px 10px', fontSize: 12,
-                                background: 'var(--bg)', color: 'var(--text-2)',
-                                border: '1px solid var(--border)', borderRadius: 6,
-                                cursor: 'pointer', fontFamily: 'inherit',
-                              }}
-                            >Cancelar</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => iniciarEdicao(chave)}
-                          style={{
-                            padding: '5px 12px', fontSize: 12, fontWeight: 600,
-                            background: 'white', color: 'var(--navy)',
-                            border: '1px solid var(--navy)', borderRadius: 6,
-                            cursor: 'pointer', fontFamily: 'inherit',
-                          }}
-                        >+ Adicionar justificativa</button>
-                      )}
+                          >+ Adicionar justificativa</button>
+                        )}
                     </td>
                   </tr>
                 )
@@ -263,34 +331,18 @@ export default function TabelaAlertas({ lancamentos, extratos = [] }: { lancamen
                     <td>{l.litros.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} L</td>
                     <td>{fmt(l.valor)}</td>
                     <td><small>{l.documento}</small></td>
-                    <td style={{ minWidth: 260 }}>
-                      {editando === chave ? (
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-                          <textarea
-                            autoFocus
-                            value={textoEditando}
-                            onChange={e => setTextoEditando(e.target.value)}
-                            style={{
-                              flex: 1, fontSize: 12, padding: '6px 8px',
-                              border: '1px solid var(--border)', borderRadius: 6,
-                              fontFamily: 'inherit', resize: 'vertical', minHeight: 60,
-                              background: 'white',
-                            }}
-                          />
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <button onClick={() => salvar(chave)} disabled={salvando}
-                              style={{ padding: '5px 10px', fontSize: 12, fontWeight: 600, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
-                            >Salvar</button>
-                            <button onClick={() => setEditando(null)}
-                              style={{ padding: '5px 10px', fontSize: 12, background: 'var(--bg)', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
-                            >Cancelar</button>
+                    <td style={{ minWidth: 300 }}>
+                      {editando === chave
+                        ? renderFormEdicao(chave, l.placaLida)
+                        : (
+                          <div style={{
+                            fontSize: 12, color: 'var(--text)',
+                            background: 'var(--green-bg)', padding: '6px 10px',
+                            borderRadius: 6, border: '1px solid #86efac', lineHeight: 1.5,
+                          }}>
+                            {justificativas[chave]}
                           </div>
-                        </div>
-                      ) : (
-                        <div style={{ fontSize: 12, color: 'var(--text)', background: 'var(--green-bg)', padding: '6px 10px', borderRadius: 6, border: '1px solid #86efac', lineHeight: 1.5 }}>
-                          {justificativas[chave]}
-                        </div>
-                      )}
+                        )}
                     </td>
                     <td>
                       {editando !== chave && (
