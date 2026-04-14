@@ -256,7 +256,18 @@ export const FROTA_PADRAO: FrotaVeiculo[] = [
   { nFrota: "4816", placa: "SVW1E56", grupo: "Van 15 Teto Baixo", marca: "RENAULT", modelo: "MASTER 2015>" },
   { nFrota: "2408", placa: "SWV2G78", grupo: "Spin 6+1", marca: "GM", modelo: "CHEV/SPIN 1.8 L AT LT7" },
   { nFrota: "2426", placa: "TIO0B96", grupo: "Spin 6+1", marca: "CHEVROLET", modelo: "SPIN PREMIER" },
-  { nFrota: "4826", placa: "UFI3J94", grupo: "VAN MASTER", marca: "RENAULT", modelo: "" }
+  { nFrota: "4826", placa: "UFI3J94", grupo: "VAN MASTER", marca: "RENAULT", modelo: "" },
+
+  // ── Abastecimentos de Terceiros/Vales ─────────────────────────────────────
+  { nFrota: "0", placa: "LLB5447", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Fabricio Pinhal" },
+  { nFrota: "0", placa: "EJW2D69", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Fabricio Pinhal" },
+  { nFrota: "0", placa: "AZT9H78", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Fabricio Pinhal" },
+  { nFrota: "0", placa: "LLD5447", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Fabricio Pinhal" },
+  { nFrota: "0", placa: "ERI5857", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Vale Motorista Pinhal - Carlos César Amaro" },
+  { nFrota: "0", placa: "EGS7I17", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Fabricio Pinhal" },
+  { nFrota: "0", placa: "APZ4A61", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Sergião Ubatuba (Doação)" },
+  { nFrota: "0", placa: "FCQ4H87", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Sergião Ubatuba (Doação)" },
+  { nFrota: "0", placa: "GFR8J02", grupo: "Abastecimentos de Terceiros/Vales", marca: "", modelo: "Buiu - A Serviço da Empresa" },
 ]
 
 // FROTA dinâmica — em runtime usa Redis, em build usa o padrão
