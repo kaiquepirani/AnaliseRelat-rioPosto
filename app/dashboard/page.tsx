@@ -91,7 +91,7 @@ export default function Dashboard() {
         await enviarForm(form)
       }
     } catch {
-      alert(\`Falha ao processar "\${arquivo.name}". Continuando...\`)
+      alert('Falha ao processar "' + arquivo.name + '". Continuando...')
     }
   }
 
