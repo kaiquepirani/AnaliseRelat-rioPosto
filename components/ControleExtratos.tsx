@@ -101,10 +101,29 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
 
   useEffect(() => {
     try {
-      const salvoPostos = localStorage.getItem('controle_postos')
-      if (salvoPostos) setPostos(JSON.parse(salvoPostos))
+      // Justificativas: carrega normalmente
       const salvoJust = localStorage.getItem('controle_justificativas')
       if (salvoJust) setJustificativas(JSON.parse(salvoJust))
+
+      // Postos: mescla padrão com customizações salvas, preservando IDs fixos
+      // Isso garante que justificativas não se percam quando o código atualiza
+      const salvoPostos = localStorage.getItem('controle_postos')
+      if (salvoPostos) {
+        const salvos: PostoEsperado[] = JSON.parse(salvoPostos)
+        // Aplica frequência customizada do usuário, mas mantém id/chave do padrão
+        const merged = POSTOS_PADRAO.map(padrao => {
+          const salvo = salvos.find((s: PostoEsperado) => s.id === padrao.id)
+            || salvos.find((s: PostoEsperado) => s.nome === padrao.nome)
+          if (salvo) return { ...padrao, frequencia: salvo.frequencia }
+          return padrao
+        })
+        // Adiciona postos extras criados pelo usuário (IDs que não existem no padrão)
+        const idsPadrao = new Set(POSTOS_PADRAO.map(p => p.id))
+        const extras = salvos.filter((s: PostoEsperado) => !idsPadrao.has(s.id))
+        setPostos([...merged, ...extras])
+        // Re-salva com IDs corrigidos para evitar problemas futuros
+        localStorage.setItem('controle_postos', JSON.stringify([...merged, ...extras]))
+      }
     } catch {}
   }, [])
 
