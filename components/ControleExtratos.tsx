@@ -26,6 +26,7 @@ const POSTOS_PADRAO: PostoEsperado[] = [
   { id: '8',  nome: 'Posto JL Aguaí',                   chave: 'JL AGUAI',                                                     frequencia: 'quinzenal'  },
   { id: '9',  nome: 'Posto Abastece Rio Claro',          chave: 'ABASTECE RIO CLARO',                                           frequencia: 'quinzenal'  },
   { id: '10', nome: 'Posto RVM Mogi Mirim',              chave: 'RVM MOGI',                                                     frequencia: 'quinzenal'  },
+  { id: '13', nome: 'Auto Posto Vitória Mogi Mirim',    chave: 'VITORIA DE MOGI MIRIM',                                        frequencia: 'quinzenal'  },
   { id: '11', nome: 'Auto Posto São Benedito',           chave: 'SAO BENEDITO',                                                 frequencia: 'mensal'     },
   { id: '12', nome: 'Tanque Águas (Interno)',            chave: 'TANQUE AGUAS',                                                 frequencia: 'esporadico' },
 ]
