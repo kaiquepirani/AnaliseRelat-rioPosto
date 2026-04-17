@@ -39,8 +39,8 @@ interface Props {
 export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, alertas, lancamentos, extratos }: Props) {
   const [metrica, setMetrica] = useState<'valor' | 'litros'>('valor')
   const [mesSel, setMesSel] = useState<string>('')
-  // Novo: postos selecionados no gráfico de evolução
-  const [postosSel, setPostosSel] = useState<string[]>([])
+  // Um único posto selecionado no gráfico de evolução (null = todos empilhados)
+  const [postoSel, setPostoSel] = useState<string | null>(null)
 
   // Combustível
   const porCombustivel: Record<string, { valor: number; litros: number }> = {}
@@ -59,8 +59,8 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
     return Array.from(s).sort()
   }, [extratos])
 
-  // Dados mensais por posto
-  const dadosMensais = useMemo(() => {
+  // Mapa mensal base: { mesKey -> { postoNome -> { valor, litros } } }
+  const mapaBase = useMemo(() => {
     const mapa: Record<string, Record<string, { valor: number; litros: number }>> = {}
     extratos.forEach(e => e.postos.forEach(posto => {
       posto.lancamentos.forEach(l => {
@@ -73,7 +73,12 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         mapa[key][posto.nome].litros += l.litros
       })
     }))
-    return Object.entries(mapa)
+    return mapa
+  }, [extratos])
+
+  // Dados mensais para gráfico 1 (empilhado todos os postos)
+  const dadosMensais = useMemo(() => {
+    return Object.entries(mapaBase)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, pd]) => ({
         key, label: labelMes(key),
@@ -87,13 +92,13 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
             : parseFloat((pd[nome]?.litros || 0).toFixed(1))
         ]))
       }))
-  }, [extratos, postos, metrica])
+  }, [mapaBase, postos, metrica])
 
   const meses = dadosMensais.map(d => d.key)
   const mesSelecionado = mesSel || meses[meses.length - 1] || ''
   const dadosMesSel = dadosMensais.find(d => d.key === mesSelecionado)
 
-  // Dados do mês selecionado para barras horizontais
+  // Dados horizontais do mês selecionado
   const dadosPostosMes = useMemo(() => {
     if (!dadosMesSel) return []
     return postos
@@ -107,48 +112,42 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
       .sort((a, b) => (metrica === 'valor' ? b.valor - a.valor : b.litros - a.litros))
   }, [dadosMesSel, postos, metrica])
 
-  // Postos ativos no gráfico de evolução (inicializa com todos se vazio)
-  const postosAtivos = useMemo(() => {
-    if (postosSel.length > 0) return postosSel
-    return postos
-  }, [postosSel, postos])
-
-  // Dados do gráfico de evolução por posto selecionado
+  // Dados do gráfico de evolução:
+  // - sem seleção: empilha todos (igual ao gráfico 1)
+  // - com posto selecionado: uma barra simples só com aquele posto
   const dadosEvolucao = useMemo(() => {
-    return dadosMensais.map(m => {
-      const entry: Record<string, any> = { label: m.label, key: m.key }
-      postosAtivos.forEach(nome => {
-        entry[nome] = metrica === 'valor'
-          ? parseFloat((m.postos[nome]?.valor || 0).toFixed(2))
-          : parseFloat((m.postos[nome]?.litros || 0).toFixed(1))
+    return Object.entries(mapaBase)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, pd]) => {
+        const entry: Record<string, any> = { label: labelMes(key), key }
+        if (postoSel) {
+          // Só o posto selecionado
+          entry[postoSel] = metrica === 'valor'
+            ? parseFloat((pd[postoSel]?.valor || 0).toFixed(2))
+            : parseFloat((pd[postoSel]?.litros || 0).toFixed(1))
+        } else {
+          // Todos empilhados
+          postos.forEach(nome => {
+            entry[nome] = metrica === 'valor'
+              ? parseFloat((pd[nome]?.valor || 0).toFixed(2))
+              : parseFloat((pd[nome]?.litros || 0).toFixed(1))
+          })
+        }
+        return entry
       })
-      return entry
-    })
-  }, [dadosMensais, postosAtivos, metrica])
+  }, [mapaBase, postos, postoSel, metrica])
 
-  const togglePosto = (nome: string) => {
-    setPostosSel(prev => {
-      // Se nenhum selecionado explicitamente, começa do zero selecionando só este
-      const base = prev.length === 0 ? postos : prev
-      if (base.includes(nome)) {
-        const next = base.filter(p => p !== nome)
-        return next.length === 0 ? postos : next // não deixa vazio
-      }
-      return [...base, nome]
-    })
-  }
-
-  const selecionarTodos = () => setPostosSel([])
-  const limparSelecao = (nome: string) => setPostosSel([nome])
+  // Postos que aparecem no gráfico de evolução
+  const postosNoGrafico = postoSel ? [postoSel] : postos
 
   const mediaGeral = dadosMensais.length > 0
     ? dadosMensais.reduce((s, m) => s + m.total, 0) / dadosMensais.length : 0
 
-  const CustomTooltipMensal = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null
     const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0)
     return (
-      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxWidth: 280 }}>
         <div style={{ fontWeight: 700, color: '#2D3A6B', marginBottom: 8, fontSize: 13 }}>{label}</div>
         {payload.map((p: any, i: number) => (
           <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -157,10 +156,12 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
             <span style={{ fontWeight: 600 }}>{metrica === 'valor' ? fmt(p.value) : fmtL(p.value)}</span>
           </div>
         ))}
-        <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-          <span>Total</span>
-          <span style={{ color: '#2D3A6B' }}>{metrica === 'valor' ? fmt(total) : fmtL(total)}</span>
-        </div>
+        {payload.length > 1 && (
+          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+            <span>Total</span>
+            <span style={{ color: '#2D3A6B' }}>{metrica === 'valor' ? fmt(total) : fmtL(total)}</span>
+          </div>
+        )}
       </div>
     )
   }
@@ -189,26 +190,30 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       </div>
 
+      {/* ── Toggle Valor / Litros (compartilhado) ── */}
+      {dadosMensais.length > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-0.5rem' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 4 }}>
+            {(['valor', 'litros'] as const).map(op => (
+              <button key={op} onClick={() => setMetrica(op)} style={{
+                padding: '4px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none',
+                background: metrica === op ? 'var(--navy)' : 'transparent',
+                color: metrica === op ? 'white' : 'var(--text-2)',
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+              }}>{op === 'valor' ? 'Valor R$' : 'Litros'}</button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Gráfico 1: empilhado mensal por posto ── */}
       {dadosMensais.length > 0 && (
         <div className="grafico-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
-            <div>
-              <div className="grafico-titulo" style={{ margin: 0 }}>Gasto mensal por posto</div>
-              {dadosMensais.length === 1 && (
-                <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Apenas 1 mês — o gráfico crescerá conforme novos extratos forem lançados</div>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 4 }}>
-              {(['valor', 'litros'] as const).map(op => (
-                <button key={op} onClick={() => setMetrica(op)} style={{
-                  padding: '4px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none',
-                  background: metrica === op ? 'var(--navy)' : 'transparent',
-                  color: metrica === op ? 'white' : 'var(--text-2)',
-                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                }}>{op === 'valor' ? 'Valor R$' : 'Litros'}</button>
-              ))}
-            </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <div className="grafico-titulo" style={{ margin: 0 }}>Gasto mensal por posto</div>
+            {dadosMensais.length === 1 && (
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Apenas 1 mês — o gráfico crescerá conforme novos extratos forem lançados</div>
+            )}
           </div>
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={dadosMensais} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%"
@@ -222,7 +227,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v/1000).toFixed(1)}kL`} width={60} />
-              <Tooltip content={<CustomTooltipMensal />} />
+              <Tooltip content={<CustomTooltip />} />
               <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />
               {postos.map((nome, i) => (
                 <Bar key={nome} dataKey={nome} name={nome} stackId="a" fill={CORES_POSTO[i % CORES_POSTO.length]}
@@ -262,7 +267,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
               ))}
             </div>
           </div>
-
           <ResponsiveContainer width="100%" height={Math.max(220, dadosPostosMes.length * 52)}>
             <BarChart data={dadosPostosMes} layout="vertical" margin={{ top: 0, right: 70, left: 8, bottom: 0 }} barSize={28}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
@@ -283,76 +287,101 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       )}
 
-      {/* ── Gráfico 3: evolução mensal por posto selecionado ── */}
+      {/* ── Gráfico 3: evolução por posto selecionado ── */}
       {dadosMensais.length > 0 && postos.length > 0 && (
         <div className="grafico-card">
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: '1rem' }}>
-            <div>
-              <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por posto</div>
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-                Selecione os postos para comparar mês a mês
-              </div>
+          <div style={{ marginBottom: '1rem' }}>
+            <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por posto</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+              Selecione um posto para ver sua evolução isolada · "Todos" exibe o total geral
             </div>
           </div>
 
-          {/* Seletor de postos — chips clicáveis */}
+          {/* Chips de seleção — um de cada vez */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: '1.25rem' }}>
+            {/* Chip "Todos" */}
             <button
-              onClick={selecionarTodos}
+              onClick={() => setPostoSel(null)}
               style={{
-                padding: '4px 12px', fontSize: 11, fontWeight: 700, borderRadius: 20,
-                border: `1.5px solid ${postosSel.length === 0 ? 'var(--navy)' : 'var(--border)'}`,
-                background: postosSel.length === 0 ? 'var(--navy)' : 'var(--bg)',
-                color: postosSel.length === 0 ? 'white' : 'var(--text-2)',
+                padding: '5px 14px', fontSize: 11, fontWeight: 700, borderRadius: 20,
+                border: `1.5px solid ${postoSel === null ? 'var(--navy)' : 'var(--border)'}`,
+                background: postoSel === null ? 'var(--navy)' : 'var(--bg)',
+                color: postoSel === null ? 'white' : 'var(--text-2)',
                 cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
               }}
             >Todos</button>
+
+            {/* Chip por posto */}
             {postos.map((nome, i) => {
               const cor = CORES_POSTO[i % CORES_POSTO.length]
-              const ativo = postosSel.length === 0 || postosSel.includes(nome)
+              const ativo = postoSel === nome
               return (
                 <button
                   key={nome}
-                  onClick={() => togglePosto(nome)}
-                  onDoubleClick={() => limparSelecao(nome)}
-                  title={`Clique para alternar · Duplo clique para isolar`}
+                  onClick={() => setPostoSel(ativo ? null : nome)}
                   style={{
-                    padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20,
+                    padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 20,
                     border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
                     background: ativo ? cor : 'var(--bg)',
-                    color: ativo ? 'white' : 'var(--text-3)',
+                    color: ativo ? 'white' : 'var(--text-2)',
                     cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                    opacity: ativo ? 1 : 0.5,
                   }}
                 >
-                  {nome.length > 22 ? nome.slice(0, 22) + '…' : nome}
+                  {nome.length > 24 ? nome.slice(0, 24) + '…' : nome}
                 </button>
               )
             })}
           </div>
 
+          {/* Gráfico */}
           <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="20%">
+            <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v/1000).toFixed(1)}kL`} width={60} />
-              <Tooltip content={<CustomTooltipMensal />} />
-              <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />
-              {postosAtivos.map((nome, i) => {
+              <Tooltip content={<CustomTooltip />} />
+              {!postoSel && <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />}
+              {postosNoGrafico.map((nome, i) => {
                 const idxGlobal = postos.indexOf(nome)
+                const cor = CORES_POSTO[idxGlobal % CORES_POSTO.length]
                 return (
                   <Bar
                     key={nome}
                     dataKey={nome}
                     name={nome}
-                    stackId="b"
-                    fill={CORES_POSTO[idxGlobal % CORES_POSTO.length]}
-                    radius={i === postosAtivos.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                    stackId={postoSel ? undefined : 'a'} // empilhado só no "todos"
+                    fill={cor}
+                    radius={postoSel
+                      ? [4, 4, 0, 0]
+                      : i === postosNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
+                    }
                   />
                 )
               })}
             </BarChart>
           </ResponsiveContainer>
+
+          {/* Resumo do posto selecionado */}
+          {postoSel && (() => {
+            const totalPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.valor || 0), 0)
+            const totalLitrosPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.litros || 0), 0)
+            return (
+              <div style={{ display: 'flex', gap: 16, marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--sky-light)', borderRadius: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total acumulado</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalPosto)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total litros</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmtL(totalLitrosPosto)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Média mensal</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(dadosMensais.length > 0 ? totalPosto / dadosMensais.length : 0)}</div>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
 
