@@ -208,10 +208,6 @@ export default function Dashboard() {
     } catch { return 0 }
   })()
 
-  // Separadores conforme layout:
-  // Resumo · Pesquisa por Posto · Pesquisa por Veículo · Confronto
-  // | Placas Divergentes · Terceiros/Vales
-  // | Extratos Detalhados · Preço Vigente · Atípicos · Alerta de Preços
   const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
     { id: 'resumo',     label: 'Resumo' },
     { id: 'posto',      label: 'Pesquisa por Posto' },
@@ -228,14 +224,6 @@ export default function Dashboard() {
     // { id: 'eficiencia', label: 'Eficiência' },
   ]
 
-  const headerBtnStyle = (ativo: boolean) => ({
-    padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
-    background: ativo ? 'white' : 'rgba(255,255,255,0.15)',
-    color: ativo ? 'var(--navy)' : 'white',
-    border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
-    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-  })
-
   return (
     <div className="app">
       <header className="header">
@@ -250,22 +238,13 @@ export default function Dashboard() {
           </div>
           <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => setAbaAtiva('frota')} style={headerBtnStyle(abaAtiva === 'frota')}>
-              🚌 Frota
-            </button>
-            <button onClick={() => setAbaAtiva('controle')} style={{
-              ...headerBtnStyle(abaAtiva === 'controle'),
-              ...(faltandoMesAtual > 0 ? { background: abaAtiva === 'controle' ? 'white' : '#fef9c3', color: abaAtiva === 'controle' ? 'var(--navy)' : '#92400e', border: '1px solid rgba(255,255,255,0.6)' } : {}),
-            }}>
-              📋 Controle de Lançamentos
-              {faltandoMesAtual > 0 && (
-                <span style={{
-                  marginLeft: 6, background: '#dc2626', color: 'white',
-                  borderRadius: 10, fontSize: 10, fontWeight: 800,
-                  padding: '1px 6px', display: 'inline-block', lineHeight: 1.6,
-                }}>{faltandoMesAtual}</span>
-              )}
-            </button>
+            <button onClick={() => setAbaAtiva('frota')} style={{
+              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+              background: abaAtiva === 'frota' ? 'white' : 'rgba(255,255,255,0.15)',
+              color: abaAtiva === 'frota' ? 'var(--navy)' : 'white',
+              border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
+              cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+            }}>🚌 Frota</button>
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
         </div>
@@ -325,6 +304,31 @@ export default function Dashboard() {
               </button>
             </>
           )}
+
+          {/* Controle de Lançamentos — canto direito da barra de período */}
+          <div style={{ marginLeft: 'auto' }}>
+            <button
+              onClick={() => setAbaAtiva('controle')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+                background: abaAtiva === 'controle' ? 'var(--navy)' : 'white',
+                color: abaAtiva === 'controle' ? 'white' : 'var(--navy)',
+                border: '1.5px solid var(--navy)', borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              📋 Controle de Lançamentos
+              {faltandoMesAtual > 0 && (
+                <span style={{
+                  background: '#dc2626', color: 'white',
+                  borderRadius: 10, fontSize: 10, fontWeight: 800,
+                  padding: '1px 6px', lineHeight: 1.6,
+                }}>{faltandoMesAtual}</span>
+              )}
+            </button>
+          </div>
         </div>
 
         {carregando ? (
