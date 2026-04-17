@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { Extrato } from '@/lib/types'
 import Upload from '@/components/Upload'
@@ -41,6 +41,7 @@ export default function Dashboard() {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [extratoSelecionado, setExtratoSelecionado] = useState<string>('todos')
   const [duplicataInfo, setDuplicataInfo] = useState<DuplicataInfo | null>(null)
+  const [progresso, setProgresso] = useState<{ atual: number; total: number; nomeArquivo: string } | null>(null)
 
   const buscarExtratos = useCallback(async () => {
     const res = await fetch('/api/extratos')
@@ -67,8 +68,11 @@ export default function Dashboard() {
     return false
   }
 
-  const handleUpload = async (arquivo: File) => {
-    setProcessando(true)
+  // Fila de arquivos para processar sequencialmente
+  const filaRef = useRef<File[]>([])
+  const processandoFilaRef = useRef(false)
+
+  const processarArquivo = async (arquivo: File): Promise<void> => {
     const isExcel = arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls')
     try {
       if (isExcel) {
@@ -87,10 +91,30 @@ export default function Dashboard() {
         await enviarForm(form)
       }
     } catch {
-      alert('Falha na comunicação com o servidor.')
-    } finally {
-      setProcessando(false)
+      alert(\`Falha ao processar "\${arquivo.name}". Continuando...\`)
     }
+  }
+
+  const processarFila = async () => {
+    if (processandoFilaRef.current) return
+    processandoFilaRef.current = true
+    setProcessando(true)
+    const total = filaRef.current.length
+    let atual = 0
+    while (filaRef.current.length > 0) {
+      const arquivo = filaRef.current.shift()!
+      atual++
+      setProgresso({ atual, total, nomeArquivo: arquivo.name })
+      await processarArquivo(arquivo)
+    }
+    setProcessando(false)
+    setProgresso(null)
+    processandoFilaRef.current = false
+  }
+
+  const handleUpload = (arquivo: File) => {
+    filaRef.current.push(arquivo)
+    if (!processandoFilaRef.current) processarFila()
   }
 
   const handleConfirmarDuplicata = async () => {
@@ -264,7 +288,7 @@ export default function Dashboard() {
               border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
               cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
             }}>🚌 Frota</button>
-            <Upload onUpload={handleUpload} processando={processando} />
+            <Upload onUpload={handleUpload} processando={processando} progresso={progresso ?? undefined} />
           </div>
         </div>
       </header>
