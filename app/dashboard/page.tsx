@@ -169,9 +169,12 @@ export default function Dashboard() {
     naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
   }
 
-  // Badge de controle: postos faltando no mês atual
+  // Badge de controle: só conta postos faltando em meses JÁ ENCERRADOS (anteriores ao mês atual)
   const hoje = new Date()
-  const faltandoMesAtual = (() => {
+  const mesAtual = hoje.getMonth()
+  const anoAtual = hoje.getFullYear()
+
+  const faltandoMesesEncerrados = (() => {
     try {
       const salvo = typeof window !== 'undefined' ? localStorage.getItem('controle_postos') : null
       const POSTOS_PADRAO = [
@@ -190,17 +193,33 @@ export default function Dashboard() {
       ]
       const postos = salvo ? JSON.parse(salvo) : POSTOS_PADRAO
       const esperadoMes: Record<string, number> = { semanal: 4, quinzenal: 2, mensal: 1, esporadico: 0 }
-      const extratosMes = extratos.filter(e => {
+
+      // Verifica apenas o mês imediatamente anterior ao atual
+      const mesVerif = mesAtual === 0 ? 11 : mesAtual - 1
+      const anoVerif = mesAtual === 0 ? anoAtual - 1 : anoAtual
+
+      const extratosMesAnterior = extratos.filter(e => {
         const parts = e.periodo.split(' a ')[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
         if (!parts) return false
         let ano = parseInt(parts[3]); if (ano < 100) ano += ano < 50 ? 2000 : 1900
-        return parseInt(parts[2]) - 1 === hoje.getMonth() && ano === hoje.getFullYear()
+        const mes = parseInt(parts[2]) - 1
+        // Cobre o mês verificado
+        const primeiroDia = new Date(anoVerif, mesVerif, 1)
+        const ultimoDia = new Date(anoVerif, mesVerif + 1, 0)
+        const dataInicio = new Date(ano, mes, parseInt(parts[1]))
+        return dataInicio <= ultimoDia && dataInicio >= primeiroDia
       })
+
+      const salvoJust = typeof window !== 'undefined' ? localStorage.getItem('controle_justificativas') : null
+      const justificativas = salvoJust ? JSON.parse(salvoJust) : {}
+
       return postos.filter((p: any) => {
         if (p.frequencia === 'esporadico') return false
-        const recebido = extratosMes.filter((e: Extrato) =>
-          e.postos.some(ep => ep.nome.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').includes(
-            p.chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+        const chaveJust = `controle_just__${p.id}__${anoVerif}_${mesVerif}`
+        if (justificativas[chaveJust]) return false
+        const recebido = extratosMesAnterior.filter((e: Extrato) =>
+          e.postos.some(ep => ep.nome.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(
+            p.chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
           ))
         ).length
         return recebido < esperadoMes[p.frequencia]
@@ -320,12 +339,12 @@ export default function Dashboard() {
               }}
             >
               📋 Controle de Lançamentos
-              {faltandoMesAtual > 0 && (
+              {faltandoMesesEncerrados > 0 && (
                 <span style={{
                   background: '#dc2626', color: 'white',
                   borderRadius: 10, fontSize: 10, fontWeight: 800,
                   padding: '1px 6px', lineHeight: 1.6,
-                }}>{faltandoMesAtual}</span>
+                }}>{faltandoMesesEncerrados}</span>
               )}
             </button>
           </div>
