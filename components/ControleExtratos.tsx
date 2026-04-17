@@ -17,7 +17,7 @@ interface PostoEsperado {
 // Posto Tiago agrupa 3 nomes de extrato diferentes, frequência ajustada para 2/mês (quinzenal)
 const POSTOS_PADRAO: PostoEsperado[] = [
   { id: '1',  nome: 'Auto Posto Skina Italianos',        chave: 'SKINA ITALIANOS',                                              frequencia: 'semanal'    },
-  { id: '2',  nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO|PORTAL DAS ESTANCIAS|QUEIJO BOM',                 frequencia: 'quinzenal'  },
+  { id: '2',  nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO|PORTAL DA|QUEIJOBO',                             frequencia: 'quinzenal'  },
   { id: '3',  nome: 'Auto Posto Praia de São Francisco', chave: 'PRAIA DE SAO FRANCISCO',                                       frequencia: 'quinzenal'  },
   { id: '4',  nome: 'Cooperativa dos Cafeicultores',     chave: 'COOPERATIVA DOS CAFEICULTORES',                                frequencia: 'quinzenal'  },
   { id: '5',  nome: 'Mocafor Mococa',                    chave: 'MOCAFOR',                                                      frequencia: 'quinzenal'  },
