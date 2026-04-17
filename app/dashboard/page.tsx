@@ -8,11 +8,11 @@ import TabelaAlertas from '@/components/TabelaAlertas'
 import HistoricoComparativo from '@/components/HistoricoComparativo'
 import DetalhesPosto from '@/components/DetalhesPosto'
 import AnaliseVeiculo from '@/components/AnaliseVeiculo'
-import RankingConsumo from '@/components/RankingConsumo'
+// import RankingConsumo from '@/components/RankingConsumo'
 import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
 import AlertasAtipicos from '@/components/AlertasAtipicos'
 import AnalisePosto from '@/components/AnalisePosto'
-import EficienciaKM from '@/components/EficienciaKM'
+// import EficienciaKM from '@/components/EficienciaKM'
 import PrecoAtual from '@/components/PrecoAtual'
 import Confronto from '@/components/Confronto'
 import GerenciarFrota from '@/components/GerenciarFrota'
@@ -218,9 +218,9 @@ export default function Dashboard() {
     { id: 'postos', label: 'Postos', badge: todosPostos.length, separadorAntes: true },
     { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'atipicos', label: 'Atípicos' },
-    { id: 'ranking', label: 'Ranking', separadorAntes: true },
-    { id: 'eficiencia', label: 'Eficiência' },
-    { id: 'historico', label: 'Histórico' },
+    // { id: 'ranking', label: 'Ranking', separadorAntes: true },
+    // { id: 'eficiencia', label: 'Eficiência' },
+    { id: 'historico', label: 'Histórico', separadorAntes: true },
     { id: 'preco', label: 'Preço/litro' },
     { id: 'precoatual', label: 'Preço atual' },
   ]
@@ -352,10 +352,10 @@ export default function Dashboard() {
             {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
             {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
             {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
-            {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />}
+            {/* {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />} */}
             {abaAtiva === 'preco' && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
             {abaAtiva === 'precoatual' && <PrecoAtual extratos={extratos} />}
-            {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />}
+            {/* {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />} */}
             {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
             {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
             {abaAtiva === 'confronto' && <Confronto extratos={extratos} />}
