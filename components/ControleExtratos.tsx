@@ -73,6 +73,12 @@ function chaveJustificativa(postoId: string, mes: number, ano: number): string {
   return `controle_just__${postoId}__${ano}_${mes}`
 }
 
+// Retorna true se o mês/ano selecionado já encerrou (é anterior ao mês atual)
+function mesJaEncerrado(mesSel: number, anoSel: number, hoje: Date): boolean {
+  return anoSel < hoje.getFullYear() ||
+    (anoSel === hoje.getFullYear() && mesSel < hoje.getMonth())
+}
+
 export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) {
   const hoje = new Date()
   const [mesSel, setMesSel] = useState(hoje.getMonth())
@@ -84,10 +90,12 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const [novaFreq, setNovaFreq] = useState<Frequencia>('quinzenal')
   const [adicionando, setAdicionando] = useState(false)
 
-  // Justificativas: chave -> texto
   const [justificativas, setJustificativas] = useState<Record<string, string>>({})
   const [editandoJust, setEditandoJust] = useState<string | null>(null)
   const [textoJust, setTextoJust] = useState('')
+
+  // Mês atual ou futuro: alertas desativados
+  const alertasAtivos = mesJaEncerrado(mesSel, anoSel, hoje)
 
   useEffect(() => {
     try {
@@ -149,9 +157,12 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       const chaveJust = chaveJustificativa(posto.id, mesSel, anoSel)
       const justificado = !!justificativas[chaveJust]
 
-      let status: 'ok' | 'parcial' | 'faltando' | 'justificado' | 'esporadico'
+      let status: 'ok' | 'parcial' | 'faltando' | 'justificado' | 'esporadico' | 'aguardando'
       if (posto.frequencia === 'esporadico') {
         status = 'esporadico'
+      } else if (!alertasAtivos) {
+        // Mês atual ou futuro: não emite alerta, só mostra o que chegou
+        status = recebido >= esperado ? 'ok' : justificado ? 'justificado' : 'aguardando'
       } else if (justificado) {
         status = 'justificado'
       } else if (recebido === 0) {
@@ -169,10 +180,10 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
         chaveJust,
       }
     })
-  }, [postos, extratosMes, justificativas, mesSel, anoSel])
+  }, [postos, extratosMes, justificativas, mesSel, anoSel, alertasAtivos])
 
-  const totalOk = statusPostos.filter(s => s.status === 'ok' || s.status === 'justificado').length
-  const totalParcial = statusPostos.filter(s => s.status === 'parcial').length
+  const totalOk       = statusPostos.filter(s => s.status === 'ok' || s.status === 'justificado').length
+  const totalParcial  = statusPostos.filter(s => s.status === 'parcial').length
   const totalFaltando = statusPostos.filter(s => s.status === 'faltando').length
   const totalValorMes = statusPostos.reduce((s, p) => s + p.totalValor, 0)
 
@@ -204,8 +215,9 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const statusColor = (s: string) => {
     if (s === 'ok')         return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
     if (s === 'justificado')return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
-    if (s === 'parcial')    return { bg: '#fffbeb', border: '#fcd34d', color: '#d97706', icon: '⚠️' }
+    if (s === 'parcial')    return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
     if (s === 'faltando')   return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
+    if (s === 'aguardando') return { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '🕐' }
     return                         { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
   }
 
@@ -228,6 +240,19 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
             {anos.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
+
+        {/* Aviso de mês em andamento */}
+        {!alertasAtivos && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: '#eff6ff', border: '1px solid #bfdbfe',
+            borderRadius: 8, padding: '0.45rem 0.875rem',
+            fontSize: 12, color: '#1d4ed8', fontWeight: 500,
+          }}>
+            🕐 Mês em andamento — alertas inativos até o encerramento
+          </div>
+        )}
+
         <div style={{ marginLeft: 'auto' }}>
           <button onClick={() => setEditandoPostos(v => !v)} style={{
             padding: '0.45rem 1rem', fontSize: 12, fontWeight: 600,
@@ -246,15 +271,15 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
           <div className="card-valor" style={{ color: '#16a34a' }}>{totalOk}</div>
           <div className="card-sub">postos em dia</div>
         </div>
-        <div className="card" style={{ borderColor: '#fcd34d' }}>
+        <div className="card" style={{ borderColor: alertasAtivos ? '#fca5a5' : '#e2e8f0' }}>
           <div className="card-label">Parciais</div>
-          <div className="card-valor" style={{ color: '#d97706' }}>{totalParcial}</div>
-          <div className="card-sub">aguardando mais extratos</div>
+          <div className="card-valor" style={{ color: alertasAtivos ? '#dc2626' : '#64748b' }}>{totalParcial}</div>
+          <div className="card-sub">{alertasAtivos ? 'aguardando mais extratos' : 'sem alerta — mês em andamento'}</div>
         </div>
-        <div className="card card-alerta">
+        <div className="card" style={{ borderColor: alertasAtivos ? '#fca5a5' : '#e2e8f0', background: alertasAtivos ? '#fef2f2' : 'white' }}>
           <div className="card-label">Faltando</div>
-          <div className="card-valor" style={{ color: '#dc2626' }}>{totalFaltando}</div>
-          <div className="card-sub">sem extrato e sem justificativa</div>
+          <div className="card-valor" style={{ color: alertasAtivos ? '#dc2626' : '#64748b' }}>{totalFaltando}</div>
+          <div className="card-sub">{alertasAtivos ? 'sem extrato e sem justificativa' : 'sem alerta — mês em andamento'}</div>
         </div>
         <div className="card">
           <div className="card-label">Total recebido em {nomeMes(mesSel)}</div>
@@ -339,13 +364,19 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       <div className="tabela-hist-wrap">
         <div className="grafico-titulo" style={{ marginBottom: '1rem' }}>
           Controle de extratos — {nomeMes(mesSel)} {anoSel}
+          {!alertasAtivos && (
+            <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 500, color: '#1d4ed8', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 20, padding: '2px 10px' }}>
+              em andamento
+            </span>
+          )}
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {statusPostos.map(({ posto, status, recebido, esperado, totalValor, totalLitros, periodos, chaveJust }) => {
             const c = statusColor(status)
             const justTexto = justificativas[chaveJust]
-            const podeJustificar = status === 'faltando' || status === 'parcial' || status === 'justificado'
+            // Botão justificar só aparece em meses já encerrados
+            const podeJustificar = alertasAtivos && (status === 'faltando' || status === 'parcial' || status === 'justificado')
 
             return (
               <div key={posto.id} style={{
@@ -402,12 +433,17 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
 
                   {/* Status + botão justificar */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end', marginLeft: 'auto' }}>
-                    {status === 'faltando' && (
+                    {alertasAtivos && status === 'faltando' && (
                       <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>Nenhum extrato recebido</div>
                     )}
-                    {status === 'parcial' && (
-                      <div style={{ fontSize: 12, color: '#d97706', fontWeight: 600 }}>
+                    {alertasAtivos && status === 'parcial' && (
+                      <div style={{ fontSize: 12, color: '#dc2626', fontWeight: 600 }}>
                         Faltam {esperado - recebido} extrato{esperado - recebido > 1 ? 's' : ''}
+                      </div>
+                    )}
+                    {!alertasAtivos && status === 'aguardando' && recebido < esperado && posto.frequencia !== 'esporadico' && (
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        Aguardando {esperado - recebido} extrato{esperado - recebido > 1 ? 's' : ''}
                       </div>
                     )}
                     {podeJustificar && editandoJust !== chaveJust && (
