@@ -63,7 +63,7 @@ function extrairColaboradoresDaAba(dados: any[][], cidade: Cidade): ColaboradorI
     if (dentroResumo) {
       for (let j = 0; j < linha.length - 1; j++) {
         const cel = String(linha[j] ?? '').trim()
-        if (/^\d+$/.test(cel) && parseInt(cel) >= 1 && parseInt(cel) <= 200) {
+        if (/^\d+(\.0)?$/.test(cel) && parseInt(cel) >= 1 && parseInt(cel) <= 200) {
           const nome = String(linha[j + 1] ?? '').trim()
           const valor = parseFloat(String(linha[j + 2] ?? '').replace(',', '.'))
           if (nome && nome.length > 3 && !isNaN(valor) && valor > 0) {
