@@ -5,7 +5,7 @@ import { Extrato } from '@/lib/types'
 import Upload from '@/components/Upload'
 import ResumoGeral from '@/components/ResumoGeral'
 import TabelaAlertas from '@/components/TabelaAlertas'
-import HistoricoComparativo from '@/components/HistoricoComparativo'
+// import HistoricoComparativo from '@/components/HistoricoComparativo'
 import DetalhesPosto from '@/components/DetalhesPosto'
 import AnaliseVeiculo from '@/components/AnaliseVeiculo'
 // import RankingConsumo from '@/components/RankingConsumo'
@@ -209,20 +209,20 @@ export default function Dashboard() {
   })()
 
   const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
-    { id: 'resumo', label: 'Resumo' },
-    { id: 'posto', label: 'Por posto' },
-    { id: 'veiculo', label: 'Por veículo' },
-    { id: 'confronto', label: 'Confronto', vermelho: true },
-    { id: 'controle', label: 'Controle', badge: faltandoMesAtual > 0 ? faltandoMesAtual : undefined, separadorAntes: true },
-    { id: 'terceiros', label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined },
-    { id: 'postos', label: 'Postos', badge: todosPostos.length, separadorAntes: true },
-    { id: 'alertas', label: 'Placas', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
-    { id: 'atipicos', label: 'Atípicos' },
-    // { id: 'ranking', label: 'Ranking', separadorAntes: true },
+    { id: 'resumo',     label: 'Resumo' },
+    { id: 'posto',      label: 'Pesquisa por Posto' },
+    { id: 'veiculo',    label: 'Pesquisa por Veículo' },
+    { id: 'confronto',  label: 'Confronto', vermelho: true, separadorAntes: true },
+    { id: 'alertas',    label: 'Placas Divergentes', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
+    { id: 'terceiros',  label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined },
+    { id: 'postos',     label: 'Extratos Detalhados', badge: todosPostos.length },
+    { id: 'precoatual', label: 'Preço Vigente', separadorAntes: true },
+    { id: 'atipicos',   label: 'Atípicos' },
+    { id: 'preco',      label: 'Alerta de Preços' },
+    { id: 'controle',   label: 'Controle de Lançamentos', badge: faltandoMesAtual > 0 ? faltandoMesAtual : undefined, separadorAntes: true },
+    // { id: 'historico',  label: 'Histórico' },
+    // { id: 'ranking',    label: 'Ranking' },
     // { id: 'eficiencia', label: 'Eficiência' },
-    { id: 'historico', label: 'Histórico', separadorAntes: true },
-    { id: 'preco', label: 'Preço/litro' },
-    { id: 'precoatual', label: 'Preço atual' },
   ]
 
   return (
@@ -347,21 +347,21 @@ export default function Dashboard() {
               ))}
             </div>
 
-            {abaAtiva === 'resumo' && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
-            {abaAtiva === 'postos' && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
-            {abaAtiva === 'alertas' && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
-            {abaAtiva === 'atipicos' && <AlertasAtipicos extratos={extratosVisiveis} />}
-            {abaAtiva === 'posto' && <AnalisePosto extratos={extratos} />}
-            {/* {abaAtiva === 'ranking' && <RankingConsumo extratos={extratosVisiveis} />} */}
-            {abaAtiva === 'preco' && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
+            {abaAtiva === 'resumo'     && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
+            {abaAtiva === 'posto'      && <AnalisePosto extratos={extratos} />}
+            {abaAtiva === 'veiculo'    && <AnaliseVeiculo extratos={extratos} />}
+            {abaAtiva === 'confronto'  && <Confronto extratos={extratos} />}
+            {abaAtiva === 'alertas'    && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
+            {abaAtiva === 'terceiros'  && <AbastecimentosTerceiros extratos={extratosVisiveis} />}
+            {abaAtiva === 'postos'     && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
             {abaAtiva === 'precoatual' && <PrecoAtual extratos={extratos} />}
+            {abaAtiva === 'atipicos'   && <AlertasAtipicos extratos={extratosVisiveis} />}
+            {abaAtiva === 'preco'      && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
+            {abaAtiva === 'controle'   && <ControleExtratos extratos={extratos} />}
+            {abaAtiva === 'frota'      && <GerenciarFrota />}
+            {/* {abaAtiva === 'historico'  && <HistoricoComparativo extratos={extratos} />} */}
+            {/* {abaAtiva === 'ranking'    && <RankingConsumo extratos={extratosVisiveis} />} */}
             {/* {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />} */}
-            {abaAtiva === 'veiculo' && <AnaliseVeiculo extratos={extratos} />}
-            {abaAtiva === 'historico' && <HistoricoComparativo extratos={extratos} />}
-            {abaAtiva === 'confronto' && <Confronto extratos={extratos} />}
-            {abaAtiva === 'frota' && <GerenciarFrota />}
-            {abaAtiva === 'terceiros' && <AbastecimentosTerceiros extratos={extratosVisiveis} />}
-            {abaAtiva === 'controle' && <ControleExtratos extratos={extratos} />}
           </>
         )}
       </main>
