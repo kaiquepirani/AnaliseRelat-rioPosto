@@ -136,7 +136,7 @@ body { min-height: 100vh; }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 4px;
   box-shadow: var(--shadow-sm);
-  overflow-x: auto;
+  flex-wrap: wrap; /* quebra linha em vez de rolar — sem scrollbar no desktop */
 }
 .aba {
   padding: 0.5rem 0.9rem; font-size: 13px; font-weight: 600;
@@ -344,8 +344,9 @@ code {
   .filtro-select { min-width: unset; width: 100%; }
   .btn-deletar, .btn-renomear { width: 100%; text-align: center; }
 
-  /* Abas — scroll horizontal com fundo fixo */
+  /* Abas mobile — scroll horizontal sem barra visível */
   .abas {
+    flex-wrap: nowrap;
     gap: 1px;
     padding: 3px;
     overflow-x: auto;
