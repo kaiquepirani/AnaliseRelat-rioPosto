@@ -7,7 +7,6 @@ const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 const fmtL = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' L'
 const fmtK = (v: number) => v >= 1000 ? `R$${(v/1000).toFixed(1)}k` : fmt(v)
 
-const CORES_COMB  = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2']
 const CORES_POSTO = ['#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
 
 function parsarDataBR(data: string): Date | null {
@@ -41,14 +40,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
   const [mesSel, setMesSel] = useState<string>('')
   const [postoSel, setPostoSel] = useState<string | null>(null)
 
-  // Combustível (mantido só para tabela de detalhamento)
-  const porCombustivel: Record<string, { valor: number; litros: number }> = {}
-  lancamentos.forEach(l => {
-    if (!porCombustivel[l.combustivelNome]) porCombustivel[l.combustivelNome] = { valor: 0, litros: 0 }
-    porCombustivel[l.combustivelNome].valor += l.valor
-    porCombustivel[l.combustivelNome].litros += l.litros
-  })
-  const dataComb = Object.entries(porCombustivel).map(([nome, d]) => ({ nome, ...d }))
   const totalAlerta = alertas.naoIdentificadaValor
 
   // Postos únicos
@@ -75,7 +66,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
     return mapa
   }, [extratos])
 
-  // Dados mensais (para gráfico empilhado e tabela)
+  // Dados mensais
   const dadosMensais = useMemo(() => {
     return Object.entries(mapaBase)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -200,7 +191,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       )}
 
-      {/* ── Gráfico 1: evolução por posto selecionado (NOVO PRIMEIRO) ── */}
+      {/* ── Gráfico 1: evolução mensal por posto ── */}
       {dadosMensais.length > 0 && postos.length > 0 && (
         <div className="grafico-card">
           <div style={{ marginBottom: '1rem' }}>
@@ -226,17 +217,13 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
               const cor = CORES_POSTO[i % CORES_POSTO.length]
               const ativo = postoSel === nome
               return (
-                <button
-                  key={nome}
-                  onClick={() => setPostoSel(ativo ? null : nome)}
-                  style={{
-                    padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 20,
-                    border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
-                    background: ativo ? cor : 'var(--bg)',
-                    color: ativo ? 'white' : 'var(--text-2)',
-                    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                  }}
-                >
+                <button key={nome} onClick={() => setPostoSel(ativo ? null : nome)} style={{
+                  padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 20,
+                  border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
+                  background: ativo ? cor : 'var(--bg)',
+                  color: ativo ? 'white' : 'var(--text-2)',
+                  cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                }}>
                   {nome.length > 24 ? nome.slice(0, 24) + '…' : nome}
                 </button>
               )
@@ -254,16 +241,10 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
                 const idxGlobal = postos.indexOf(nome)
                 const cor = CORES_POSTO[idxGlobal % CORES_POSTO.length]
                 return (
-                  <Bar
-                    key={nome}
-                    dataKey={nome}
-                    name={nome}
+                  <Bar key={nome} dataKey={nome} name={nome}
                     stackId={postoSel ? undefined : 'a'}
                     fill={cor}
-                    radius={postoSel
-                      ? [4, 4, 0, 0]
-                      : i === postosNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
-                    }
+                    radius={postoSel ? [4, 4, 0, 0] : i === postosNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
                   />
                 )
               })}
@@ -419,26 +400,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
           </table>
         </div>
       )}
-
-      {/* ── Tabela detalhamento por combustível ── */}
-      <div className="tabela-comb-wrap">
-        <div className="grafico-titulo">Detalhamento por combustível</div>
-        <table className="tabela">
-          <thead>
-            <tr><th>Combustível</th><th>Litros</th><th>Valor (R$)</th><th>% do total</th></tr>
-          </thead>
-          <tbody>
-            {dataComb.map((d, i) => (
-              <tr key={i}>
-                <td><span className="badge-comb" style={{ background: CORES_COMB[i % CORES_COMB.length] }}>{d.nome}</span></td>
-                <td>{fmtL(d.litros)}</td>
-                <td>{fmt(d.valor)}</td>
-                <td>{totalValor > 0 ? ((d.valor / totalValor) * 100).toFixed(1) : 0}%</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
 
     </div>
   )
