@@ -39,10 +39,9 @@ interface Props {
 export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, alertas, lancamentos, extratos }: Props) {
   const [metrica, setMetrica] = useState<'valor' | 'litros'>('valor')
   const [mesSel, setMesSel] = useState<string>('')
-  // Um único posto selecionado no gráfico de evolução (null = todos empilhados)
   const [postoSel, setPostoSel] = useState<string | null>(null)
 
-  // Combustível
+  // Combustível (mantido só para tabela de detalhamento)
   const porCombustivel: Record<string, { valor: number; litros: number }> = {}
   lancamentos.forEach(l => {
     if (!porCombustivel[l.combustivelNome]) porCombustivel[l.combustivelNome] = { valor: 0, litros: 0 }
@@ -59,7 +58,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
     return Array.from(s).sort()
   }, [extratos])
 
-  // Mapa mensal base: { mesKey -> { postoNome -> { valor, litros } } }
+  // Mapa mensal base
   const mapaBase = useMemo(() => {
     const mapa: Record<string, Record<string, { valor: number; litros: number }>> = {}
     extratos.forEach(e => e.postos.forEach(posto => {
@@ -76,7 +75,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
     return mapa
   }, [extratos])
 
-  // Dados mensais para gráfico 1 (empilhado todos os postos)
+  // Dados mensais (para gráfico empilhado e tabela)
   const dadosMensais = useMemo(() => {
     return Object.entries(mapaBase)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -112,21 +111,17 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
       .sort((a, b) => (metrica === 'valor' ? b.valor - a.valor : b.litros - a.litros))
   }, [dadosMesSel, postos, metrica])
 
-  // Dados do gráfico de evolução:
-  // - sem seleção: empilha todos (igual ao gráfico 1)
-  // - com posto selecionado: uma barra simples só com aquele posto
+  // Dados do gráfico de evolução por posto
   const dadosEvolucao = useMemo(() => {
     return Object.entries(mapaBase)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, pd]) => {
         const entry: Record<string, any> = { label: labelMes(key), key }
         if (postoSel) {
-          // Só o posto selecionado
           entry[postoSel] = metrica === 'valor'
             ? parseFloat((pd[postoSel]?.valor || 0).toFixed(2))
             : parseFloat((pd[postoSel]?.litros || 0).toFixed(1))
         } else {
-          // Todos empilhados
           postos.forEach(nome => {
             entry[nome] = metrica === 'valor'
               ? parseFloat((pd[nome]?.valor || 0).toFixed(2))
@@ -137,7 +132,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
       })
   }, [mapaBase, postos, postoSel, metrica])
 
-  // Postos que aparecem no gráfico de evolução
   const postosNoGrafico = postoSel ? [postoSel] : postos
 
   const mediaGeral = dadosMensais.length > 0
@@ -190,7 +184,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       </div>
 
-      {/* ── Toggle Valor / Litros (compartilhado) ── */}
+      {/* ── Toggle Valor / Litros ── */}
       {dadosMensais.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '-0.5rem' }}>
           <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 4 }}>
@@ -206,40 +200,97 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       )}
 
-      {/* ── Gráfico 1: empilhado mensal por posto ── */}
-      {dadosMensais.length > 0 && (
+      {/* ── Gráfico 1: evolução por posto selecionado (NOVO PRIMEIRO) ── */}
+      {dadosMensais.length > 0 && postos.length > 0 && (
         <div className="grafico-card">
           <div style={{ marginBottom: '1rem' }}>
-            <div className="grafico-titulo" style={{ margin: 0 }}>Gasto mensal por posto</div>
-            {dadosMensais.length === 1 && (
-              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>Apenas 1 mês — o gráfico crescerá conforme novos extratos forem lançados</div>
-            )}
+            <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por posto</div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+              Selecione um posto para ver sua evolução isolada · "Todos" exibe o total geral
+            </div>
           </div>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={dadosMensais} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%"
-              onClick={d => {
-                if (d?.activeLabel) {
-                  const found = dadosMensais.find(m => m.label === d.activeLabel)
-                  if (found) setMesSel(found.key)
-                }
+
+          {/* Chips de seleção */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: '1.25rem' }}>
+            <button
+              onClick={() => setPostoSel(null)}
+              style={{
+                padding: '5px 14px', fontSize: 11, fontWeight: 700, borderRadius: 20,
+                border: `1.5px solid ${postoSel === null ? 'var(--navy)' : 'var(--border)'}`,
+                background: postoSel === null ? 'var(--navy)' : 'var(--bg)',
+                color: postoSel === null ? 'white' : 'var(--text-2)',
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
               }}
-              style={{ cursor: 'pointer' }}>
+            >Todos</button>
+            {postos.map((nome, i) => {
+              const cor = CORES_POSTO[i % CORES_POSTO.length]
+              const ativo = postoSel === nome
+              return (
+                <button
+                  key={nome}
+                  onClick={() => setPostoSel(ativo ? null : nome)}
+                  style={{
+                    padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 20,
+                    border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
+                    background: ativo ? cor : 'var(--bg)',
+                    color: ativo ? 'white' : 'var(--text-2)',
+                    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                  }}
+                >
+                  {nome.length > 24 ? nome.slice(0, 24) + '…' : nome}
+                </button>
+              )
+            })}
+          </div>
+
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%">
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
               <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v/1000).toFixed(1)}kL`} width={60} />
               <Tooltip content={<CustomTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />
-              {postos.map((nome, i) => (
-                <Bar key={nome} dataKey={nome} name={nome} stackId="a" fill={CORES_POSTO[i % CORES_POSTO.length]}
-                  radius={i === postos.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
-              ))}
+              {!postoSel && <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />}
+              {postosNoGrafico.map((nome, i) => {
+                const idxGlobal = postos.indexOf(nome)
+                const cor = CORES_POSTO[idxGlobal % CORES_POSTO.length]
+                return (
+                  <Bar
+                    key={nome}
+                    dataKey={nome}
+                    name={nome}
+                    stackId={postoSel ? undefined : 'a'}
+                    fill={cor}
+                    radius={postoSel
+                      ? [4, 4, 0, 0]
+                      : i === postosNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
+                    }
+                  />
+                )
+              })}
             </BarChart>
           </ResponsiveContainer>
-          {dadosMensais.length > 1 && (
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, textAlign: 'center' }}>
-              Clique em um mês para detalhar os postos abaixo
-            </div>
-          )}
+
+          {/* Resumo do posto selecionado */}
+          {postoSel && (() => {
+            const totalPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.valor || 0), 0)
+            const totalLitrosPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.litros || 0), 0)
+            return (
+              <div style={{ display: 'flex', gap: 16, marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--sky-light)', borderRadius: 8, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total acumulado</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalPosto)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total litros</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmtL(totalLitrosPosto)}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Média mensal</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(dadosMensais.length > 0 ? totalPosto / dadosMensais.length : 0)}</div>
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
 
@@ -284,104 +335,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </div>
-      )}
-
-      {/* ── Gráfico 3: evolução por posto selecionado ── */}
-      {dadosMensais.length > 0 && postos.length > 0 && (
-        <div className="grafico-card">
-          <div style={{ marginBottom: '1rem' }}>
-            <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por posto</div>
-            <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-              Selecione um posto para ver sua evolução isolada · "Todos" exibe o total geral
-            </div>
-          </div>
-
-          {/* Chips de seleção — um de cada vez */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: '1.25rem' }}>
-            {/* Chip "Todos" */}
-            <button
-              onClick={() => setPostoSel(null)}
-              style={{
-                padding: '5px 14px', fontSize: 11, fontWeight: 700, borderRadius: 20,
-                border: `1.5px solid ${postoSel === null ? 'var(--navy)' : 'var(--border)'}`,
-                background: postoSel === null ? 'var(--navy)' : 'var(--bg)',
-                color: postoSel === null ? 'white' : 'var(--text-2)',
-                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-              }}
-            >Todos</button>
-
-            {/* Chip por posto */}
-            {postos.map((nome, i) => {
-              const cor = CORES_POSTO[i % CORES_POSTO.length]
-              const ativo = postoSel === nome
-              return (
-                <button
-                  key={nome}
-                  onClick={() => setPostoSel(ativo ? null : nome)}
-                  style={{
-                    padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 20,
-                    border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
-                    background: ativo ? cor : 'var(--bg)',
-                    color: ativo ? 'white' : 'var(--text-2)',
-                    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-                  }}
-                >
-                  {nome.length > 24 ? nome.slice(0, 24) + '…' : nome}
-                </button>
-              )
-            })}
-          </div>
-
-          {/* Gráfico */}
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%">
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v/1000).toFixed(1)}kL`} width={60} />
-              <Tooltip content={<CustomTooltip />} />
-              {!postoSel && <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />}
-              {postosNoGrafico.map((nome, i) => {
-                const idxGlobal = postos.indexOf(nome)
-                const cor = CORES_POSTO[idxGlobal % CORES_POSTO.length]
-                return (
-                  <Bar
-                    key={nome}
-                    dataKey={nome}
-                    name={nome}
-                    stackId={postoSel ? undefined : 'a'} // empilhado só no "todos"
-                    fill={cor}
-                    radius={postoSel
-                      ? [4, 4, 0, 0]
-                      : i === postosNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]
-                    }
-                  />
-                )
-              })}
-            </BarChart>
-          </ResponsiveContainer>
-
-          {/* Resumo do posto selecionado */}
-          {postoSel && (() => {
-            const totalPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.valor || 0), 0)
-            const totalLitrosPosto = dadosMensais.reduce((s, m) => s + (m.postos[postoSel]?.litros || 0), 0)
-            return (
-              <div style={{ display: 'flex', gap: 16, marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--sky-light)', borderRadius: 8, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total acumulado</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalPosto)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total litros</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmtL(totalLitrosPosto)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Média mensal</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--navy)' }}>{fmt(dadosMensais.length > 0 ? totalPosto / dadosMensais.length : 0)}</div>
-                </div>
-              </div>
-            )
-          })()}
         </div>
       )}
 
@@ -442,23 +395,8 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       )}
 
-      {/* ── Gráficos combustível + tabela resumida ── */}
-      <div className="graficos-grid">
-        <div className="grafico-card">
-          <div className="grafico-titulo">Consumo por combustível</div>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={dataComb} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-              <XAxis dataKey="nome" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip formatter={(v: number, name: string) => [name === 'valor' ? fmt(v) : fmtL(v), name === 'valor' ? 'Valor' : 'Litros']} />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="valor" name="Valor (R$)" fill="#2563eb" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="litros" name="Litros" fill="#16a34a" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
+      {/* ── Resumo mensal (tabela compacta dos últimos 6 meses) ── */}
+      {dadosMensais.length > 0 && (
         <div className="grafico-card">
           <div className="grafico-titulo">Resumo mensal</div>
           <table className="tabela tabela-sm">
@@ -480,7 +418,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
             </tbody>
           </table>
         </div>
-      </div>
+      )}
 
       {/* ── Tabela detalhamento por combustível ── */}
       <div className="tabela-comb-wrap">
