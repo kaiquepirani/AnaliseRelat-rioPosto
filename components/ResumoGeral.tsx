@@ -7,7 +7,7 @@ const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', curren
 const fmtL = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' L'
 const fmtK = (v: number) => v >= 1000 ? `R$${(v/1000).toFixed(1)}k` : fmt(v)
 
-const CORES_COMB = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2']
+const CORES_COMB  = ['#2563eb', '#16a34a', '#d97706', '#9333ea', '#dc2626', '#0891b2']
 const CORES_POSTO = ['#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4']
 
 function parsarDataBR(data: string): Date | null {
@@ -39,6 +39,8 @@ interface Props {
 export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, alertas, lancamentos, extratos }: Props) {
   const [metrica, setMetrica] = useState<'valor' | 'litros'>('valor')
   const [mesSel, setMesSel] = useState<string>('')
+  // Novo: postos selecionados no gráfico de evolução
+  const [postosSel, setPostosSel] = useState<string[]>([])
 
   // Combustível
   const porCombustivel: Record<string, { valor: number; litros: number }> = {}
@@ -105,6 +107,40 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
       .sort((a, b) => (metrica === 'valor' ? b.valor - a.valor : b.litros - a.litros))
   }, [dadosMesSel, postos, metrica])
 
+  // Postos ativos no gráfico de evolução (inicializa com todos se vazio)
+  const postosAtivos = useMemo(() => {
+    if (postosSel.length > 0) return postosSel
+    return postos
+  }, [postosSel, postos])
+
+  // Dados do gráfico de evolução por posto selecionado
+  const dadosEvolucao = useMemo(() => {
+    return dadosMensais.map(m => {
+      const entry: Record<string, any> = { label: m.label, key: m.key }
+      postosAtivos.forEach(nome => {
+        entry[nome] = metrica === 'valor'
+          ? parseFloat((m.postos[nome]?.valor || 0).toFixed(2))
+          : parseFloat((m.postos[nome]?.litros || 0).toFixed(1))
+      })
+      return entry
+    })
+  }, [dadosMensais, postosAtivos, metrica])
+
+  const togglePosto = (nome: string) => {
+    setPostosSel(prev => {
+      // Se nenhum selecionado explicitamente, começa do zero selecionando só este
+      const base = prev.length === 0 ? postos : prev
+      if (base.includes(nome)) {
+        const next = base.filter(p => p !== nome)
+        return next.length === 0 ? postos : next // não deixa vazio
+      }
+      return [...base, nome]
+    })
+  }
+
+  const selecionarTodos = () => setPostosSel([])
+  const limparSelecao = (nome: string) => setPostosSel([nome])
+
   const mediaGeral = dadosMensais.length > 0
     ? dadosMensais.reduce((s, m) => s + m.total, 0) / dadosMensais.length : 0
 
@@ -153,7 +189,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       </div>
 
-      {/* ── Gráfico empilhado mensal por posto ── */}
+      {/* ── Gráfico 1: empilhado mensal por posto ── */}
       {dadosMensais.length > 0 && (
         <div className="grafico-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
@@ -202,7 +238,7 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
         </div>
       )}
 
-      {/* ── Gráfico de barras horizontais — postos no mês selecionado ── */}
+      {/* ── Gráfico 2: barras horizontais — postos no mês selecionado ── */}
       {dadosMesSel && dadosPostosMes.length > 0 && (
         <div className="grafico-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: '1rem' }}>
@@ -214,7 +250,6 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
                 </strong>
               </div>
             </div>
-            {/* Seletor de mês */}
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
               {meses.map(m => (
                 <button key={m} onClick={() => setMesSel(m)} style={{
@@ -243,6 +278,79 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
                   <Cell key={i} fill={CORES_POSTO[postos.indexOf(entry.nomeCompleto) % CORES_POSTO.length]} />
                 ))}
               </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ── Gráfico 3: evolução mensal por posto selecionado ── */}
+      {dadosMensais.length > 0 && postos.length > 0 && (
+        <div className="grafico-card">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: '1rem' }}>
+            <div>
+              <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por posto</div>
+              <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
+                Selecione os postos para comparar mês a mês
+              </div>
+            </div>
+          </div>
+
+          {/* Seletor de postos — chips clicáveis */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: '1.25rem' }}>
+            <button
+              onClick={selecionarTodos}
+              style={{
+                padding: '4px 12px', fontSize: 11, fontWeight: 700, borderRadius: 20,
+                border: `1.5px solid ${postosSel.length === 0 ? 'var(--navy)' : 'var(--border)'}`,
+                background: postosSel.length === 0 ? 'var(--navy)' : 'var(--bg)',
+                color: postosSel.length === 0 ? 'white' : 'var(--text-2)',
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+              }}
+            >Todos</button>
+            {postos.map((nome, i) => {
+              const cor = CORES_POSTO[i % CORES_POSTO.length]
+              const ativo = postosSel.length === 0 || postosSel.includes(nome)
+              return (
+                <button
+                  key={nome}
+                  onClick={() => togglePosto(nome)}
+                  onDoubleClick={() => limparSelecao(nome)}
+                  title={`Clique para alternar · Duplo clique para isolar`}
+                  style={{
+                    padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20,
+                    border: `1.5px solid ${ativo ? cor : 'var(--border)'}`,
+                    background: ativo ? cor : 'var(--bg)',
+                    color: ativo ? 'white' : 'var(--text-3)',
+                    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+                    opacity: ativo ? 1 : 0.5,
+                  }}
+                >
+                  {nome.length > 22 ? nome.slice(0, 22) + '…' : nome}
+                </button>
+              )
+            })}
+          </div>
+
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="20%">
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v/1000).toFixed(1)}kL`} width={60} />
+              <Tooltip content={<CustomTooltipMensal />} />
+              <Legend wrapperStyle={{ fontSize: 11 }} formatter={n => n.length > 25 ? n.slice(0, 25) + '…' : n} />
+              {postosAtivos.map((nome, i) => {
+                const idxGlobal = postos.indexOf(nome)
+                return (
+                  <Bar
+                    key={nome}
+                    dataKey={nome}
+                    name={nome}
+                    stackId="b"
+                    fill={CORES_POSTO[idxGlobal % CORES_POSTO.length]}
+                    radius={i === postosAtivos.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                  />
+                )
+              })}
             </BarChart>
           </ResponsiveContainer>
         </div>
