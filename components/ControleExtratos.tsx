@@ -10,23 +10,24 @@ type Frequencia = 'semanal' | 'quinzenal' | 'mensal' | 'esporadico'
 interface PostoEsperado {
   id: string
   nome: string
-  chave: string
+  chave: string      // suporta múltiplas chaves separadas por | ex: "POSTO TIAGO|PORTAL DAS ESTANCIAS|QUEIJO BOM"
   frequencia: Frequencia
 }
 
+// Posto Tiago agrupa 3 nomes de extrato diferentes, frequência ajustada para 2/mês (quinzenal)
 const POSTOS_PADRAO: PostoEsperado[] = [
-  { id: '1',  nome: 'Auto Posto Skina Italianos',        chave: 'SKINA ITALIANOS',               frequencia: 'semanal'    },
-  { id: '2',  nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO',                   frequencia: 'semanal'    },
-  { id: '3',  nome: 'Auto Posto Praia de São Francisco', chave: 'PRAIA DE SAO FRANCISCO',        frequencia: 'quinzenal'  },
-  { id: '4',  nome: 'Cooperativa dos Cafeicultores',     chave: 'COOPERATIVA DOS CAFEICULTORES', frequencia: 'quinzenal'  },
-  { id: '5',  nome: 'Mocafor Mococa',                    chave: 'MOCAFOR',                       frequencia: 'quinzenal'  },
-  { id: '6',  nome: 'Irmãos Miguel Morungaba',           chave: 'IRMAOS MIGUEL',                 frequencia: 'quinzenal'  },
-  { id: '7',  nome: 'Itapirense Escolar',                chave: 'ITAPIRENSE',                    frequencia: 'quinzenal'  },
-  { id: '8',  nome: 'Posto JL Aguaí',                   chave: 'JL AGUAI',                      frequencia: 'quinzenal'  },
-  { id: '9',  nome: 'Posto Abastece Rio Claro',          chave: 'ABASTECE RIO CLARO',            frequencia: 'quinzenal'  },
-  { id: '10', nome: 'Posto RVM Mogi Mirim',              chave: 'RVM MOGI',                      frequencia: 'quinzenal'  },
-  { id: '11', nome: 'Auto Posto São Benedito',           chave: 'SAO BENEDITO',                  frequencia: 'mensal'     },
-  { id: '12', nome: 'Tanque Águas (Interno)',            chave: 'TANQUE AGUAS',                  frequencia: 'esporadico' },
+  { id: '1',  nome: 'Auto Posto Skina Italianos',        chave: 'SKINA ITALIANOS',                                              frequencia: 'semanal'    },
+  { id: '2',  nome: 'Posto Tiago Águas de Lindóia',      chave: 'POSTO TIAGO|PORTAL DAS ESTANCIAS|QUEIJO BOM',                 frequencia: 'quinzenal'  },
+  { id: '3',  nome: 'Auto Posto Praia de São Francisco', chave: 'PRAIA DE SAO FRANCISCO',                                       frequencia: 'quinzenal'  },
+  { id: '4',  nome: 'Cooperativa dos Cafeicultores',     chave: 'COOPERATIVA DOS CAFEICULTORES',                                frequencia: 'quinzenal'  },
+  { id: '5',  nome: 'Mocafor Mococa',                    chave: 'MOCAFOR',                                                      frequencia: 'quinzenal'  },
+  { id: '6',  nome: 'Irmãos Miguel Morungaba',           chave: 'IRMAOS MIGUEL',                                                frequencia: 'quinzenal'  },
+  { id: '7',  nome: 'Itapirense Escolar',                chave: 'ITAPIRENSE',                                                   frequencia: 'quinzenal'  },
+  { id: '8',  nome: 'Posto JL Aguaí',                   chave: 'JL AGUAI',                                                     frequencia: 'quinzenal'  },
+  { id: '9',  nome: 'Posto Abastece Rio Claro',          chave: 'ABASTECE RIO CLARO',                                           frequencia: 'quinzenal'  },
+  { id: '10', nome: 'Posto RVM Mogi Mirim',              chave: 'RVM MOGI',                                                     frequencia: 'quinzenal'  },
+  { id: '11', nome: 'Auto Posto São Benedito',           chave: 'SAO BENEDITO',                                                 frequencia: 'mensal'     },
+  { id: '12', nome: 'Tanque Águas (Interno)',            chave: 'TANQUE AGUAS',                                                 frequencia: 'esporadico' },
 ]
 
 const FREQUENCIA_LABEL: Record<Frequencia, string> = {
@@ -63,17 +64,19 @@ function extratoCobreMes(periodo: string, mes: number, ano: number): boolean {
   return dataInicio <= ultimoDia && dataFim >= primeiroDia
 }
 
+// Suporta múltiplas chaves separadas por |
 function matchPosto(nomeExtrato: string, chave: string): boolean {
   const n = nomeExtrato.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  const c = chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-  return n.includes(c)
+  return chave.split('|').some(c => {
+    const cn = c.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    return n.includes(cn)
+  })
 }
 
 function chaveJustificativa(postoId: string, mes: number, ano: number): string {
   return `controle_just__${postoId}__${ano}_${mes}`
 }
 
-// Retorna true se o mês/ano selecionado já encerrou (é anterior ao mês atual)
 function mesJaEncerrado(mesSel: number, anoSel: number, hoje: Date): boolean {
   return anoSel < hoje.getFullYear() ||
     (anoSel === hoje.getFullYear() && mesSel < hoje.getMonth())
@@ -94,7 +97,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   const [editandoJust, setEditandoJust] = useState<string | null>(null)
   const [textoJust, setTextoJust] = useState('')
 
-  // Mês atual ou futuro: alertas desativados
   const alertasAtivos = mesJaEncerrado(mesSel, anoSel, hoje)
 
   useEffect(() => {
@@ -161,7 +163,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       if (posto.frequencia === 'esporadico') {
         status = 'esporadico'
       } else if (!alertasAtivos) {
-        // Mês atual ou futuro: não emite alerta, só mostra o que chegou
         status = recebido >= esperado ? 'ok' : justificado ? 'justificado' : 'aguardando'
       } else if (justificado) {
         status = 'justificado'
@@ -213,12 +214,12 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
   }, [extratos])
 
   const statusColor = (s: string) => {
-    if (s === 'ok')         return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
-    if (s === 'justificado')return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
-    if (s === 'parcial')    return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
-    if (s === 'faltando')   return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
-    if (s === 'aguardando') return { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '🕐' }
-    return                         { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
+    if (s === 'ok')          return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
+    if (s === 'justificado') return { bg: '#f0fdf4', border: '#86efac', color: '#16a34a', icon: '✅' }
+    if (s === 'parcial')     return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
+    if (s === 'faltando')    return { bg: '#fef2f2', border: '#fca5a5', color: '#dc2626', icon: '❌' }
+    if (s === 'aguardando')  return { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '🕐' }
+    return                          { bg: '#f8fafc', border: '#e2e8f0', color: '#64748b', icon: '📋' }
   }
 
   return (
@@ -241,7 +242,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
           </select>
         </div>
 
-        {/* Aviso de mês em andamento */}
         {!alertasAtivos && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: 8,
@@ -290,16 +290,26 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
       {/* ── Configuração de postos ── */}
       {editandoPostos && (
         <div style={{ background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 12, padding: '1.25rem', marginBottom: '1.5rem' }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)', marginBottom: '1rem' }}>⚙️ Configurar postos esperados</div>
+          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)', marginBottom: '0.5rem' }}>⚙️ Configurar postos esperados</div>
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: '1rem' }}>
+            Separe múltiplas palavras-chave com <code style={{ background: '#e2e8f0', padding: '1px 5px', borderRadius: 3 }}>|</code> para que diferentes nomes de extrato sejam reconhecidos como o mesmo posto.
+            Ex: <code style={{ background: '#e2e8f0', padding: '1px 5px', borderRadius: 3 }}>POSTO TIAGO|PORTAL DAS ESTANCIAS|QUEIJO BOM</code>
+          </div>
           <table className="tabela tabela-sm" style={{ marginBottom: '1rem' }}>
             <thead>
-              <tr><th>Posto</th><th>Palavra-chave</th><th>Frequência</th><th></th></tr>
+              <tr><th>Posto</th><th>Palavra(s)-chave</th><th>Frequência</th><th></th></tr>
             </thead>
             <tbody>
               {postos.map(p => (
                 <tr key={p.id}>
                   <td style={{ fontWeight: 600 }}>{p.nome}</td>
-                  <td><code style={{ fontSize: 11, background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>{p.chave}</code></td>
+                  <td>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {p.chave.split('|').map((c, i) => (
+                        <code key={i} style={{ fontSize: 11, background: '#e2e8f0', padding: '2px 6px', borderRadius: 4 }}>{c.trim()}</code>
+                      ))}
+                    </div>
+                  </td>
                   <td>
                     <select value={p.frequencia} onChange={e => alterarFrequencia(p.id, e.target.value as Frequencia)}
                       style={{ fontSize: 12, padding: '3px 6px', borderRadius: 5, border: '1px solid var(--border)', fontFamily: 'inherit' }}>
@@ -329,8 +339,8 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                     style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }} />
                 </div>
                 <div className="filtro-grupo" style={{ flex: 2, minWidth: 180 }}>
-                  <label className="filtro-label">Palavra-chave do extrato</label>
-                  <input value={novaChave} onChange={e => setNovaChave(e.target.value.toUpperCase())} placeholder="Ex: POSTO SILVA"
+                  <label className="filtro-label">Palavra(s)-chave — separe com |</label>
+                  <input value={novaChave} onChange={e => setNovaChave(e.target.value.toUpperCase())} placeholder="Ex: POSTO SILVA|SILVA CAMP"
                     style={{ padding: '6px 10px', fontSize: 13, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', width: '100%' }} />
                 </div>
                 <div className="filtro-grupo">
@@ -345,7 +355,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                 </div>
               </div>
               <div style={{ fontSize: 11, color: '#64748b' }}>
-                Use parte do nome como aparece no sistema (ex: "SKINA ITALIANOS", "SAO BENEDITO").
+                Use partes do nome como aparecem no sistema. Separe alternativas com <code style={{ background: '#e2e8f0', padding: '1px 4px', borderRadius: 3 }}>|</code>.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={adicionarPosto} disabled={!novoNome.trim() || !novaChave.trim()} style={{ padding: '6px 16px', fontSize: 13, fontWeight: 600, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', opacity: !novoNome.trim() || !novaChave.trim() ? 0.5 : 1 }}>Adicionar</button>
@@ -375,7 +385,6 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
           {statusPostos.map(({ posto, status, recebido, esperado, totalValor, totalLitros, periodos, chaveJust }) => {
             const c = statusColor(status)
             const justTexto = justificativas[chaveJust]
-            // Botão justificar só aparece em meses já encerrados
             const podeJustificar = alertasAtivos && (status === 'faltando' || status === 'parcial' || status === 'justificado')
 
             return (
@@ -392,6 +401,14 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)' }}>{posto.nome}</div>
                       <div style={{ fontSize: 11, color: '#64748b' }}>{FREQUENCIA_LABEL[posto.frequencia]}</div>
+                      {/* Mostra chaves alternativas se houver mais de uma */}
+                      {posto.chave.includes('|') && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
+                          {posto.chave.split('|').map((c, i) => (
+                            <span key={i} style={{ fontSize: 10, background: 'rgba(0,0,0,0.06)', color: '#64748b', borderRadius: 4, padding: '1px 5px' }}>{c.trim()}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -417,7 +434,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                     )}
                   </div>
 
-                  {/* Períodos */}
+                  {/* Períodos recebidos */}
                   {periodos.length > 0 && (
                     <div style={{ flex: 2, minWidth: 200 }}>
                       <div style={{ fontSize: 11, color: '#64748b', marginBottom: 4 }}>Períodos recebidos:</div>
@@ -452,8 +469,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                         background: justTexto ? '#f0fdf4' : 'white',
                         color: justTexto ? '#16a34a' : 'var(--navy)',
                         border: `1px solid ${justTexto ? '#86efac' : 'var(--navy)'}`,
-                        borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
-                        whiteSpace: 'nowrap',
+                        borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
                       }}>
                         {justTexto ? '✏️ Editar justificativa' : '+ Justificar'}
                       </button>
@@ -465,8 +481,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                 {justTexto && editandoJust !== chaveJust && (
                   <div style={{
                     display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
-                    background: '#f0fdf4', border: '1px solid #86efac',
-                    borderRadius: 8, padding: '8px 12px',
+                    background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '8px 12px',
                   }}>
                     <div style={{ fontSize: 12, color: '#166534', flex: 1 }}>
                       <strong>Justificativa:</strong> {justTexto}
@@ -483,8 +498,7 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                 {editandoJust === chaveJust && (
                   <div style={{
                     background: 'white', border: '1px solid #fcd34d',
-                    borderRadius: 8, padding: '10px 12px',
-                    display: 'flex', flexDirection: 'column', gap: 8,
+                    borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8,
                   }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>
                       Justificativa para {posto.nome} — {nomeMes(mesSel)} {anoSel}
@@ -498,30 +512,19 @@ export default function ControleExtratos({ extratos }: { extratos: Extrato[] }) 
                         style={{
                           flex: 1, fontSize: 12, padding: '6px 8px',
                           border: '1px solid #fcd34d', borderRadius: 6,
-                          fontFamily: 'inherit', resize: 'vertical', minHeight: 56,
-                          background: '#fffbeb',
+                          fontFamily: 'inherit', resize: 'vertical', minHeight: 56, background: '#fffbeb',
                         }}
                       />
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <button
-                          onClick={() => confirmarJustificativa(chaveJust)}
-                          disabled={!textoJust.trim()}
-                          style={{
-                            padding: '6px 12px', fontSize: 12, fontWeight: 600,
-                            background: 'var(--navy)', color: 'white',
-                            border: 'none', borderRadius: 6, cursor: 'pointer',
-                            fontFamily: 'inherit', opacity: textoJust.trim() ? 1 : 0.5,
-                          }}
-                        >Salvar</button>
-                        <button
-                          onClick={() => { setEditandoJust(null); setTextoJust('') }}
-                          style={{
-                            padding: '6px 10px', fontSize: 12,
-                            background: 'white', color: 'var(--text-2)',
-                            border: '1px solid var(--border)', borderRadius: 6,
-                            cursor: 'pointer', fontFamily: 'inherit',
-                          }}
-                        >Cancelar</button>
+                        <button onClick={() => confirmarJustificativa(chaveJust)} disabled={!textoJust.trim()} style={{
+                          padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                          background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6,
+                          cursor: 'pointer', fontFamily: 'inherit', opacity: textoJust.trim() ? 1 : 0.5,
+                        }}>Salvar</button>
+                        <button onClick={() => { setEditandoJust(null); setTextoJust('') }} style={{
+                          padding: '6px 10px', fontSize: 12, background: 'white', color: 'var(--text-2)',
+                          border: '1px solid var(--border)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                        }}>Cancelar</button>
                       </div>
                     </div>
                   </div>
