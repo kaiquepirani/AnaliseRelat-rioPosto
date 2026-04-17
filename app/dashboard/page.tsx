@@ -208,22 +208,33 @@ export default function Dashboard() {
     } catch { return 0 }
   })()
 
+  // Separadores conforme layout:
+  // Resumo · Pesquisa por Posto · Pesquisa por Veículo · Confronto
+  // | Placas Divergentes · Terceiros/Vales
+  // | Extratos Detalhados · Preço Vigente · Atípicos · Alerta de Preços
   const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; separadorAntes?: boolean }[] = [
     { id: 'resumo',     label: 'Resumo' },
     { id: 'posto',      label: 'Pesquisa por Posto' },
     { id: 'veiculo',    label: 'Pesquisa por Veículo' },
-    { id: 'confronto',  label: 'Confronto', vermelho: true, separadorAntes: true },
-    { id: 'alertas',    label: 'Placas Divergentes', badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
+    { id: 'confronto',  label: 'Confronto', vermelho: true },
+    { id: 'alertas',    label: 'Placas Divergentes', separadorAntes: true, badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
     { id: 'terceiros',  label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined },
-    { id: 'postos',     label: 'Extratos Detalhados', badge: todosPostos.length },
-    { id: 'precoatual', label: 'Preço Vigente', separadorAntes: true },
+    { id: 'postos',     label: 'Extratos Detalhados', separadorAntes: true, badge: todosPostos.length },
+    { id: 'precoatual', label: 'Preço Vigente' },
     { id: 'atipicos',   label: 'Atípicos' },
     { id: 'preco',      label: 'Alerta de Preços' },
-    { id: 'controle',   label: 'Controle de Lançamentos', badge: faltandoMesAtual > 0 ? faltandoMesAtual : undefined, separadorAntes: true },
     // { id: 'historico',  label: 'Histórico' },
     // { id: 'ranking',    label: 'Ranking' },
     // { id: 'eficiencia', label: 'Eficiência' },
   ]
+
+  const headerBtnStyle = (ativo: boolean) => ({
+    padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+    background: ativo ? 'white' : 'rgba(255,255,255,0.15)',
+    color: ativo ? 'var(--navy)' : 'white',
+    border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
+    cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
+  })
 
   return (
     <div className="app">
@@ -239,13 +250,22 @@ export default function Dashboard() {
           </div>
           <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <button onClick={() => setAbaAtiva('frota')} style={{
-              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
-              background: abaAtiva === 'frota' ? 'white' : 'rgba(255,255,255,0.15)',
-              color: abaAtiva === 'frota' ? 'var(--navy)' : 'white',
-              border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
-              cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.15s',
-            }}>🚌 Frota</button>
+            <button onClick={() => setAbaAtiva('frota')} style={headerBtnStyle(abaAtiva === 'frota')}>
+              🚌 Frota
+            </button>
+            <button onClick={() => setAbaAtiva('controle')} style={{
+              ...headerBtnStyle(abaAtiva === 'controle'),
+              ...(faltandoMesAtual > 0 ? { background: abaAtiva === 'controle' ? 'white' : '#fef9c3', color: abaAtiva === 'controle' ? 'var(--navy)' : '#92400e', border: '1px solid rgba(255,255,255,0.6)' } : {}),
+            }}>
+              📋 Controle de Lançamentos
+              {faltandoMesAtual > 0 && (
+                <span style={{
+                  marginLeft: 6, background: '#dc2626', color: 'white',
+                  borderRadius: 10, fontSize: 10, fontWeight: 800,
+                  padding: '1px 6px', display: 'inline-block', lineHeight: 1.6,
+                }}>{faltandoMesAtual}</span>
+              )}
+            </button>
             <Upload onUpload={handleUpload} processando={processando} />
           </div>
         </div>
