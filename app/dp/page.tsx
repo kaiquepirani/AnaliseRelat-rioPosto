@@ -243,13 +243,34 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     // CPF: primeiro do bloco, depois do mapa
     let cpf = extrairCPF(textoBloco) || dadosCpf?.cpf
 
-    // Salário base: do bloco (apenas valores entre R$500 e R$30.000)
-    let salarioBase = valor // fallback = valor recebido
+    // Parse de valor numérico (trata "1.464,00", "648.4" e "1464")
+    const parseValorBR = (s: string): number => {
+      const t = s.trim()
+      if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.'))
+      if (t.includes('.')) {
+        const partes = t.split('.')
+        return partes[partes.length - 1].length <= 2 ? parseFloat(t) : parseFloat(t.replace(/\./g, ''))
+      }
+      return parseFloat(t)
+    }
+
+    // Salário base: usa ANTECIPAÇÃO SALARIAL (valor/0.4 = base real com adicionais)
+    // Fallback: VALOR SALARIO do texto → totalReceber
+    let salarioBase = valor
     if (textoBloco) {
-      const salM = textoBloco.match(/(?:NOVO VALOR |VALOR )?SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i)
-      if (salM) {
-        const v = parseFloat(salM[1].replace(/\./g, '').replace(',', '.'))
-        if (v >= 500 && v <= 30000) salarioBase = v
+      const antecipM = textoBloco.match(/ANTECIPA(?:[ÇC])(?:[ÃA])O SALARIAL[^\t\n]*[\t\s]+([\d\.,]+)/i)
+      if (antecipM) {
+        const antecip = parseValorBR(antecipM[1])
+        const baseCalc = antecip / 0.4
+        if (baseCalc >= 500 && baseCalc <= 30000) {
+          salarioBase = Math.round(baseCalc * 100) / 100
+        }
+      } else {
+        const salM = textoBloco.match(/(?:NOVO VALOR |VALOR )?SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i)
+        if (salM) {
+          const v = parseValorBR(salM[1])
+          if (v >= 500 && v <= 30000) salarioBase = v
+        }
       }
     }
 
