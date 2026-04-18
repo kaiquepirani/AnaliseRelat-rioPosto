@@ -115,16 +115,27 @@ function detectarBanco(texto: string): string {
 }
 
 // ── Parser principal: usa RESUMO PAGAMENTO como âncora ─────────────────────
-// Estratégia:
-// 1. Extrai lista de (nome, valor) do RESUMO PAGAMENTO — fonte de verdade
-// 2. Para cada nome, localiza seu bloco individual na planilha
-// 3. Do bloco extrai: CPF, salário base, banco, observações
-// 4. Fallback: busca CPF por linha com padrão CPF | NOME | BANCO
+// Lê as colunas da ESQUERDA diretamente (col1=B=rótulo, col3=D=valor)
+// para evitar contaminação do RESUMO PAGAMENTO que fica nas colunas da direita.
+// Prioridade do salário base:
+//   1. Linha com "SALARIO" em col1/col3 → primeiro R$X.XXX na linha
+//   2. Antecipação/0.4 → fallback quando não há texto de salário
+//   3. totalReceber → último fallback
+
+function extrairRealBR(s: string): number {
+  const t = (s || '').trim()
+  if (!t) return 0
+  if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.')) || 0
+  if (t.includes('.')) {
+    const partes = t.split('.')
+    return partes[partes.length - 1].length <= 2 ? parseFloat(t) : parseFloat(t.replace(/\./g, ''))
+  }
+  return parseFloat(t) || 0
+}
 
 function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // ── Passo 1: Localiza RESUMO PAGAMENTO ─────────────────────────────────
-  let resumoLinha = -1
-  let resumoCol = -1
+  // ── 1. Localiza RESUMO PAGAMENTO ─────────────────────────────────────────
+  let resumoLinha = -1, resumoCol = -1
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
     for (let j = 0; j < row.length; j++) {
@@ -136,187 +147,155 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
   }
   if (resumoLinha < 0) return []
 
-  // ── Passo 2: Extrai lista do resumo ────────────────────────────────────
+  // ── 2. Extrai lista do resumo: (nome, totalReceber) ──────────────────────
   const listaResumo: { nome: string; valor: number }[] = []
   for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 100, dados.length); i++) {
     const row = dados[i] || []
     const idx = row[resumoCol]
-    const nomeCel = row[resumoCol + 1]
+    const nomeCel = String(row[resumoCol + 1] ?? '').trim()
     const valCel = row[resumoCol + 2]
-    if (typeof idx === 'number' && idx >= 1 && idx <= 200) {
-      const nome = String(nomeCel ?? '').trim()
-      const valor = typeof valCel === 'number' ? valCel : 0
-      if (nome.length > 2 && valor > 0) {
-        listaResumo.push({ nome, valor })
-      }
+    if (typeof idx === 'number' && idx >= 1 && idx <= 200 && nomeCel.length > 2 &&
+        typeof valCel === 'number' && valCel > 0) {
+      listaResumo.push({ nome: nomeCel, valor: valCel })
     }
-    if (String(nomeCel ?? '').toUpperCase().includes('TOTAL') &&
-        !String(nomeCel ?? '').toUpperCase().includes('RESUMO')) break
+    if (String(row[resumoCol + 1] ?? '').toUpperCase().includes('TOTAL') &&
+        !String(row[resumoCol + 1] ?? '').toUpperCase().includes('RESUMO')) break
   }
 
-  // ── Passo 3: Monta mapa CPF|banco por nome (padrão Rio Claro/Porto Ferreira)
-  // Formato: col B=CPF, col D=NOME, col F=AG/CC
-  const mapaCpfNome: Record<string, { cpf: string; banco: string; agencia: string; conta: string }> = {}
-
-  // Detecta banco do cabeçalho global
-  let bancoGlobal = ''
-  for (let i = 0; i < Math.min(10, dados.length); i++) {
-    const texto = (dados[i] || []).map((c: any) => String(c ?? '')).join(' ')
-    const b = detectarBanco(texto)
-    if (b) { bancoGlobal = b; break }
-  }
-
-  for (let i = 0; i < dados.length; i++) {
-    const row = dados[i] || []
-    const celB = String(row[1] ?? '').trim()
-    const celD = String(row[3] ?? '').trim()
-    const celF = String(row[5] ?? '').trim()
-
-    // Linha com CPF na col B e nome na col D
-    if (/^\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}$/.test(celB) && celD.length > 3) {
-      // Extrai agência e conta de celF (ex: "AG 2313", "2313/50800-0", "AG 0014")
-      const agM = celF.match(/(?:AG\.?\s*)(\d{3,6})/i)
-      const agencia = agM ? agM[1] : (celF.includes('/') ? celF.split('/')[0].replace(/\D/g, '') : '')
-      const ccPart = celF.includes('/') ? celF.split('/').pop() || '' : celF
-      const ctM = ccPart.match(/(\d{4,8}[-]?\d{0,2})/)
-      const conta = ctM ? ctM[1] : ''
-
-      // Banco: da célula ou do cabeçalho
-      const bancoLinha = detectarBanco(celF + ' ' + (dados[i + 1] || []).join(' ')) || bancoGlobal
-
-      mapaCpfNome[celD.toUpperCase()] = { cpf: celB, banco: bancoLinha, agencia, conta }
-    }
-  }
-
-  // ── Passo 4: Para cada nome do resumo, busca o bloco individual ─────────
+  // ── 3. Para cada colaborador, lê o bloco individual pelas colunas 0-5 ────
   const resultado: ColaboradorImportado[] = []
 
   for (const { nome, valor } of listaResumo) {
     const nomeUp = nome.toUpperCase().trim()
 
-    // Primeiro tenta o mapa CPF|nome
-    const dadosCpf = mapaCpfNome[nomeUp] ||
-      Object.entries(mapaCpfNome).find(([k]) =>
-        k.includes(nomeUp.split(' ')[0]) || nomeUp.includes(k.split(' ')[0])
-      )?.[1]
-
-    // Localiza bloco individual na planilha
-    // O bloco começa na linha que tem o nome em col B E tem dados de salário/antecipação
-    // (não é a linha de assinatura que fica após ___)
+    // Encontra início do bloco: col1(B) bate com o nome E não é assinatura (após ___)
     let blocoInicio = -1
-    let blocoFim = dados.length
-
     for (let i = 0; i < dados.length; i++) {
       const row = dados[i] || []
       const celB = String(row[1] ?? '').trim().toUpperCase()
-      const textoLinha = row.map((c: any) => String(c ?? '')).join(' ').toUpperCase()
-
-      // Nome exato na col B + tem salário ou antecipação na mesma linha ou próxima
-      if (celB === nomeUp || celB.includes(nomeUp.split(' ')[0]) && nomeUp.includes(celB.split(' ')[0])) {
-        // Verifica se é início de bloco (tem dados como SALARIO, NOVO VALOR, PERIODO, ANTECIP)
-        const proximasLinhas = dados.slice(i, i + 5).map(r => (r || []).join(' ')).join(' ').toUpperCase()
-        if (proximasLinhas.includes('SALARIO') || proximasLinhas.includes('ANTECIP') ||
-            proximasLinhas.includes('PERIODO') || proximasLinhas.includes('TOTAL A RECEBER')) {
-          // Não é assinatura
-          const linhaAnterior = (dados[i - 1] || []).join(' ')
-          if (!linhaAnterior.includes('___')) {
-            blocoInicio = i
-            break
-          }
+      if (celB.length < 3) continue
+      const primNomeB = celB.split(' ')[0]
+      const primNomeUp = nomeUp.split(' ')[0]
+      if (nomeUp.startsWith(primNomeB) || celB.startsWith(primNomeUp)) {
+        // Não é assinatura
+        const textoAnt = (dados[i - 1] || []).join(' ')
+        if (!textoAnt.includes('___')) {
+          blocoInicio = i; break
         }
       }
     }
 
-    // Encontra o fim do bloco (próxima linha de ___)
+    // Fim do bloco: próxima linha de ___
+    let blocoFim = dados.length
     if (blocoInicio >= 0) {
-      for (let i = blocoInicio + 1; i < Math.min(blocoInicio + 35, dados.length); i++) {
-        const texto = (dados[i] || []).join(' ')
-        if (texto.includes('___')) { blocoFim = i; break }
+      for (let i = blocoInicio + 1; i < Math.min(blocoInicio + 40, dados.length); i++) {
+        if ((dados[i] || []).join(' ').includes('___')) { blocoFim = i; break }
       }
     }
 
-    // Texto do bloco
-    const textoBloco = blocoInicio >= 0
-      ? dados.slice(blocoInicio, blocoFim).map(r => (r || []).map((c: any) => String(c ?? '')).join(' ')).join(' ')
-      : ''
+    // ── Extrai dados lendo col1(B) e col3(D) diretamente ──────────────────
+    let salarioBase = valor  // fallback
+    let antecipVal = 0
+    let cpf: string | undefined
+    let banco = ''
+    let agencia = ''
+    let conta = ''
+    let pix = ''
+    let observacoes = ''
+    let funcao: Funcao = 'Motorista'
 
-    // CPF: primeiro do bloco, depois do mapa
-    let cpf = extrairCPF(textoBloco) || dadosCpf?.cpf
+    const iniScan = blocoInicio >= 0 ? blocoInicio : 0
+    for (let i = iniScan; i < blocoFim; i++) {
+      const row = dados[i] || []
+      const col1 = String(row[1] ?? '').trim()  // coluna B = rótulo
+      const col3 = row[3]                         // coluna D = valor/texto
+      const col4 = String(row[4] ?? '').trim()  // coluna E = banco/info
 
-    // Parse de valor numérico (trata "1.464,00", "648.4" e "1464")
-    const parseValorBR = (s: string): number => {
-      const t = s.trim()
-      if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.'))
-      if (t.includes('.')) {
-        const partes = t.split('.')
-        return partes[partes.length - 1].length <= 2 ? parseFloat(t) : parseFloat(t.replace(/\./g, ''))
-      }
-      return parseFloat(t)
-    }
+      const col1Up = col1.toUpperCase()
+      const col3Str = String(col3 ?? '').trim()
+      const col3Up = col3Str.toUpperCase()
 
-    // Salário base: usa ANTECIPAÇÃO SALARIAL (valor/0.4 = base real com adicionais)
-    // Fallback: VALOR SALARIO do texto → totalReceber
-    let salarioBase = valor
-    if (textoBloco) {
-      const antecipM = textoBloco.match(/ANTECIPA(?:[ÇC])(?:[ÃA])O SALARIAL[^\t\n]*[\t\s]+([\d\.,]+)/i)
-      if (antecipM) {
-        const antecip = parseValorBR(antecipM[1])
-        const baseCalc = antecip / 0.4
-        if (baseCalc >= 500 && baseCalc <= 30000) {
-          salarioBase = Math.round(baseCalc * 100) / 100
-        }
-      } else {
-        const salM = textoBloco.match(/(?:NOVO VALOR |VALOR )?SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i)
-        if (salM) {
-          const v = parseValorBR(salM[1])
+      // SALÁRIO BASE: linha com SALARIO em col1 ou col3 → pega o primeiro R$X.XXX
+      if ((col1Up.includes('SALARIO') || col3Up.includes('SALARIO')) &&
+          !col1Up.includes('ANTECIP')) {
+        const textoSal = col1Up.includes('SALARIO') ? col3Str : col1
+        const mSal = textoSal.match(/R\$\s*([\d\.,]+)/)
+        if (mSal) {
+          const v = extrairRealBR(mSal[1])
           if (v >= 500 && v <= 30000) salarioBase = v
         }
       }
-    }
 
-    // Banco: do bloco ou do mapa
-    const banco = (textoBloco ? detectarBanco(textoBloco) : '') || dadosCpf?.banco || bancoGlobal
-
-    // Agência e conta: do bloco ou do mapa
-    let agencia = dadosCpf?.agencia || ''
-    let conta = dadosCpf?.conta || ''
-    if (textoBloco && !agencia) {
-      const agM = textoBloco.match(/AG(?:ENCIA|ÊNCIA|\.|\s)*[:\-]?\s*(\d{3,6})/i)
-      if (agM) agencia = agM[1]
-    }
-    if (textoBloco && !conta) {
-      const ctM = textoBloco.match(/(?:CONTA|CC|C\/C)\s*[-:]?\s*([0-9\s\-]+(?:-\d)?)/i)
-      if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
-    }
-
-    // PIX
-    let pix = ''
-    if (textoBloco) {
-      const pxM = textoBloco.match(/(?:PIX|CHAVE\s*PIX)[:\s]+([^\s]+)/i)
-      if (pxM) pix = pxM[1].trim()
-      // Celular como pix
-      if (!pix) {
-        const celM = textoBloco.match(/(\d{2}\s*\d\s*\d{4}[-\s]\d{4})/)
-        if (celM && textoBloco.toUpperCase().includes('PIX')) pix = celM[1]
+      // ANTECIPAÇÃO SALARIAL: col1 tem ANTECIP + col3 é numérico
+      if (col1Up.includes('ANTECIP') && typeof col3 === 'number' && col3 > 0) {
+        antecipVal = col3
       }
+
+      // CPF: qualquer célula com 11 dígitos de CPF
+      if (!cpf) {
+        const cpfM = (col1 + ' ' + col3Str).match(/\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}/)
+        if (cpfM) {
+          const digits = cpfM[0].replace(/\D/g, '')
+          if (digits.length === 11) cpf = cpfM[0]
+        }
+      }
+
+      // BANCO: col4 ou col1
+      if (!banco) {
+        const texB = col4 + ' ' + col1
+        for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER','SICOOB']) {
+          if (texB.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+        }
+      }
+
+      // AGÊNCIA
+      if (!agencia) {
+        const agM = (col4 + ' ' + col1).match(/AG(?:ENCIA|ÊNCIA|\.|\s)*[:\-]?\s*(\d{3,6})/i)
+        if (agM) agencia = agM[1]
+      }
+
+      // CONTA
+      if (!conta) {
+        const ctM = (col4 + ' ' + col1).match(/(?:CONTA|CC|C\/C)\s*[:\-]?\s*([0-9\s\-]+(?:-\d)?)/i)
+        if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
+      }
+
+      // PIX
+      if (!pix) {
+        const pxM = (col4 + ' ' + col1).match(/PIX[:\s]+([^\s]+)/i)
+        if (pxM) pix = pxM[1]
+        const celM = (col4 + ' ' + col1).match(/(\d{2}\s*\d\s*\d{4}[-\s]\d{4})/)
+        if (celM && (col4 + col1).toUpperCase().includes('PIX')) pix = celM[1]
+      }
+
+      // OBSERVAÇÕES e FUNÇÃO
+      const texObs = col1Up + ' ' + col3Up
+      if (texObs.includes('GRÁVIDA') || texObs.includes('GRAVIDA')) observacoes = 'Grávida'
+      if (texObs.includes('APOSENTADO')) observacoes = 'Aposentado'
+      if (texObs.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
+      if (texObs.includes('CARGO DE CONFIANÇA') || texObs.includes('CARGO CONFIANÇA')) {
+        if (!observacoes.includes('confiança')) observacoes += (observacoes ? ' · ' : '') + 'Cargo de confiança'
+      }
+      if (texObs.includes('MONITOR')) funcao = 'Monitor(a)'
+      if (texObs.includes('MECÂNIC') || texObs.includes('MECANICO')) funcao = 'Mecânico'
+      if (texObs.includes('CONTADOR') || texObs.includes('CONTABIL')) funcao = 'Administrativo'
     }
 
-    // Observações: apenas do bloco correto
-    const obs = textoBloco ? extrairObservacoes(textoBloco) : ''
-    const funcao = extrairFuncao(textoBloco)
+    // Se não achou salário no texto mas tem antecipação → base = antecip/0.4
+    if (salarioBase === valor && antecipVal > 0) {
+      const base = Math.round(antecipVal / 0.4 * 100) / 100
+      if (base >= 500 && base <= 30000) salarioBase = base
+    }
 
     resultado.push({
-      nome: nome.trim(),
-      cpf: cpf || undefined,
-      cidade,
-      funcao,
+      nome: nome.trim(), cpf, cidade, funcao,
       salarioBase,
       totalReceber: valor,
       banco: banco || undefined,
       agencia: agencia || undefined,
       conta: conta || undefined,
       pix: pix || undefined,
-      observacoes: obs || undefined,
+      observacoes: observacoes.trim() || undefined,
       jaExiste: false,
     })
   }
