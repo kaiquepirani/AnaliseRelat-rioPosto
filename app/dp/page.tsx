@@ -535,7 +535,8 @@ export default function DepartamentoPessoal() {
       const mesValido = mes >= 1 && mes <= 12 ? mes : new Date().getMonth() + 1
       const anoValido = anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
       const ano = anoValido
-      const mesAno = `${ano}-${String(mesValido).padStart(2, '0')}`
+      // Se veio de "Reimportar folha" de um mês específico, usa ele como override
+      const mesAno = mesAnoReimportar || `${ano}-${String(mesValido).padStart(2, '0')}`
 
       const { total: totalReal, porCidade: totaisReais } = extrairTotalGeral(wb)
 
@@ -699,6 +700,38 @@ export default function DepartamentoPessoal() {
                   </div>
                 </div>
                 <button onClick={() => setResultado(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
+              </div>
+
+              {/* Confirmação de mês/tipo — editável antes de salvar */}
+              <div style={{ background: 'var(--sky-light)', border: '1px solid var(--sky-mid)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--navy)' }}>📅 Confirme antes de salvar:</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>Competência:</label>
+                  <select
+                    value={resultado.mesAno}
+                    onChange={e => setResultado(r => r ? { ...r, mesAno: e.target.value } : r)}
+                    style={{ padding: '0.3rem 0.6rem', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', background: 'white', color: 'var(--navy)' }}
+                  >
+                    {Array.from({ length: 24 }, (_, i) => {
+                      const d = new Date()
+                      d.setMonth(d.getMonth() - i)
+                      const ma = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+                      const nomes = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+                      return <option key={ma} value={ma}>{nomes[d.getMonth()]}/{d.getFullYear()}</option>
+                    })}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>Tipo:</label>
+                  <select
+                    value={resultado.tipoFolha}
+                    onChange={e => setResultado(r => r ? { ...r, tipoFolha: e.target.value as 'antecipacao' | 'folha' } : r)}
+                    style={{ padding: '0.3rem 0.6rem', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', background: 'white', color: 'var(--navy)' }}
+                  >
+                    <option value="antecipacao">📅 Antecipação (dia 20)</option>
+                    <option value="folha">💰 Folha (dia 10)</option>
+                  </select>
+                </div>
               </div>
 
               {(() => {
