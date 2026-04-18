@@ -37,3 +37,13 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ erro: e.message }, { status: 500 })
   }
 }
+
+// ⚠️ TEMPORÁRIO — limpa todos os colaboradores
+export async function PATCH() {
+  try {
+    await redis.set(KEY_COLABORADORES, [])
+    return NextResponse.json({ sucesso: true, mensagem: 'Todos os colaboradores foram removidos.' })
+  } catch (e: any) {
+    return NextResponse.json({ erro: e.message }, { status: 500 })
+  }
+}
