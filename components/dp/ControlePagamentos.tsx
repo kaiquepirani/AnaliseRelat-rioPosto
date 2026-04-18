@@ -29,6 +29,7 @@ interface Fechamento {
   tipo: 'antecipacao' | 'folha'
   totalGeral: number
   totalPorCidade: Record<string, number>
+  valorPorColaborador?: Record<string, number>  // nome.toUpperCase() → valor
   arquivo: string
   dataImport: string
 }
@@ -434,13 +435,22 @@ export default function ControlePagamentos({ onReimportar }: { onReimportar?: (m
                     <thead>
                       <tr>
                         <th>Colaborador</th>
-                        <th style={{ textAlign: 'right' }}>Salário base</th>
+                        <th style={{ textAlign: 'right' }}>
+                          {fechamentoAntecipacao ? 'A receber (antecip.)' : 'Salário base'}
+                        </th>
                         <th>Banco / PIX</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {membros.map(c => (
+                      {membros.map(c => {
+                        // Valor real do fechamento importado
+                        const nomeKey = c.nome.trim().toUpperCase()
+                        const valorFechamento = fechamentoAntecipacao?.valorPorColaborador?.[nomeKey]
+                        const valorExibir = valorFechamento ?? c.salarioBase
+                        const temValorReal = valorFechamento !== undefined
+
+                        return (
                         <>
                           <tr key={c.id}>
                             <td>
@@ -448,7 +458,14 @@ export default function ControlePagamentos({ onReimportar }: { onReimportar?: (m
                               {c.cpf && <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>{c.cpf}</div>}
                               {c.observacoes && <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 2 }}>📌 {c.observacoes}</div>}
                             </td>
-                            <td style={{ textAlign: 'right' }}>{fmt(c.salarioBase)}</td>
+                            <td style={{ textAlign: 'right' }}>
+                              <div style={{ fontWeight: 700, color: temValorReal ? 'var(--navy)' : 'var(--text-2)', fontSize: temValorReal ? 14 : 13 }}>
+                                {fmt(valorExibir)}
+                              </div>
+                              {!temValorReal && (
+                                <div style={{ fontSize: 10, color: 'var(--text-3)' }}>base estimado</div>
+                              )}
+                            </td>
                             <td style={{ fontSize: 12 }}>
                               {c.dadosBancarios?.banco && <div>{c.dadosBancarios.banco}</div>}
                               {c.dadosBancarios?.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.dadosBancarios.agencia}{c.dadosBancarios.conta ? ` · C ${c.dadosBancarios.conta}` : ''}</div>}
@@ -511,8 +528,18 @@ export default function ControlePagamentos({ onReimportar }: { onReimportar?: (m
                             </tr>
                           )}
                         </>
-                      ))}
+                      )})}
                     </tbody>
+                    {/* Rodapé com total da cidade */}
+                    <tfoot>
+                      <tr style={{ background: 'var(--sky-light)' }}>
+                        <td style={{ fontWeight: 700 }}>TOTAL {cidade.toUpperCase()}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>
+                          {totalAntecipacao !== null ? fmt(totalAntecipacao) : fmt(membros.reduce((s, c) => s + c.salarioBase, 0))}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               )}
