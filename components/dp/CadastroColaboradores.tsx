@@ -108,7 +108,9 @@ export default function CadastroColaboradores() {
   })).filter(g => g.colaboradores.length > 0)
 
   const totalAtivos = colaboradores.filter(c => c.status === 'ativo').length
-  const totalMassa = colaboradores.filter(c => c.status === 'ativo').reduce((s, c) => s + c.salarioBase, 0)
+  // Ignora salários absurdos (importação com erro) — limite R$30.000
+  const totalMassa = colaboradores.filter(c => c.status === 'ativo' && c.salarioBase <= 30000).reduce((s, c) => s + c.salarioBase, 0)
+  const colaboradoresSalarioInvalido = colaboradores.filter(c => c.salarioBase > 30000).length
 
   const inputStyle = {
     padding: '0.45rem 0.75rem', fontSize: 13, borderRadius: 6,
@@ -136,7 +138,7 @@ export default function CadastroColaboradores() {
           <div className="card-sub">{totalAtivos} ativos</div>
         </div>
         <div className="card">
-          <div className="card-label">Massa salarial</div>
+          <div className="card-label">Massa salarial{colaboradoresSalarioInvalido > 0 ? <span style={{color:'#dc2626',marginLeft:6,fontSize:10}}>⚠️ {colaboradoresSalarioInvalido} c/ erro</span> : ''}</div>
           <div className="card-valor" style={{ fontSize: 18 }}>{fmt(totalMassa)}</div>
           <div className="card-sub">salários base (ativos)</div>
         </div>
