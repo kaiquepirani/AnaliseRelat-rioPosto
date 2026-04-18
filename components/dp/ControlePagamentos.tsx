@@ -185,7 +185,7 @@ export default function ControlePagamentos({ onReimportar }: { onReimportar?: (m
   const mesesDisponiveis = useMemo(() => {
     const lista = []
     let ma = mesAnoAtual()
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 24; i++) {
       lista.push(ma)
       ma = mesAnoAnterior(ma)
     }
