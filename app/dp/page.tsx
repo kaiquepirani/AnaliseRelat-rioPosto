@@ -4,9 +4,10 @@ import Link from 'next/link'
 import * as XLSX from 'xlsx'
 import CadastroColaboradores from '@/components/dp/CadastroColaboradores'
 import ControlePagamentos from '@/components/dp/ControlePagamentos'
+import ResumoDPGeral from '@/components/dp/ResumoDPGeral'
 import { Colaborador, Cidade, Funcao } from '@/lib/dp-types'
 
-type Aba = 'pagamentos' | 'colaboradores'
+type Aba = 'resumo' | 'pagamentos' | 'colaboradores'
 
 const MAPA_CIDADES: Record<string, Cidade> = {
   'FOLHA AGUAS':        'Águas de Lindóia (Folha)',
@@ -53,6 +54,9 @@ interface ResultadoImportacao {
   mesAno: string
   totalFolha: number
   totalReal: number   // da aba TOTAL GERAL da planilha
+  totalPorCidade: Record<string, number>
+  nomeArquivo: string
+  tipoFolha: 'antecipacao' | 'folha'
   erros: string[]
   avisos: string[]
 }
@@ -467,7 +471,18 @@ export default function DepartamentoPessoal() {
 
       const totalFolha = comStatus.reduce((s, c) => s + c.totalReceber, 0)
 
-      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, erros, avisos })
+      // Total por cidade para o fechamento
+      const totalPorCidade: Record<string, number> = {}
+      for (const c of comStatus) {
+        totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
+      }
+
+      // Detecta tipo pelo nome do arquivo
+      const nomeUpper = nomeArq.toUpperCase()
+      const tipoFolha: 'antecipacao' | 'folha' =
+        nomeUpper.includes('ANTECIP') ? 'antecipacao' : 'folha'
+
+      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, nomeArquivo: nomeArq, tipoFolha, erros, avisos })
     } catch (e: any) {
       setErroImport('Erro ao processar o arquivo: ' + e.message)
     } finally {
@@ -481,6 +496,7 @@ export default function DepartamentoPessoal() {
     const novos = resultado.colaboradores.filter(c => !c.jaExiste)
     const agora = new Date().toISOString()
 
+    // Salva colaboradores novos
     for (const c of novos) {
       const colab: Colaborador = {
         id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -496,6 +512,22 @@ export default function DepartamentoPessoal() {
       })
     }
 
+    // Salva o fechamento para o Resumo
+    const fechamento = {
+      id: `fech_${Date.now()}`,
+      mesAno: resultado.mesAno,
+      tipo: resultado.tipoFolha,
+      arquivo: resultado.nomeArquivo,
+      totalGeral: resultado.totalFolha,
+      totalPorCidade: resultado.totalPorCidade,
+      totalColaboradores: resultado.colaboradores.length,
+      dataImport: agora,
+    }
+    await fetch('/api/dp/fechamentos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fechamento),
+    })
+
     setResultado(null)
     setImportando(false)
     setReload(r => r + 1)
@@ -505,6 +537,7 @@ export default function DepartamentoPessoal() {
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const abas: { id: Aba; label: string; icon: string }[] = [
+    { id: 'resumo',        label: 'Resumo',                 icon: '📊' },
     { id: 'pagamentos',    label: 'Controle de Pagamentos', icon: '💰' },
     { id: 'colaboradores', label: 'Colaboradores',          icon: '👥' },
   ]
@@ -659,6 +692,7 @@ export default function DepartamentoPessoal() {
           </div>
         )}
 
+        {abaAtiva === 'resumo'        && <ResumoDPGeral key={reload} />}
         {abaAtiva === 'pagamentos'    && <ControlePagamentos key={reload} />}
         {abaAtiva === 'colaboradores' && <CadastroColaboradores key={reload} />}
       </main>
