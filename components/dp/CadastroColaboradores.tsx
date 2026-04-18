@@ -118,6 +118,13 @@ export default function CadastroColaboradores() {
 
   const labelStyle = { fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase' as const, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }
 
+  // ⚠️ TEMPORÁRIO — remove todos os colaboradores
+  const limparTudo = async () => {
+    if (!confirm('⚠️ Isso vai remover TODOS os colaboradores. Confirma?')) return
+    await fetch('/api/dp/colaboradores', { method: 'PATCH' })
+    await carregar()
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
@@ -162,6 +169,15 @@ export default function CadastroColaboradores() {
           <option value="inativo">Inativos</option>
           <option value="afastado">Afastados</option>
         </select>
+        {/* ⚠️ TEMPORÁRIO */}
+        {colaboradores.length > 0 && (
+          <button onClick={limparTudo} style={{
+            padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+            background: '#fef2f2', color: '#dc2626',
+            border: '1.5px solid #fca5a5', borderRadius: 8,
+            cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap',
+          }}>🗑️ Limpar tudo</button>
+        )}
         <button onClick={() => { setEditando(novoColaborador()); setAbaForm('dados') }} style={{
           padding: '0.45rem 1.1rem', fontSize: 13, fontWeight: 700,
           background: 'var(--navy)', color: 'white', border: 'none',
