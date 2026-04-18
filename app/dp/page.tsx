@@ -304,13 +304,13 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 }
 
 // ── Parser especial para Ubatuba ────────────────────────────────────────────
+// Ubatuba tem dois tipos de colaboradores:
+// 1. Com bloco individual: CPF(col1) | NOME(col3) | BANCO/AG/CC(col5) → extrai tudo
+// 2. Sem bloco (só no resumo): apelido curto → marca para revisão
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // Ubatuba: col 7=idx, col 8=apelido, col 10=valor
-  // CPF e banco ficam em blocos individuais com formato diferente
-  const resultado: ColaboradorImportado[] = []
-
-  // Resumo à direita
+  // ── 1. Resumo à direita: col7=idx, col8=apelido, col10=valor ─────────────
+  const resumo: { idx: number; apelido: string; valor: number }[] = []
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
     const idx = row[7]
@@ -318,48 +318,160 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
     const valor = row[10]
     if (typeof idx === 'number' && idx >= 1 && idx <= 100 &&
         apelido.length > 1 && typeof valor === 'number' && valor > 0) {
-      resultado.push({
-        nome: apelido,
-        cidade,
-        funcao: 'Motorista',
-        salarioBase: valor,
-        totalReceber: valor,
-        observacoes: 'Ubatuba — verificar nome completo e dados bancários',
-        jaExiste: false,
-      })
+      resumo.push({ idx, apelido, valor })
     }
   }
 
-  // Tenta enriquecer com dados dos blocos (CPF e banco)
-  const mapaCpf: Record<string, { cpf: string; nomeCompleto: string; banco: string; agencia: string; conta: string }> = {}
+  // ── 2. Blocos individuais: CPF(col1) | NOME(col3) | BANCO/AG/CC(col5) ────
+  // Padrão: linha com CPF válido em col1 e nome em col3
+  const mapaDados: Record<string, {
+    cpf: string; nomeCompleto: string; banco: string
+    agencia: string; conta: string; pix: string; salarioBase: number
+  }> = {}
+
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
-    const celB = String(row[1] ?? '').trim()
-    const celD = String(row[3] ?? '').trim()
-    if (/^\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}$/.test(celB) && celD.length > 3) {
-      const primeiroNome = celD.split(' ')[0].toUpperCase()
-      const banco = detectarBanco((dados[i + 1] || []).join(' ') + (dados[i] || []).join(' ')) || 'Itaú'
-      const agF = String(row[5] ?? '')
-      const agM = agF.match(/(?:AG\.?\s*)(\d{3,6})/i)
-      const ctM = agF.match(/C\/?C\s*([0-9\-]+)/)
-      mapaCpf[primeiroNome] = {
-        cpf: celB, nomeCompleto: celD, banco,
-        agencia: agM ? agM[1] : '', conta: ctM ? ctM[1] : '',
+    const col1 = String(row[1] ?? '').trim()
+    const col3 = String(row[3] ?? '').trim()
+    const col5 = String(row[5] ?? '').trim()
+
+    // Linha de cabeçalho: CPF(col1 literal "CPF") + nome(col3)
+    if (col1.toUpperCase() === 'CPF' && col3.toUpperCase() === 'NOME') {
+      // Próxima linha tem os dados reais
+      const proxRow = dados[i + 1] || []
+      const cpf = String(proxRow[1] ?? '').trim()
+      const nome = String(proxRow[3] ?? '').trim()
+      const bancoCel = String(proxRow[5] ?? '').trim()
+
+      if (/^\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}$/.test(cpf) && nome.length > 2) {
+        // Banco: pode estar na col5 da linha ou na próxima
+        let banco = ''
+        let agencia = ''
+        let conta = ''
+        let pix = ''
+        let salarioBase = 0
+
+        // Varre as próximas linhas até ___
+        for (let j = i + 1; j < Math.min(i + 50, dados.length); j++) {
+          const r = dados[j] || []
+          const c1 = String(r[1] ?? '').trim()
+          const c3 = String(r[3] ?? '').trim()
+          const c5 = String(r[5] ?? '').trim()
+          const texto = [c1, c3, c5].join(' ')
+
+          if (texto.includes('___')) break
+
+          // Banco
+          if (!banco) {
+            for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER']) {
+              if (texto.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+            }
+          }
+
+          // Agência e conta da col5 (ex: "AG.1566 C/C 60315-3")
+          if (!agencia) {
+            const agM = c5.match(/AG\.?\s*(\d{3,6})/i) || bancoCel.match(/AG\.?\s*(\d{3,6})/i)
+            if (agM) agencia = agM[1]
+          }
+          if (!conta) {
+            const ctM = c5.match(/C\/?C\s*([0-9\s\-]+)/i) || bancoCel.match(/C\/?C\s*([0-9\s\-]+)/i)
+            if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
+          }
+
+          // PIX: CPF como chave ou número de telefone
+          if (!pix) {
+            // Formato "CPF | NOME | PIX" — col5 tem o CPF como PIX
+            const pixM = c5.match(/\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}/)
+            if (pixM && pixM[0] !== cpf) pix = pixM[0]  // outro CPF como PIX
+            else if (pixM && pixM[0] === cpf && !agencia) pix = cpf  // próprio CPF como PIX
+          }
+
+          // Salário base da linha de salário
+          if (!salarioBase) {
+            const salM = c1.match(/SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i) ||
+                         c3.match(/SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i)
+            if (salM) {
+              const v = extrairRealBR(salM[1])
+              if (v >= 500 && v <= 30000) salarioBase = v
+            }
+          }
+        }
+
+        // Banco do cabeçalho se não achou no bloco
+        if (!banco) {
+          for (const b of ['ITAÚ','ITAU','CAIXA','BRADESCO','NUBANK','INTER']) {
+            if (bancoCel.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+          }
+        }
+
+        // Agência/conta do bancoCel se não achou no bloco (ex: "AG.1566 C/C 60315-3")
+        if (!agencia) {
+          const agM = bancoCel.match(/AG\.?\s*(\d{3,6})/i)
+          if (agM) agencia = agM[1]
+        }
+        if (!conta) {
+          const ctM = bancoCel.match(/C\/?C\s*([0-9\s\-]+)/i)
+          if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
+        }
+
+        // Mapa por primeiro nome (para cruzar com o resumo)
+        const primNome = nome.split(' ')[0].toUpperCase()
+        mapaDados[primNome] = { cpf, nomeCompleto: nome, banco, agencia, conta, pix, salarioBase }
+        // Também indexa por nome completo
+        mapaDados[nome.toUpperCase()] = mapaDados[primNome]
+      }
+    }
+
+    // Formato alternativo: CPF válido diretamente na col1 com nome na col3
+    if (/^\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}$/.test(col1) && col3.length > 2 &&
+        col3.toUpperCase() !== 'NOME') {
+      const primNome = col3.split(' ')[0].toUpperCase()
+      if (!mapaDados[primNome]) {
+        // Extrai banco/ag/conta da col5
+        let banco = '', agencia = '', conta = '', pix = ''
+        for (const b of ['ITAÚ','ITAU','CAIXA','BRADESCO','NUBANK','INTER','BANCO DO BRASIL']) {
+          if (col5.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+        }
+        const agM = col5.match(/AG\.?\s*(\d{3,6})/i)
+        if (agM) agencia = agM[1]
+        const ctM = col5.match(/C\/?C\s*([0-9\s\-]+)/i)
+        if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
+
+        // Verifica se col5 é o PIX (ex: próprio CPF como chave)
+        const pixM = col5.match(/\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}/)
+        if (pixM) pix = pixM[0]
+
+        mapaDados[primNome] = { cpf: col1, nomeCompleto: col3, banco, agencia, conta, pix, salarioBase: 0 }
+        mapaDados[col3.toUpperCase()] = mapaDados[primNome]
       }
     }
   }
 
-  // Enriquece
-  return resultado.map(c => {
-    const primNome = c.nome.split(' ')[0].toUpperCase()
-    const dados_extra = mapaCpf[primNome]
+  // ── 3. Cruza resumo com dados completos ──────────────────────────────────
+  return resumo.map(({ apelido, valor }) => {
+    // Busca por apelido ou primeiro nome
+    const apelidoUp = apelido.split(' ')[0].toUpperCase()
+    const dadosColab = mapaDados[apelido.toUpperCase()] ||
+                       mapaDados[apelidoUp] ||
+                       Object.entries(mapaDados).find(([k]) =>
+                         k.startsWith(apelidoUp) || apelidoUp.startsWith(k.split(' ')[0])
+                       )?.[1]
+
+    const salBase = dadosColab?.salarioBase || valor
+
     return {
-      ...c,
-      nome: dados_extra?.nomeCompleto || c.nome,
-      cpf: dados_extra?.cpf,
-      banco: dados_extra?.banco,
-      agencia: dados_extra?.agencia || undefined,
-      conta: dados_extra?.conta || undefined,
+      nome: dadosColab?.nomeCompleto || apelido,
+      cpf: dadosColab?.cpf,
+      cidade,
+      funcao: 'Motorista' as Funcao,
+      salarioBase: salBase,
+      totalReceber: valor,
+      banco: dadosColab?.banco || undefined,
+      agencia: dadosColab?.agencia || undefined,
+      conta: dadosColab?.conta || undefined,
+      pix: dadosColab?.pix || (dadosColab?.cpf && !dadosColab?.conta ? dadosColab.cpf : undefined),
+      observacoes: dadosColab ? undefined : 'Ubatuba — verificar nome completo e dados bancários',
+      jaExiste: false,
     }
   })
 }
