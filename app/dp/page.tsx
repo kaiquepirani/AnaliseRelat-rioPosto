@@ -510,7 +510,9 @@ export default function DepartamentoPessoal() {
   const [importando, setImportando] = useState(false)
   const [erroImport, setErroImport] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  const [mesAnoReimportar, setMesAnoReimportar] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputReimportarRef = useRef<HTMLInputElement>(null)
 
   const processarExcel = async (arquivo: File) => {
     setProcessando(true)
@@ -622,6 +624,11 @@ export default function DepartamentoPessoal() {
     setAbaAtiva('colaboradores')
   }
 
+  const handleReimportar = (mesAno: string) => {
+    setMesAnoReimportar(mesAno)
+    setTimeout(() => inputReimportarRef.current?.click(), 50)
+  }
+
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
   const abas: { id: Aba; label: string; icon: string }[] = [
@@ -648,6 +655,7 @@ export default function DepartamentoPessoal() {
             <Link href="/dashboard" style={{ padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>⛽ Combustível</Link>
             <div className={`upload-area ${processando ? 'upload-processando' : ''}`} onClick={() => !processando && inputRef.current?.click()} style={{ cursor: processando ? 'not-allowed' : 'pointer' }}>
               <input ref={inputRef} type="file" accept=".xlsx,.xls" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { processarExcel(f); e.target.value = '' } }} />
+              <input ref={inputReimportarRef} type="file" accept=".xlsx,.xls" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { processarExcel(f); e.target.value = '' } }} />
               <span className="upload-texto">
                 {processando ? <><span className="spinner" /> Processando...</> : <>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -778,7 +786,7 @@ export default function DepartamentoPessoal() {
         )}
 
         {abaAtiva === 'resumo'        && <ResumoDPGeral key={reload} />}
-        {abaAtiva === 'pagamentos'    && <ControlePagamentos key={reload} />}
+        {abaAtiva === 'pagamentos'    && <ControlePagamentos key={reload} onReimportar={handleReimportar} />}
         {abaAtiva === 'colaboradores' && <CadastroColaboradores key={reload} />}
       </main>
     </div>
