@@ -612,9 +612,10 @@ export default function DepartamentoPessoal() {
       })
     }
 
-    // Salva o fechamento
+    // Salva o fechamento — id fixo por mesAno+tipo para evitar duplicatas
+    // Ao reimportar o mesmo mês, substitui o registro anterior
     const fechamento = {
-      id: `fech_${Date.now()}`,
+      id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
       mesAno: resultado.mesAno,
       tipo: resultado.tipoFolha,
       arquivo: resultado.nomeArquivo,
