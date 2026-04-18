@@ -23,6 +23,16 @@ const TIPOS_LANCAMENTO: { value: TipoLancamento; label: string; sinal: 1 | -1 }[
   { value: 'outro_desconto',      label: 'Outro desconto',        sinal: -1 },
 ]
 
+interface Fechamento {
+  id: string
+  mesAno: string
+  tipo: 'antecipacao' | 'folha'
+  totalGeral: number
+  totalPorCidade: Record<string, number>
+  arquivo: string
+  dataImport: string
+}
+
 function mesAnoAtual() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -44,10 +54,11 @@ export default function ControlePagamentos() {
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
+  const [fechamentos, setFechamentos] = useState<Fechamento[]>([])
   const [mesAno, setMesAno] = useState(mesAnoAtual())
   const [carregando, setCarregando] = useState(true)
   const [cidadeExpandida, setCidadeExpandida] = useState<Cidade | null>(null)
-  const [adicionandoLanc, setAdicionandoLanc] = useState<string | null>(null) // colaboradorId
+  const [adicionandoLanc, setAdicionandoLanc] = useState<string | null>(null)
   const [novoLanc, setNovoLanc] = useState<Partial<Lancamento>>({})
   const [salvando, setSalvando] = useState(false)
   const [registrandoPag, setRegistrandoPag] = useState<{ cidade: Cidade; tipo: 'antecipacao' | 'folha' } | null>(null)
@@ -55,49 +66,56 @@ export default function ControlePagamentos() {
 
   const carregar = useCallback(async () => {
     setCarregando(true)
-    const [colabs, lancs, pags] = await Promise.all([
+    const [colabs, lancs, pags, fechs] = await Promise.all([
       fetch('/api/dp/colaboradores').then(r => r.json()),
       fetch(`/api/dp/lancamentos?mesAno=${mesAno}`).then(r => r.json()),
       fetch(`/api/dp/pagamentos?mesAno=${mesAno}`).then(r => r.json()),
+      fetch('/api/dp/fechamentos').then(r => r.json()),
     ])
     setColaboradores(colabs)
     setLancamentos(lancs)
     setPagamentos(pags)
+    setFechamentos(fechs)
     setCarregando(false)
   }, [mesAno])
 
   useEffect(() => { carregar() }, [carregar])
 
-  // Calcula folha por colaborador
-  const folhaPorColaborador = useMemo(() => {
-    return colaboradores
-      .filter(c => c.status === 'ativo')
-      .map(c => {
-        const lancsColab = lancamentos.filter(l => l.colaboradorId === c.id)
-        const antecipacao = c.salarioBase * 0.4
-        const extras = lancsColab.filter(l => !['antecipacao', 'salario'].includes(l.tipo)).reduce((s, l) => s + l.valor, 0)
-        const totalBruto = c.salarioBase + extras
-        const totalReceber = totalBruto - antecipacao
-        return { colaborador: c, lancamentos: lancsColab, antecipacao, totalBruto, totalReceber, extras }
-      })
-  }, [colaboradores, lancamentos])
+  // ── Fechamentos do mês selecionado ──────────────────────────────────────
+  const fechamentoAntecipacao = useMemo(() =>
+    fechamentos.find(f => f.mesAno === mesAno && f.tipo === 'antecipacao'),
+  [fechamentos, mesAno])
 
-  // Agrupa por cidade
+  const fechamentoFolha = useMemo(() =>
+    fechamentos.find(f => f.mesAno === mesAno && f.tipo === 'folha'),
+  [fechamentos, mesAno])
+
+  // ── Valores por cidade vindos dos fechamentos ────────────────────────────
+  // Se tem fechamento importado, usa ele como fonte de verdade
+  // Se não tem, mostra apenas colaboradores cadastrados sem valor (aguardando importação)
   const porCidade = useMemo(() => {
     return CIDADES_ORDEM.map(cidade => {
-      const membros = folhaPorColaborador.filter(f => f.colaborador.cidade === cidade)
-      const totalAntecipacao = membros.reduce((s, f) => s + f.antecipacao, 0)
-      const totalFolha = membros.reduce((s, f) => s + f.totalReceber, 0)
+      const membros = colaboradores.filter(c => c.cidade === cidade && c.status === 'ativo')
+
+      // Valor real da antecipação: do fechamento importado
+      const totalAntecipacao = fechamentoAntecipacao?.totalPorCidade?.[cidade] ?? null
+      // Valor real da folha: do fechamento importado
+      const totalFolha = fechamentoFolha?.totalPorCidade?.[cidade] ?? null
+
       const pagAntecipacao = pagamentos.find(p => p.cidade === cidade && p.tipo === 'antecipacao')
       const pagFolha = pagamentos.find(p => p.cidade === cidade && p.tipo === 'folha')
-      return { cidade, membros, totalAntecipacao, totalFolha, pagAntecipacao, pagFolha }
-    }).filter(g => g.membros.length > 0)
-  }, [folhaPorColaborador, pagamentos])
 
-  const totalGeralAntecipacao = porCidade.reduce((s, c) => s + c.totalAntecipacao, 0)
-  const totalGeralFolha = porCidade.reduce((s, c) => s + c.totalFolha, 0)
-  const totalPagoAntecipacao = porCidade.filter(c => c.pagAntecipacao).reduce((s, c) => s + c.totalAntecipacao, 0)
-  const totalPagoFolha = porCidade.filter(c => c.pagFolha).reduce((s, c) => s + c.totalFolha, 0)
+      return { cidade, membros, totalAntecipacao, totalFolha, pagAntecipacao, pagFolha }
+    }).filter(g => g.membros.length > 0 || g.totalAntecipacao !== null || g.totalFolha !== null)
+  }, [colaboradores, pagamentos, fechamentoAntecipacao, fechamentoFolha])
+
+  // ── Totais gerais dos cards ──────────────────────────────────────────────
+  const totalGeralAntecipacao = fechamentoAntecipacao?.totalGeral ?? null
+  const totalGeralFolha = fechamentoFolha?.totalGeral ?? null
+  const totalPagoAntecipacao = porCidade.filter(c => c.pagAntecipacao && c.totalAntecipacao).reduce((s, c) => s + (c.totalAntecipacao || 0), 0)
+  const totalPagoFolha = porCidade.filter(c => c.pagFolha && c.totalFolha).reduce((s, c) => s + (c.totalFolha || 0), 0)
+  const cidadesComAntecip = porCidade.filter(c => c.totalAntecipacao !== null).length
+  const cidadesComFolha = porCidade.filter(c => c.totalFolha !== null).length
 
   const salvarLancamento = async () => {
     if (!novoLanc.tipo || !novoLanc.colaboradorId || !novoLanc.valor) return
@@ -137,7 +155,7 @@ export default function ControlePagamentos() {
     const cidade = registrandoPag.cidade
     const tipo = registrandoPag.tipo
     const grupo = porCidade.find(g => g.cidade === cidade)!
-    const valor = tipo === 'antecipacao' ? grupo.totalAntecipacao : grupo.totalFolha
+    const valor = tipo === 'antecipacao' ? (grupo.totalAntecipacao || 0) : (grupo.totalFolha || 0)
     const pag: Pagamento = {
       id: `pag_${Date.now()}`,
       mesAno, cidade, tipo, valor,
@@ -163,7 +181,6 @@ export default function ControlePagamentos() {
     await carregar()
   }
 
-  // Gera meses dos últimos 12 meses
   const mesesDisponiveis = useMemo(() => {
     const lista = []
     let ma = mesAnoAtual()
@@ -176,12 +193,14 @@ export default function ControlePagamentos() {
 
   const inputStyle = { padding: '0.4rem 0.7rem', fontSize: 12, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', background: 'var(--bg)', color: 'var(--text)' }
 
+  const semFechamento = !fechamentoAntecipacao && !fechamentoFolha
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
       {/* ── Seletor de mês ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '0.875rem 1rem', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', boxShadow: 'var(--shadow-sm)' }}>
-        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Competência:</label>
+        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Competência:</label>
         <select value={mesAno} onChange={e => setMesAno(e.target.value)} style={{ ...inputStyle, fontSize: 13, fontWeight: 600 }}>
           {mesesDisponiveis.map(ma => <option key={ma} value={ma}>{labelMesAno(ma)}</option>)}
         </select>
@@ -190,27 +209,92 @@ export default function ControlePagamentos() {
         </div>
       </div>
 
+      {/* ── Aviso se não tem fechamento importado ── */}
+      {semFechamento && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#92400e' }}>
+          <span style={{ fontSize: 18 }}>📂</span>
+          <div>
+            <strong>Nenhuma folha importada para {labelMesAno(mesAno)}.</strong>
+            <span style={{ color: '#b45309', marginLeft: 6 }}>Importe a planilha de antecipação ou folha para ver os valores reais.</span>
+          </div>
+        </div>
+      )}
+
       {/* ── Cards resumo ── */}
       <div className="cards-grid">
-        <div className="card">
+
+        {/* Antecipação total */}
+        <div className="card" style={fechamentoAntecipacao ? { borderColor: '#93c5fd' } : {}}>
           <div className="card-label">Antecipação total (40%)</div>
-          <div className="card-valor" style={{ fontSize: 18 }}>{fmt(totalGeralAntecipacao)}</div>
-          <div className="card-sub">dia 20 · {labelMesAno(mesAno)}</div>
+          {fechamentoAntecipacao ? (
+            <>
+              <div className="card-valor" style={{ fontSize: 18 }}>{fmt(totalGeralAntecipacao!)}</div>
+              <div className="card-sub">dia 20/{mesAno.split('-')[1]} · importado {new Date(fechamentoAntecipacao.dataImport).toLocaleDateString('pt-BR')}</div>
+            </>
+          ) : (
+            <>
+              <div className="card-valor" style={{ fontSize: 15, color: 'var(--text-3)' }}>—</div>
+              <div className="card-sub" style={{ color: '#d97706' }}>aguardando importação</div>
+            </>
+          )}
         </div>
-        <div className="card" style={{ borderColor: totalPagoAntecipacao >= totalGeralAntecipacao && totalGeralAntecipacao > 0 ? '#86efac' : '#fca5a5', background: totalPagoAntecipacao >= totalGeralAntecipacao && totalGeralAntecipacao > 0 ? '#f0fdf4' : undefined }}>
+
+        {/* Antecipações pagas */}
+        <div className="card" style={{
+          borderColor: fechamentoAntecipacao && totalPagoAntecipacao >= (totalGeralAntecipacao || 0) && totalGeralAntecipacao ? '#86efac' : '#fca5a5',
+          background: fechamentoAntecipacao && totalPagoAntecipacao >= (totalGeralAntecipacao || 0) && totalGeralAntecipacao ? '#f0fdf4' : undefined,
+        }}>
           <div className="card-label">Antecipações pagas</div>
-          <div className="card-valor" style={{ fontSize: 18, color: totalPagoAntecipacao >= totalGeralAntecipacao && totalGeralAntecipacao > 0 ? '#16a34a' : 'var(--navy)' }}>{fmt(totalPagoAntecipacao)}</div>
-          <div className="card-sub">{porCidade.filter(c => c.pagAntecipacao).length}/{porCidade.length} cidades</div>
+          {fechamentoAntecipacao ? (
+            <>
+              <div className="card-valor" style={{ fontSize: 18, color: totalPagoAntecipacao >= (totalGeralAntecipacao || 0) ? '#16a34a' : 'var(--navy)' }}>
+                {fmt(totalPagoAntecipacao)}
+              </div>
+              <div className="card-sub">{porCidade.filter(c => c.pagAntecipacao && c.totalAntecipacao).length}/{cidadesComAntecip} cidades</div>
+            </>
+          ) : (
+            <>
+              <div className="card-valor" style={{ fontSize: 15, color: 'var(--text-3)' }}>R$ 0,00</div>
+              <div className="card-sub">0/{porCidade.length} cidades</div>
+            </>
+          )}
         </div>
-        <div className="card">
+
+        {/* Folha total */}
+        <div className="card" style={fechamentoFolha ? { borderColor: '#93c5fd' } : {}}>
           <div className="card-label">Folha total (60% + aj.)</div>
-          <div className="card-valor" style={{ fontSize: 18 }}>{fmt(totalGeralFolha)}</div>
-          <div className="card-sub">dia 10 do mês seguinte</div>
+          {fechamentoFolha ? (
+            <>
+              <div className="card-valor" style={{ fontSize: 18 }}>{fmt(totalGeralFolha!)}</div>
+              <div className="card-sub">dia 10 do mês seguinte · importado {new Date(fechamentoFolha.dataImport).toLocaleDateString('pt-BR')}</div>
+            </>
+          ) : (
+            <>
+              <div className="card-valor" style={{ fontSize: 15, color: 'var(--text-3)' }}>—</div>
+              <div className="card-sub" style={{ color: '#d97706' }}>importar folha do mês seguinte</div>
+            </>
+          )}
         </div>
-        <div className="card" style={{ borderColor: totalPagoFolha >= totalGeralFolha && totalGeralFolha > 0 ? '#86efac' : '#fca5a5', background: totalPagoFolha >= totalGeralFolha && totalGeralFolha > 0 ? '#f0fdf4' : undefined }}>
+
+        {/* Folhas pagas */}
+        <div className="card" style={{
+          borderColor: fechamentoFolha && totalPagoFolha >= (totalGeralFolha || 0) && totalGeralFolha ? '#86efac' : '#fca5a5',
+          background: fechamentoFolha && totalPagoFolha >= (totalGeralFolha || 0) && totalGeralFolha ? '#f0fdf4' : undefined,
+        }}>
           <div className="card-label">Folhas pagas</div>
-          <div className="card-valor" style={{ fontSize: 18, color: totalPagoFolha >= totalGeralFolha && totalGeralFolha > 0 ? '#16a34a' : 'var(--navy)' }}>{fmt(totalPagoFolha)}</div>
-          <div className="card-sub">{porCidade.filter(c => c.pagFolha).length}/{porCidade.length} cidades</div>
+          {fechamentoFolha ? (
+            <>
+              <div className="card-valor" style={{ fontSize: 18, color: totalPagoFolha >= (totalGeralFolha || 0) ? '#16a34a' : 'var(--navy)' }}>
+                {fmt(totalPagoFolha)}
+              </div>
+              <div className="card-sub">{porCidade.filter(c => c.pagFolha && c.totalFolha).length}/{cidadesComFolha} cidades</div>
+            </>
+          ) : (
+            <>
+              <div className="card-valor" style={{ fontSize: 15, color: 'var(--text-3)' }}>R$ 0,00</div>
+              <div className="card-sub">0/{porCidade.length} cidades</div>
+            </>
+          )}
         </div>
       </div>
 
@@ -218,9 +302,7 @@ export default function ControlePagamentos() {
       {registrandoPag && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
           <div style={{ background: 'white', borderRadius: 16, padding: '2rem', maxWidth: 400, width: '100%', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)', marginBottom: '1.25rem' }}>
-              ✅ Registrar pagamento
-            </div>
+            <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)', marginBottom: '1.25rem' }}>✅ Registrar pagamento</div>
             <div style={{ background: 'var(--sky-light)', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: 13 }}>
               <div style={{ fontWeight: 600 }}>{registrandoPag.cidade}</div>
               <div style={{ color: 'var(--text-2)', marginTop: 2 }}>
@@ -228,13 +310,13 @@ export default function ControlePagamentos() {
               </div>
               <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)', marginTop: 6 }}>
                 {fmt(registrandoPag.tipo === 'antecipacao'
-                  ? porCidade.find(g => g.cidade === registrandoPag.cidade)?.totalAntecipacao || 0
-                  : porCidade.find(g => g.cidade === registrandoPag.cidade)?.totalFolha || 0
+                  ? (porCidade.find(g => g.cidade === registrandoPag.cidade)?.totalAntecipacao || 0)
+                  : (porCidade.find(g => g.cidade === registrandoPag.cidade)?.totalFolha || 0)
                 )}
               </div>
             </div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>Data do pagamento</label>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase' as const, letterSpacing: '0.04em', display: 'block', marginBottom: 4 }}>Data do pagamento</label>
               <input type="text" value={dataPag} onChange={e => setDataPag(e.target.value)} placeholder="dd/mm/aaaa" style={{ ...inputStyle, width: '100%', fontSize: 13 }} />
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -247,23 +329,24 @@ export default function ControlePagamentos() {
 
       {/* ── Lista por cidade ── */}
       {carregando ? (
-        <div className="estado-vazio">Calculando folha...</div>
+        <div className="estado-vazio">Carregando...</div>
       ) : porCidade.length === 0 ? (
         <div className="estado-vazio">
           <div className="estado-icone">📋</div>
           <div className="estado-titulo">Nenhum colaborador ativo</div>
-          <div className="estado-desc">Cadastre colaboradores para visualizar a folha</div>
+          <div className="estado-desc">Importe uma folha Excel para começar</div>
         </div>
       ) : (
         porCidade.map(({ cidade, membros, totalAntecipacao, totalFolha, pagAntecipacao, pagFolha }) => {
           const aberta = cidadeExpandida === cidade
+          const temValores = totalAntecipacao !== null || totalFolha !== null
           return (
             <div key={cidade} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
 
               {/* Header cidade */}
               <div
-                style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', transition: 'background 0.15s' }}
-                onClick={() => setCidadeExpandida(aberta ? null : cidade)}
+                style={{ padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', gap: 12, cursor: membros.length > 0 ? 'pointer' : 'default', transition: 'background 0.15s' }}
+                onClick={() => membros.length > 0 && setCidadeExpandida(aberta ? null : cidade)}
               >
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--navy)' }}>{cidade}</div>
@@ -271,88 +354,101 @@ export default function ControlePagamentos() {
                 </div>
 
                 {/* Antecipação */}
-                <div style={{ textAlign: 'center', minWidth: 130 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Antecipação</div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)' }}>{fmt(totalAntecipacao)}</div>
-                  {pagAntecipacao ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
-                      <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '1px 6px', fontWeight: 700 }}>✓ PAGO {pagAntecipacao.dataPagamento}</span>
-                      <button onClick={e => { e.stopPropagation(); cancelarPagamento(pagAntecipacao.id) }} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
-                    </div>
+                <div style={{ textAlign: 'center', minWidth: 140 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Antecipação</div>
+                  {totalAntecipacao !== null ? (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)' }}>{fmt(totalAntecipacao)}</div>
+                      {pagAntecipacao ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
+                          <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '1px 6px', fontWeight: 700 }}>✓ PAGO {pagAntecipacao.dataPagamento}</span>
+                          <button onClick={e => { e.stopPropagation(); cancelarPagamento(pagAntecipacao.id) }} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); setRegistrandoPag({ cidade, tipo: 'antecipacao' }); setDataPag('') }} style={{ marginTop: 3, padding: '2px 8px', fontSize: 10, fontWeight: 600, background: 'var(--sky-light)', color: 'var(--navy)', border: '1px solid var(--sky-mid)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Registrar pagamento
+                        </button>
+                      )}
+                    </>
                   ) : (
-                    <button onClick={e => { e.stopPropagation(); setRegistrandoPag({ cidade, tipo: 'antecipacao' }); setDataPag('') }} style={{ marginTop: 3, padding: '2px 8px', fontSize: 10, fontWeight: 600, background: 'var(--sky-light)', color: 'var(--navy)', border: '1px solid var(--sky-mid)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
-                      Registrar pagamento
-                    </button>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>—</div>
                   )}
                 </div>
 
                 <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
 
                 {/* Folha */}
-                <div style={{ textAlign: 'center', minWidth: 130 }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Folha</div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)' }}>{fmt(totalFolha)}</div>
-                  {pagFolha ? (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
-                      <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '1px 6px', fontWeight: 700 }}>✓ PAGO {pagFolha.dataPagamento}</span>
-                      <button onClick={e => { e.stopPropagation(); cancelarPagamento(pagFolha.id) }} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
-                    </div>
+                <div style={{ textAlign: 'center', minWidth: 140 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Folha</div>
+                  {totalFolha !== null ? (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--navy)' }}>{fmt(totalFolha)}</div>
+                      {pagFolha ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center', marginTop: 2 }}>
+                          <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '1px 6px', fontWeight: 700 }}>✓ PAGO {pagFolha.dataPagamento}</span>
+                          <button onClick={e => { e.stopPropagation(); cancelarPagamento(pagFolha.id) }} style={{ fontSize: 10, color: 'var(--text-3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                        </div>
+                      ) : (
+                        <button onClick={e => { e.stopPropagation(); setRegistrandoPag({ cidade, tipo: 'folha' }); setDataPag('') }} style={{ marginTop: 3, padding: '2px 8px', fontSize: 10, fontWeight: 600, background: 'var(--sky-light)', color: 'var(--navy)', border: '1px solid var(--sky-mid)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
+                          Registrar pagamento
+                        </button>
+                      )}
+                    </>
                   ) : (
-                    <button onClick={e => { e.stopPropagation(); setRegistrandoPag({ cidade, tipo: 'folha' }); setDataPag('') }} style={{ marginTop: 3, padding: '2px 8px', fontSize: 10, fontWeight: 600, background: 'var(--sky-light)', color: 'var(--navy)', border: '1px solid var(--sky-mid)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}>
-                      Registrar pagamento
-                    </button>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>—</div>
                   )}
                 </div>
 
-                <span style={{ color: 'var(--text-3)', fontSize: 12, marginLeft: 4 }}>{aberta ? '▲' : '▼'}</span>
+                {membros.length > 0 && (
+                  <span style={{ color: 'var(--text-3)', fontSize: 12, marginLeft: 4 }}>{aberta ? '▲' : '▼'}</span>
+                )}
               </div>
 
-              {/* Detalhes expandidos */}
-              {aberta && (
+              {/* Detalhes expandidos — lista de colaboradores da cidade */}
+              {aberta && membros.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--border)' }}>
                   <table className="tabela tabela-sm">
                     <thead>
                       <tr>
                         <th>Colaborador</th>
                         <th style={{ textAlign: 'right' }}>Salário base</th>
-                        <th style={{ textAlign: 'right' }}>+ Extras / − Descontos</th>
-                        <th style={{ textAlign: 'right' }}>Antecipação (40%)</th>
-                        <th style={{ textAlign: 'right' }}>A receber</th>
+                        <th>Banco / PIX</th>
                         <th></th>
                       </tr>
                     </thead>
                     <tbody>
-                      {membros.map(({ colaborador: c, lancamentos: lancs, antecipacao, totalBruto, totalReceber, extras }) => (
+                      {membros.map(c => (
                         <>
                           <tr key={c.id}>
                             <td>
                               <div style={{ fontWeight: 600, fontSize: 13 }}>{c.nome}</div>
-                              {c.observacoes && <div style={{ fontSize: 11, color: 'var(--amber)' }}>📌 {c.observacoes}</div>}
+                              {c.cpf && <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>{c.cpf}</div>}
+                              {c.observacoes && <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 2 }}>📌 {c.observacoes}</div>}
                             </td>
                             <td style={{ textAlign: 'right' }}>{fmt(c.salarioBase)}</td>
-                            <td style={{ textAlign: 'right', color: extras >= 0 ? '#16a34a' : '#dc2626', fontWeight: 600 }}>
-                              {extras !== 0 ? (extras > 0 ? '+' : '') + fmt(extras) : '—'}
+                            <td style={{ fontSize: 12 }}>
+                              {c.dadosBancarios?.banco && <div>{c.dadosBancarios.banco}</div>}
+                              {c.dadosBancarios?.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.dadosBancarios.agencia}{c.dadosBancarios.conta ? ` · C ${c.dadosBancarios.conta}` : ''}</div>}
+                              {c.dadosBancarios?.pix && <div style={{ color: 'var(--text-3)' }}>PIX: {c.dadosBancarios.pix}</div>}
+                              {!c.dadosBancarios?.banco && !c.dadosBancarios?.pix && <span style={{ color: 'var(--text-3)' }}>—</span>}
                             </td>
-                            <td style={{ textAlign: 'right', color: '#dc2626' }}>−{fmt(antecipacao)}</td>
-                            <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalReceber)}</td>
                             <td>
                               <button
-                                onClick={() => { setAdicionandoLanc(adicionandoLanc === c.id ? null : c.id); setNovoLanc({ colaboradorId: c.id }) }}
+                                onClick={() => setAdicionandoLanc(adicionandoLanc === c.id ? null : c.id)}
                                 style={{ padding: '3px 8px', fontSize: 11, background: 'var(--sky-light)', color: 'var(--navy)', border: '1px solid var(--sky-mid)', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
                               >+ Lançamento</button>
                             </td>
                           </tr>
 
                           {/* Lançamentos do colaborador */}
-                          {lancs.filter(l => !['antecipacao', 'salario'].includes(l.tipo)).map(l => (
+                          {lancamentos.filter(l => l.colaboradorId === c.id).map(l => (
                             <tr key={l.id} style={{ background: l.valor > 0 ? '#f0fdf4' : '#fef2f2' }}>
                               <td colSpan={2} style={{ paddingLeft: 28, fontSize: 12, color: 'var(--text-2)', fontStyle: 'italic' }}>
                                 ↳ {l.descricao}{l.parcela ? ` (${l.parcela})` : ''}
                               </td>
-                              <td style={{ textAlign: 'right', fontSize: 12, fontWeight: 600, color: l.valor > 0 ? '#16a34a' : '#dc2626' }}>
+                              <td style={{ fontSize: 12, fontWeight: 600, color: l.valor > 0 ? '#16a34a' : '#dc2626' }}>
                                 {l.valor > 0 ? '+' : ''}{fmt(l.valor)}
                               </td>
-                              <td colSpan={2} />
                               <td>
                                 <button onClick={() => removerLancamento(l.id)} style={{ padding: '2px 6px', fontSize: 10, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit' }}>✕</button>
                               </td>
@@ -362,26 +458,26 @@ export default function ControlePagamentos() {
                           {/* Form novo lançamento */}
                           {adicionandoLanc === c.id && (
                             <tr style={{ background: '#fffbeb' }}>
-                              <td colSpan={6} style={{ padding: '0.75rem 1rem' }}>
+                              <td colSpan={4} style={{ padding: '0.75rem 1rem' }}>
                                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                                   <div>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' }}>Tipo</div>
-                                    <select value={novoLanc.tipo || ''} onChange={e => setNovoLanc(p => ({ ...p, tipo: e.target.value as TipoLancamento }))} style={{ ...inputStyle, minWidth: 160 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' as const }}>Tipo</div>
+                                    <select value={novoLanc.tipo || ''} onChange={e => setNovoLanc(p => ({ ...p, tipo: e.target.value as TipoLancamento, colaboradorId: c.id }))} style={{ ...inputStyle, minWidth: 160 }}>
                                       <option value="">— Selecione —</option>
                                       {TIPOS_LANCAMENTO.map(t => <option key={t.value} value={t.value}>{t.sinal === 1 ? '+ ' : '− '}{t.label}</option>)}
                                     </select>
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' }}>Descrição</div>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' as const }}>Descrição</div>
                                     <input value={novoLanc.descricao || ''} onChange={e => setNovoLanc(p => ({ ...p, descricao: e.target.value }))} placeholder="Descrição" style={{ ...inputStyle, minWidth: 180 }} />
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' }}>Valor (R$)</div>
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' as const }}>Valor (R$)</div>
                                     <input type="number" step="0.01" min="0" value={novoLanc.valor || ''} onChange={e => setNovoLanc(p => ({ ...p, valor: parseFloat(e.target.value) || 0 }))} placeholder="0,00" style={{ ...inputStyle, width: 100 }} />
                                   </div>
                                   <div>
-                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' }}>Parcela</div>
-                                    <input value={novoLanc.parcela || ''} onChange={e => setNovoLanc(p => ({ ...p, parcela: e.target.value }))} placeholder="ex: 02 de 03" style={{ ...inputStyle, width: 110 }} />
+                                    <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-2)', marginBottom: 3, textTransform: 'uppercase' as const }}>Parcela</div>
+                                    <input value={novoLanc.parcela || ''} onChange={e => setNovoLanc(p => ({ ...p, parcela: e.target.value }))} placeholder="02 de 03" style={{ ...inputStyle, width: 110 }} />
                                   </div>
                                   <button onClick={salvarLancamento} disabled={salvando || !novoLanc.tipo || !novoLanc.valor} style={{ padding: '0.4rem 0.875rem', fontSize: 12, fontWeight: 700, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', opacity: !novoLanc.tipo || !novoLanc.valor ? 0.5 : 1 }}>
                                     {salvando ? '...' : 'Salvar'}
@@ -394,16 +490,6 @@ export default function ControlePagamentos() {
                         </>
                       ))}
                     </tbody>
-                    <tfoot>
-                      <tr style={{ background: 'var(--sky-light)' }}>
-                        <td style={{ fontWeight: 700 }}>TOTAL {cidade.toUpperCase()}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(membros.reduce((s, f) => s + f.colaborador.salarioBase, 0))}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(membros.reduce((s, f) => s + f.extras, 0))}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: '#dc2626' }}>−{fmt(totalAntecipacao)}</td>
-                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalFolha)}</td>
-                        <td />
-                      </tr>
-                    </tfoot>
                   </table>
                 </div>
               )}
@@ -413,23 +499,33 @@ export default function ControlePagamentos() {
       )}
 
       {/* ── Totais gerais ── */}
-      {porCidade.length > 0 && (
+      {(totalGeralAntecipacao || totalGeralFolha) && (
         <div style={{ background: 'var(--navy)', borderRadius: 12, padding: '1rem 1.5rem', display: 'flex', gap: 32, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, flex: 1 }}>TOTAL GERAL — {labelMesAno(mesAno)}</div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Antecipação</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(totalGeralAntecipacao)}</div>
-          </div>
-          <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Folha</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(totalGeralFolha)}</div>
-          </div>
-          <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,0.15)' }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total mês</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#4AABDB' }}>{fmt(totalGeralAntecipacao + totalGeralFolha)}</div>
-          </div>
+          {totalGeralAntecipacao && (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Antecipação (dia 20)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(totalGeralAntecipacao)}</div>
+            </div>
+          )}
+          {totalGeralAntecipacao && totalGeralFolha && (
+            <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,0.15)' }} />
+          )}
+          {totalGeralFolha && (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Folha (dia 10)</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'white' }}>{fmt(totalGeralFolha)}</div>
+            </div>
+          )}
+          {totalGeralAntecipacao && totalGeralFolha && (
+            <>
+              <div style={{ width: 1, height: 36, background: 'rgba(255,255,255,0.15)' }} />
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Total mês</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#4AABDB' }}>{fmt(totalGeralAntecipacao + totalGeralFolha)}</div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
