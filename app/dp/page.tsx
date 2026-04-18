@@ -527,10 +527,17 @@ export default function DepartamentoPessoal() {
       const avisos: string[] = []
 
       const nomeArq = arquivo.name
-      const matchMes = nomeArq.match(/^(\d{2})_/)
+      // Detecta mês e ano pelo nome do arquivo
+      // Formatos aceitos: "03__Folha...", "03_Antecip...", "Folha_Março_2025...", "2025-03..."
+      const matchMes = nomeArq.match(/^(\d{2})[_\-]/)
+      const matchAno = nomeArq.match(/(20\d{2})/)
       const mes = matchMes ? parseInt(matchMes[1]) : new Date().getMonth() + 1
-      const ano = new Date().getFullYear()
-      const mesAno = `${ano}-${String(mes).padStart(2, '0')}`
+      const anoArq = matchAno ? parseInt(matchAno[1]) : new Date().getFullYear()
+      // Sanidade: mês entre 1-12, ano entre 2020-2030
+      const mesValido = mes >= 1 && mes <= 12 ? mes : new Date().getMonth() + 1
+      const anoValido = anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
+      const ano = anoValido
+      const mesAno = `${ano}-${String(mesValido).padStart(2, '0')}`
 
       const { total: totalReal, porCidade: totaisReais } = extrairTotalGeral(wb)
 
