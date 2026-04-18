@@ -597,23 +597,7 @@ export default function DepartamentoPessoal() {
     const novos = resultado.colaboradores.filter(c => !c.jaExiste)
     const agora = new Date().toISOString()
 
-    for (const c of novos) {
-      const colab: Colaborador = {
-        id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        nome: c.nome, cpf: c.cpf, cidade: c.cidade, funcao: c.funcao,
-        salarioBase: c.salarioBase, dataInicio: '', status: 'ativo',
-        dadosBancarios: { banco: c.banco || '', agencia: c.agencia, conta: c.conta, pix: c.pix },
-        observacoes: c.observacoes,
-        createdAt: agora, updatedAt: agora,
-      }
-      await fetch('/api/dp/colaboradores', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(colab),
-      })
-    }
-
-    // Salva o fechamento — id fixo por mesAno+tipo para evitar duplicatas
-    // Ao reimportar o mesmo mês, substitui o registro anterior
+    // Sempre salva o fechamento — independente de ter colaboradores novos
     const fechamento = {
       id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
       mesAno: resultado.mesAno,
@@ -630,10 +614,27 @@ export default function DepartamentoPessoal() {
       body: JSON.stringify(fechamento),
     })
 
+    // Cadastra colaboradores novos (se houver)
+    for (const c of novos) {
+      const colab: Colaborador = {
+        id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        nome: c.nome, cpf: c.cpf, cidade: c.cidade, funcao: c.funcao,
+        salarioBase: c.salarioBase, dataInicio: '', status: 'ativo',
+        dadosBancarios: { banco: c.banco || '', agencia: c.agencia, conta: c.conta, pix: c.pix },
+        observacoes: c.observacoes,
+        createdAt: agora, updatedAt: agora,
+      }
+      await fetch('/api/dp/colaboradores', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(colab),
+      })
+    }
+
     setResultado(null)
     setImportando(false)
     setReload(r => r + 1)
-    setAbaAtiva('colaboradores')
+    // Se tem novos, vai para colaboradores; senão fica no resumo
+    setAbaAtiva(novos.length > 0 ? 'colaboradores' : 'resumo')
   }
 
   const handleReimportar = (mesAno: string) => {
@@ -788,9 +789,11 @@ export default function DepartamentoPessoal() {
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button onClick={() => setResultado(null)} style={{ padding: '0.55rem 1.1rem', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
                 <button onClick={confirmarImportacao}
-                  disabled={importando || resultado.colaboradores.filter(c => !c.jaExiste).length === 0}
+                  disabled={importando}
                   style={{ padding: '0.55rem 1.25rem', fontSize: 13, fontWeight: 700, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', opacity: importando || resultado.colaboradores.filter(c => !c.jaExiste).length === 0 ? 0.6 : 1 }}>
-                  {importando ? 'Importando...' : `Importar ${resultado.colaboradores.filter(c => !c.jaExiste).length} colaboradores`}
+                  {importando ? 'Salvando...' : resultado.colaboradores.filter(c => !c.jaExiste).length > 0
+  ? `Importar ${resultado.colaboradores.filter(c => !c.jaExiste).length} colaboradores`
+  : 'Salvar fechamento'}
                 </button>
               </div>
             </div>
