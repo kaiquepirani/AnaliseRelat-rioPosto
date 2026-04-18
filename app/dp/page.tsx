@@ -55,6 +55,7 @@ interface ResultadoImportacao {
   totalFolha: number
   totalReal: number
   totalPorCidade: Record<string, number>
+  valorPorColaborador: Record<string, number>  // nome → valor a receber
   nomeArquivo: string
   tipoFolha: 'antecipacao' | 'folha'
   erros: string[]
@@ -566,14 +567,16 @@ export default function DepartamentoPessoal() {
 
       const totalFolha = comStatus.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
+      const valorPorColaborador: Record<string, number> = {}
       for (const c of comStatus) {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
+        valorPorColaborador[c.nome.trim().toUpperCase()] = c.totalReceber
       }
 
       const nomeUpper = nomeArq.toUpperCase()
       const tipoFolha: 'antecipacao' | 'folha' = nomeUpper.includes('ANTECIP') ? 'antecipacao' : 'folha'
 
-      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, nomeArquivo: nomeArq, tipoFolha, erros, avisos })
+      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, valorPorColaborador, nomeArquivo: nomeArq, tipoFolha, erros, avisos })
     } catch (e: any) {
       setErroImport('Erro ao processar: ' + e.message)
     } finally {
@@ -610,6 +613,7 @@ export default function DepartamentoPessoal() {
       arquivo: resultado.nomeArquivo,
       totalGeral: resultado.totalFolha,
       totalPorCidade: resultado.totalPorCidade,
+      valorPorColaborador: resultado.valorPorColaborador,
       totalColaboradores: resultado.colaboradores.length,
       dataImport: agora,
     }
