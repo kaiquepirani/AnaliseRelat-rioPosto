@@ -210,12 +210,17 @@ function parsearAbaResumo(dados: any[][], cidade: Cidade): ColaboradorImportado[
       }
     }
 
+    // Ignora valores absurdos (CPF sendo capturado como valor)
+    if (totalReceber > 50000) continue
     if (!totalReceber) continue // ignora R$0
 
-    // Salário base
+    // Salário base — limita a valores razoáveis (R$500 a R$30.000)
     let salarioBase = 0
     const mSal = textoBloco.match(/(?:NOVO VALOR |VALOR )?SALARIO[^R\d]*R?\$?\s*([\d\.,]+)/i)
-    if (mSal) salarioBase = parseFloat(mSal[1].replace(/\./g, '').replace(',', '.')) || 0
+    if (mSal) {
+      const val = parseFloat(mSal[1].replace(/\./g, '').replace(',', '.')) || 0
+      if (val >= 500 && val <= 30000) salarioBase = val
+    }
     if (!salarioBase) salarioBase = totalReceber
 
     const cpf = extrairCPF(textoBloco)
