@@ -239,32 +239,65 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     if (totalAba <= 0) return []
 
     const nNomes = nomes.length
+    // Se temos nomes individuais, retornar um registro por colaborador
+    // (totalReceber distribuído — para o fechamento, o que importa é o total somado)
+    if (nNomes > 1) {
+      return nomes.map((nome, i) => ({
+        nome,
+        cpf: undefined,
+        cidade,
+        funcao: 'Motorista' as Funcao,
+        salarioBase: 0,
+        totalReceber: i === 0 ? totalAba : 0, // só o primeiro carrega o total da cidade
+        banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+        observacoes: `Total acumulado de ${nNomes} colaboradores`,
+        jaExiste: false,
+      }))
+    }
     return [{
-      nome: nNomes === 1 ? nomes[0] : `${cidade} (${nNomes > 0 ? nNomes : '?'} colaboradores)`,
+      nome: nNomes === 1 ? nomes[0] : `${cidade} (total)`,
       cpf: undefined,
       cidade,
       funcao: 'Motorista' as Funcao,
       salarioBase: totalAba,
       totalReceber: totalAba,
       banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: nNomes > 1 ? `Total acumulado de ${nNomes} colaboradores` : undefined,
+      observacoes: undefined,
       jaExiste: false,
     }]
   }
 
   // ── 2. Extrai lista do resumo: (nome, totalReceber) ──────────────────────
+  // Dois formatos possíveis:
+  // Formato A: col=índice_numérico, col+1=nome, col+2=valor  (antecipações)
+  // Formato B: col=nome, col+1=valor                          (folhas: Morungaba, Mogi Mirim, Casa Branca)
   const listaResumo: { nome: string; valor: number }[] = []
   for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 100, dados.length); i++) {
     const row = dados[i] || []
-    const idx = row[resumoCol]
-    const nomeCel = String(row[resumoCol + 1] ?? '').trim()
-    const valCel = row[resumoCol + 2]
-    if (typeof idx === 'number' && idx >= 1 && idx <= 200 && nomeCel.length > 2 &&
-        typeof valCel === 'number' && valCel > 0) {
-      listaResumo.push({ nome: nomeCel, valor: valCel })
+    const cel0 = row[resumoCol]
+    const cel1 = row[resumoCol + 1]
+    const cel2 = row[resumoCol + 2]
+    const cel0Str = String(cel0 ?? '').trim()
+    const cel1Str = String(cel1 ?? '').trim()
+
+    // Formato A: índice numérico + nome + valor
+    if (typeof cel0 === 'number' && cel0 >= 1 && cel0 <= 200 &&
+        cel1Str.length > 2 && typeof cel2 === 'number' && cel2 > 0 &&
+        !cel1Str.toUpperCase().includes('TOTAL') && !cel1Str.includes('#REF')) {
+      listaResumo.push({ nome: cel1Str, valor: cel2 })
     }
-    if (String(row[resumoCol + 1] ?? '').toUpperCase().includes('TOTAL') &&
-        !String(row[resumoCol + 1] ?? '').toUpperCase().includes('RESUMO')) break
+    // Formato B: nome diretamente + valor (sem índice)
+    else if (cel0Str.length > 3 && typeof cel1 === 'number' && cel1 > 0 &&
+             !cel0Str.toUpperCase().includes('TOTAL') &&
+             !cel0Str.toUpperCase().includes('VALE') &&
+             !cel0Str.toUpperCase().includes('RESUMO') &&
+             !cel0Str.includes('#REF') &&
+             !/^\d/.test(cel0Str)) {
+      listaResumo.push({ nome: cel0Str, valor: cel1 })
+    }
+
+    // Para quando encontrar TOTAL
+    if (cel1Str.toUpperCase().includes('TOTAL') || cel0Str.toUpperCase() === 'TOTAL') break
   }
 
   // ── 3. Para cada colaborador, lê o bloco individual pelas colunas 0-5 ────
