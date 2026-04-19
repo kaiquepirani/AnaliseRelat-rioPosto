@@ -190,37 +190,59 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
         let observacoes = ''
         let funcao: Funcao = 'Motorista'
 
-        // Busca bloco do colaborador: linha com nome em col0 ou col1
+        // Busca bloco do colaborador: linha com nome em col0 (não assinatura)
+        // Assinaturas ficam após ___ e têm apenas o nome sem outros dados
         const nomeUp = nome.toUpperCase().trim()
         const primNome = nomeUp.split(' ')[0]
+        let blocoInicio = -1
+
         for (let i = 0; i < dados.length; i++) {
           const row = dados[i] || []
           const c0 = String(row[0] ?? '').trim().toUpperCase()
           const c1 = String(row[1] ?? '').trim().toUpperCase()
-          const matches = c0.startsWith(primNome) || c1.startsWith(primNome) ||
-                          nomeUp.startsWith(c0.split(' ')[0]) || nomeUp.startsWith(c1.split(' ')[0])
-          if (!matches || c0.length < 3) continue
-          // Não pegar assinaturas (após ___)
-          const ant = String((dados[i-1] || []).join(' '))
-          if (ant.includes('___')) continue
 
-          // Varre o bloco procurando CPF, banco, observações
-          for (let j = i; j < Math.min(i + 30, dados.length); j++) {
+          // Nome precisa estar no início da célula e a linha precisa ter outros dados
+          // (não é assinatura — assinatura tem apenas o nome e a linha anterior tem ___)
+          const bateC0 = c0.length > 3 && (c0.startsWith(primNome) || nomeUp.startsWith(c0.split(' ')[0]))
+          const bateC1 = c1.length > 3 && (c1.startsWith(primNome) || nomeUp.startsWith(c1.split(' ')[0]))
+          if (!bateC0 && !bateC1) continue
+
+          // Verificar se é assinatura (linha anterior tem ___ ou linha seguinte é vazia)
+          const antTexto = String((dados[i-1] || []).join(' '))
+          const proxTexto = String((dados[i+1] || []).join(' '))
+          const ehAssinatura = antTexto.includes('___') ||
+                               (proxTexto.trim() === '' && !row.some(v => typeof v === 'number'))
+          if (ehAssinatura) continue
+
+          // Linha tem dados úteis além do nome — é o início do bloco
+          const temDados = row.some((v, j) => j > 0 && v !== null && v !== undefined)
+          if (temDados || dados[i+1]?.some(v => v !== null)) {
+            blocoInicio = i
+            break
+          }
+        }
+
+        if (blocoInicio >= 0) {
+          // Delimitar fim do bloco (próximo ___ após início)
+          let blocoFim = Math.min(blocoInicio + 35, dados.length)
+          for (let j = blocoInicio + 3; j < blocoFim; j++) {
+            if (String((dados[j] || []).join(' ')).includes('___')) { blocoFim = j; break }
+          }
+
+          for (let j = blocoInicio; j < blocoFim; j++) {
             const r = dados[j] || []
-            if (String(r.join(' ')).includes('___') && j > i + 2) break
             const allText = r.map(v => String(v ?? '')).join(' ')
+            const allUp = allText.toUpperCase()
 
-            // CPF — apenas em células que não mencionam PIX
-            if (!cpf && !allText.toUpperCase().includes('PIX') &&
-                !allText.toUpperCase().includes('CHAVE')) {
+            // CPF — apenas em linhas que não mencionam PIX/CHAVE
+            if (!cpf && !allUp.includes('PIX') && !allUp.includes('CHAVE')) {
               const cpfM = allText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
               if (cpfM) cpf = cpfM[0]
             }
-
             // Banco
             if (!banco) {
               for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER','SICOOB']) {
-                if (allText.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+                if (allUp.includes(b)) { banco = normalizarBanco(b); break }
               }
             }
             // Agência
@@ -230,7 +252,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
             }
             // Conta
             if (!conta) {
-              const ctM = allText.match(/(?:^|\s)(?:CONTA|CC|C\/C)[:\s-]*([0-9][0-9\s-]{2,10})/i)
+              const ctM = allText.match(/(?:CONTA|C\/C)[:\s-]*([0-9][0-9\s-]{2,12})/i)
               if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
             }
             // PIX
@@ -238,26 +260,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
               const pxM = allText.match(/PIX[:\s]+([^\s,]+)/i)
               if (pxM) pix = pxM[1]
             }
-            // Observações — apenas termos específicos em campos não legais
-            if (!observacoes) {
-              const t = allText.toUpperCase()
-              const ehLegal = t.includes('DECLARO') || t.includes('CNPJ') ||
-                              t.includes('EMPRESA DE TURISMO')
-              if (!ehLegal) {
-                if (t.includes('GRÁVIDA') || t.includes('GRAVIDA')) observacoes = 'Grávida'
-                else if (t.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
-                else if (t.includes('APOSENTADO') && !t.includes('ANTECIPACAO') &&
-                         !t.includes('ANTECIPAÇÃO')) observacoes = 'Aposentado'
-                else if (t.includes('CARGO DE CONFIANÇA') || t.includes('CARGO CONFIANÇA')) {
-                  observacoes = 'Cargo de confiança'
-                }
-              }
-            }
-            // Função
-            if (allText.toUpperCase().includes('MONITOR')) funcao = 'Monitor(a)' as Funcao
-            if (allText.toUpperCase().includes('MECÂNICO') || allText.toUpperCase().includes('MECANICO')) funcao = 'Mecânico' as Funcao
           }
-          break
         }
 
         resultado.push({
@@ -380,9 +383,18 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
     const row = dados[i] || []
     for (let j = 6; j <= 9; j++) {
       if (String(row[j] ?? '').toUpperCase().includes('RESUMO')) {
-        colIdx = j      // índice fica na mesma coluna do "RESUMO PAGAMENTO"
-        colNome = j + 1 // nome fica uma coluna à direita
-        colValor = j + 2 // valor fica duas colunas à direita
+        colIdx = j
+        colNome = j + 1
+        // Procurar coluna do valor no cabeçalho (próxima linha com VALOR TOTAL)
+        for (let k = i + 1; k < Math.min(i + 4, dados.length); k++) {
+          const headerRow = dados[k] || []
+          for (let m = j; m < headerRow.length; m++) {
+            if (String(headerRow[m] ?? '').toUpperCase().includes('VALOR')) {
+              colValor = m
+              break
+            }
+          }
+        }
         break
       }
     }
