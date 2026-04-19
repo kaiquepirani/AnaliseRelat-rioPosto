@@ -141,7 +141,8 @@ function extrairRealBR(s: string): number {
 }
 
 function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // ── 1. Localiza RESUMO PAGAMENTO ─────────────────────────────────────────
+  // ── Estratégia 1: RESUMO PAGAMENTO ───────────────────────────────────────
+  // Procura "RESUMO PAGAMENTO" e usa a coluna seguinte como nome e a outra como valor
   let resumoLinha = -1, resumoCol = -1
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
@@ -152,313 +153,221 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
     if (resumoLinha >= 0) break
   }
-  // ── Fallback: sem RESUMO PAGAMENTO ──────────────────────────────────────
-  // Folhas de pagamento (60%) têm vários formatos. Tentamos em ordem:
-  if (resumoLinha < 0) {
-    let totalAba = 0
-    const nomes: string[] = []
 
-    // ── Estratégia A: "Valor líquido" em col7 (Porto Ferreira) ──────────
-    for (let i = 0; i < dados.length; i++) {
+  if (resumoLinha >= 0) {
+    // Detecta formato: col=índice+nome+valor (A) ou col=nome+valor (B)
+    const listaResumo: { nome: string; valor: number }[] = []
+    for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 120, dados.length); i++) {
       const row = dados[i] || []
-      const c3 = String(row[3] ?? '').toUpperCase()
-      const c0 = String(row[0] ?? '').toUpperCase()
-      if ((c3.includes('VALOR') && (c3.includes('LÍQUIDO') || c3.includes('LIQUIDO'))) ||
-          (c0.includes('VALOR') && (c0.includes('LÍQUIDO') || c0.includes('LIQUIDO')))) {
-        for (let k = row.length - 1; k >= 0; k--) {
+      const c0 = row[resumoCol]
+      const c1 = row[resumoCol + 1]
+      const c2 = row[resumoCol + 2]
+      const c0s = String(c0 ?? '').trim()
+      const c1s = String(c1 ?? '').trim()
+
+      if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
+      if (c0s.includes('#REF') || c1s.includes('#REF')) continue
+
+      // Formato A: índice numérico + nome + valor
+      if (typeof c0 === 'number' && c0 >= 1 && c0 <= 200 &&
+          c1s.length > 2 && typeof c2 === 'number' && c2 > 0) {
+        listaResumo.push({ nome: c1s, valor: c2 })
+      }
+      // Formato B: nome + valor (sem índice)
+      else if (c0s.length > 3 && typeof c1 === 'number' && c1 > 0 &&
+               !c0s.match(/^\d/) && !c0s.toUpperCase().includes('VALE') &&
+               !c0s.toUpperCase().includes('RESUMO')) {
+        listaResumo.push({ nome: c0s, valor: c1 })
+      }
+    }
+
+    if (listaResumo.length > 0) {
+      // Para cada colaborador do resumo, busca CPF e banco no bloco individual
+      const resultado: ColaboradorImportado[] = []
+      for (const { nome, valor } of listaResumo) {
+        let cpf: string | undefined
+        let banco = '', agencia = '', conta = '', pix = ''
+        let observacoes = ''
+        let funcao: Funcao = 'Motorista'
+
+        // Busca bloco do colaborador: linha com nome em col0 ou col1
+        const nomeUp = nome.toUpperCase().trim()
+        const primNome = nomeUp.split(' ')[0]
+        for (let i = 0; i < dados.length; i++) {
+          const row = dados[i] || []
+          const c0 = String(row[0] ?? '').trim().toUpperCase()
+          const c1 = String(row[1] ?? '').trim().toUpperCase()
+          const matches = c0.startsWith(primNome) || c1.startsWith(primNome) ||
+                          nomeUp.startsWith(c0.split(' ')[0]) || nomeUp.startsWith(c1.split(' ')[0])
+          if (!matches || c0.length < 3) continue
+          // Não pegar assinaturas (após ___)
+          const ant = String((dados[i-1] || []).join(' '))
+          if (ant.includes('___')) continue
+
+          // Varre o bloco procurando CPF, banco, observações
+          for (let j = i; j < Math.min(i + 30, dados.length); j++) {
+            const r = dados[j] || []
+            if (String(r.join(' ')).includes('___') && j > i + 2) break
+            const allText = r.map(v => String(v ?? '')).join(' ')
+
+            // CPF — apenas em células que não mencionam PIX
+            if (!cpf && !allText.toUpperCase().includes('PIX') &&
+                !allText.toUpperCase().includes('CHAVE')) {
+              const cpfM = allText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
+              if (cpfM) cpf = cpfM[0]
+            }
+
+            // Banco
+            if (!banco) {
+              for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER','SICOOB']) {
+                if (allText.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
+              }
+            }
+            // Agência
+            if (!agencia) {
+              const agM = allText.match(/AG(?:ENCIA|ÊNCIA|\.|\s)*[:\-]?\s*(\d{3,6})/i)
+              if (agM) agencia = agM[1]
+            }
+            // Conta
+            if (!conta) {
+              const ctM = allText.match(/(?:^|\s)(?:CONTA|CC|C\/C)[:\s-]*([0-9][0-9\s-]{2,10})/i)
+              if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
+            }
+            // PIX
+            if (!pix) {
+              const pxM = allText.match(/PIX[:\s]+([^\s,]+)/i)
+              if (pxM) pix = pxM[1]
+            }
+            // Observações — apenas termos específicos em campos não legais
+            if (!observacoes) {
+              const t = allText.toUpperCase()
+              const ehLegal = t.includes('DECLARO') || t.includes('CNPJ') ||
+                              t.includes('EMPRESA DE TURISMO')
+              if (!ehLegal) {
+                if (t.includes('GRÁVIDA') || t.includes('GRAVIDA')) observacoes = 'Grávida'
+                else if (t.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
+                else if (t.includes('APOSENTADO') && !t.includes('ANTECIPACAO') &&
+                         !t.includes('ANTECIPAÇÃO')) observacoes = 'Aposentado'
+                else if (t.includes('CARGO DE CONFIANÇA') || t.includes('CARGO CONFIANÇA')) {
+                  observacoes = 'Cargo de confiança'
+                }
+              }
+            }
+            // Função
+            if (allText.toUpperCase().includes('MONITOR')) funcao = 'Monitor'
+            if (allText.toUpperCase().includes('MECÂNICO') || allText.toUpperCase().includes('MECANICO')) funcao = 'Mecânico'
+          }
+          break
+        }
+
+        resultado.push({
+          nome, cpf, cidade, funcao,
+          salarioBase: valor, totalReceber: valor,
+          banco: banco || undefined, agencia: agencia || undefined,
+          conta: conta || undefined, pix: pix || undefined,
+          observacoes: observacoes || undefined,
+          jaExiste: false,
+        })
+      }
+      return resultado
+    }
+  }
+
+  // ── Estratégia 2: sem RESUMO → soma totais por aba ───────────────────────
+  // Tentativas em ordem de prioridade
+
+  // 2A: "Valor líquido" em qualquer coluna (Porto Ferreira)
+  let totalAba = 0
+  for (const row of dados) {
+    for (let j = 0; j < (row || []).length; j++) {
+      const c = String(row[j] ?? '').toUpperCase()
+      if (c.includes('VALOR') && (c.includes('LÍQUIDO') || c.includes('LIQUIDO'))) {
+        for (let k = j + 1; k < row.length; k++) {
           const v = row[k]
           if (typeof v === 'number' && v > 0) { totalAba += v; break }
         }
       }
     }
-
-    // ── Estratégia B: RESUMO à direita col7=nome, col8=N, col9=valor (Rio Claro, Mococa, Pinhal) ──
-    if (totalAba === 0) {
-      for (let i = 0; i < Math.min(5, dados.length); i++) {
-        const row = dados[i] || []
-        // Detectar linha de cabeçalho do resumo: col7='NOME', col8='Nº DE DIARIAS', col9='VALOR TOTAL'
-        const c7 = String(row[7] ?? '').toUpperCase()
-        const c8 = String(row[8] ?? '').toUpperCase()
-        const c9 = String(row[9] ?? '').toUpperCase()
-        if ((c7.includes('NOME') || c7.includes('RESUMO')) &&
-            (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('N ')) &&
-            (c9.includes('VALOR') || c9.includes('TOTAL'))) {
-          // Resumo encontrado — ler de col7=nome, col9=valor
-          for (let j = i + 1; j < dados.length; j++) {
-            const r = dados[j] || []
-            const nome = String(r[7] ?? '').trim()
-            const val = r[9]
-            if (nome.length > 2 && !nome.toUpperCase().includes('COMPLEMENTO') &&
-                !nome.toUpperCase().includes('ESCOLAR') &&
-                !nome.toUpperCase().includes('ADM') &&
-                typeof val === 'number' && val > 0) {
-              totalAba += val
-              if (!nomes.includes(nome)) nomes.push(nome)
-            }
-          }
-          break
-        }
-      }
-    }
-
-    // ── Estratégia C: TOTAL BRUTO na coluna 4 (Diárias Águas) ───────────
-    if (totalAba === 0) {
-      for (let i = 0; i < dados.length; i++) {
-        const row = dados[i] || []
-        const c0 = String(row[0] ?? '').toUpperCase()
-        if (c0.includes('TOTAL BRUTO')) {
-          const v = row[4]
-          if (typeof v === 'number' && v > 0) totalAba += v
-        }
-      }
-    }
-
-    // ── Estratégia D: TOTAL LIQUIDO ou TOTAL A RECEBER em qualquer coluna ──
-    if (totalAba === 0) {
-      // Prioridade 1: TOTAL LIQUIDO (evita triplicar quinzenas)
-      let totalLiquido = 0
-      for (let i = 0; i < dados.length; i++) {
-        const row = dados[i] || []
-        for (let j = 0; j < row.length; j++) {
-          const cell = String(row[j] ?? '').toUpperCase()
-          if (cell.includes('TOTAL LIQUIDO') || cell.includes('TOTAL LÍQUIDO')) {
-            for (let k = j + 1; k < row.length; k++) {
-              const v = row[k]
-              if (typeof v === 'number' && v > 0) { totalLiquido += v; break }
-            }
-          }
-        }
-      }
-      if (totalLiquido > 0) { totalAba = totalLiquido }
-      else {
-        // Prioridade 2: TOTAL A RECEBER (sem duplicar quinzenas)
-        const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO']
-        for (let i = 0; i < dados.length; i++) {
-          const row = dados[i] || []
-          for (let j = 0; j < row.length; j++) {
-            const cell = String(row[j] ?? '').toUpperCase()
-            if (palavras.some(p => cell.includes(p))) {
-              for (let k = j + 1; k < row.length; k++) {
-                const v = row[k]
-                if (typeof v === 'number' && v > 0) { totalAba += v; break }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    if (totalAba <= 0) return []
-
-    // Retorna registro interno apenas para carregar o totalPorCidade no fechamento
-    // jaExiste: true → não será cadastrado como colaborador novo
-    // nome com prefixo especial → não confunde com colaboradores reais
-    return [{
-      nome: `__TOTAL__${cidade}`,
-      cpf: undefined,
-      cidade,
-      funcao: 'Motorista' as Funcao,
-      salarioBase: totalAba,
-      totalReceber: totalAba,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined,
-      jaExiste: true, // não cadastra — só serve para o fechamento
-    }]
   }
 
-  // ── 2. Extrai lista do resumo: (nome, totalReceber) ──────────────────────
-  // Dois formatos possíveis:
-  // Formato A: col=índice_numérico, col+1=nome, col+2=valor  (antecipações)
-  // Formato B: col=nome, col+1=valor                          (folhas: Morungaba, Mogi Mirim, Casa Branca)
-  const listaResumo: { nome: string; valor: number }[] = []
-  for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 100, dados.length); i++) {
-    const row = dados[i] || []
-    const cel0 = row[resumoCol]
-    const cel1 = row[resumoCol + 1]
-    const cel2 = row[resumoCol + 2]
-    const cel0Str = String(cel0 ?? '').trim()
-    const cel1Str = String(cel1 ?? '').trim()
-
-    // Formato A: índice numérico + nome + valor
-    if (typeof cel0 === 'number' && cel0 >= 1 && cel0 <= 200 &&
-        cel1Str.length > 2 && typeof cel2 === 'number' && cel2 > 0 &&
-        !cel1Str.toUpperCase().includes('TOTAL') && !cel1Str.includes('#REF')) {
-      listaResumo.push({ nome: cel1Str, valor: cel2 })
-    }
-    // Formato B: nome diretamente + valor (sem índice)
-    else if (cel0Str.length > 3 && typeof cel1 === 'number' && cel1 > 0 &&
-             !cel0Str.toUpperCase().includes('TOTAL') &&
-             !cel0Str.toUpperCase().includes('VALE') &&
-             !cel0Str.toUpperCase().includes('RESUMO') &&
-             !cel0Str.includes('#REF') &&
-             !/^\d/.test(cel0Str)) {
-      listaResumo.push({ nome: cel0Str, valor: cel1 })
-    }
-
-    // Para quando encontrar TOTAL
-    if (cel1Str.toUpperCase().includes('TOTAL') || cel0Str.toUpperCase() === 'TOTAL') break
-  }
-
-  // ── 3. Para cada colaborador, lê o bloco individual pelas colunas 0-5 ────
-  const resultado: ColaboradorImportado[] = []
-
-  for (const { nome, valor } of listaResumo) {
-    const nomeUp = nome.toUpperCase().trim()
-
-    // Encontra início do bloco: col1(B) bate com o nome E não é assinatura (após ___)
-    let blocoInicio = -1
-    for (let i = 0; i < dados.length; i++) {
+  // 2B: RESUMO lateral col7=nome, col9=valor (Rio Claro, Mococa, Pinhal)
+  if (totalAba === 0) {
+    for (let i = 0; i < Math.min(8, dados.length); i++) {
       const row = dados[i] || []
-      const celB = String(row[1] ?? '').trim().toUpperCase()
-      if (celB.length < 3) continue
-      const primNomeB = celB.split(' ')[0]
-      const primNomeUp = nomeUp.split(' ')[0]
-      if (nomeUp.startsWith(primNomeB) || celB.startsWith(primNomeUp)) {
-        // Não é assinatura
-        const textoAnt = (dados[i - 1] || []).join(' ')
-        if (!textoAnt.includes('___')) {
-          blocoInicio = i; break
+      const c7 = String(row[7] ?? '').toUpperCase()
+      const c8 = String(row[8] ?? '').toUpperCase()
+      const c9 = String(row[9] ?? '').toUpperCase()
+      if ((c7.includes('NOME') || c7.includes('RESUMO')) &&
+          (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('N ') || c8.includes('VIAGEN')) &&
+          (c9.includes('VALOR') || c9.includes('TOTAL'))) {
+        for (let j = i + 1; j < dados.length; j++) {
+          const r = dados[j] || []
+          const nome = String(r[7] ?? '').trim()
+          const val = r[9]
+          if (nome.length > 2 && typeof val === 'number' && val > 0 &&
+              !nome.toUpperCase().includes('COMPLEMENTO') &&
+              !nome.toUpperCase().includes('TOTAL') &&
+              !nome.toUpperCase().includes('ADM')) {
+            totalAba += val
+          }
         }
+        break
       }
     }
+  }
 
-    // Fim do bloco: próxima linha de ___
-    let blocoFim = dados.length
-    if (blocoInicio >= 0) {
-      for (let i = blocoInicio + 1; i < Math.min(blocoInicio + 40, dados.length); i++) {
-        if ((dados[i] || []).join(' ').includes('___')) { blocoFim = i; break }
+  // 2C: TOTAL BRUTO (Diárias Águas)
+  if (totalAba === 0) {
+    for (const row of dados) {
+      if (String(row?.[0] ?? '').toUpperCase().includes('TOTAL BRUTO')) {
+        const v = row[4]
+        if (typeof v === 'number' && v > 0) totalAba += v
       }
     }
+  }
 
-    // ── Extrai dados lendo col1(B) e col3(D) diretamente ──────────────────
-    let salarioBase = valor  // fallback
-    let antecipVal = 0
-    let cpf: string | undefined
-    let banco = ''
-    let agencia = ''
-    let conta = ''
-    let pix = ''
-    let observacoes = ''
-    let funcao: Funcao = 'Motorista'
-
-    const iniScan = blocoInicio >= 0 ? blocoInicio : 0
-    for (let i = iniScan; i < blocoFim; i++) {
-      const row = dados[i] || []
-      const col1 = String(row[1] ?? '').trim()  // coluna B = rótulo
-      const col3 = row[3]                         // coluna D = valor/texto
-      const col4 = String(row[4] ?? '').trim()  // coluna E = banco/info
-
-      const col1Up = col1.toUpperCase()
-      const col3Str = String(col3 ?? '').trim()
-      const col3Up = col3Str.toUpperCase()
-
-      // SALÁRIO BASE: linha com SALARIO em col1 ou col3 → pega o primeiro R$X.XXX
-      if ((col1Up.includes('SALARIO') || col3Up.includes('SALARIO')) &&
-          !col1Up.includes('ANTECIP')) {
-        const textoSal = col1Up.includes('SALARIO') ? col3Str : col1
-        const mSal = textoSal.match(/R\$\s*([\d\.,]+)/)
-        if (mSal) {
-          const v = extrairRealBR(mSal[1])
-          if (v >= 500 && v <= 30000) salarioBase = v
-        }
-      }
-
-      // ANTECIPAÇÃO SALARIAL: col1 tem ANTECIP + col3 é numérico
-      if (col1Up.includes('ANTECIP') && typeof col3 === 'number' && col3 > 0) {
-        antecipVal = col3
-      }
-
-      // CPF: só aceitar em linhas que mencionem "CPF" ou que sejam APENAS o número
-      // Evita capturar PIX/CHAVE como CPF
-      if (!cpf) {
-        const linhaTexto = col1 + ' ' + col3Str + ' ' + col4
-        const temPix = linhaTexto.toUpperCase().includes('PIX') ||
-                       linhaTexto.toUpperCase().includes('CHAVE') ||
-                       linhaTexto.toUpperCase().includes('CELULAR')
-        if (!temPix) {
-          const cpfM = linhaTexto.match(/\d{3}[\.\-]\d{3}[\.\-]\d{3}[\.\-]\d{2}/)
-          if (cpfM) {
-            const digits = cpfM[0].replace(/\D/g, '')
-            if (digits.length === 11) cpf = cpfM[0]
+  // 2D: TOTAL LIQUIDO (evita triplicar quinzenas)
+  if (totalAba === 0) {
+    for (const row of dados) {
+      for (let j = 0; j < (row || []).length; j++) {
+        const c = String(row[j] ?? '').toUpperCase()
+        if (c.includes('TOTAL LIQUIDO') || c.includes('TOTAL LÍQUIDO')) {
+          for (let k = j + 1; k < row.length; k++) {
+            const v = row[k]
+            if (typeof v === 'number' && v > 0) { totalAba += v; break }
           }
         }
       }
-
-      // BANCO: col4 ou col1
-      if (!banco) {
-        const texB = col4 + ' ' + col1
-        for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER','SICOOB']) {
-          if (texB.toUpperCase().includes(b)) { banco = normalizarBanco(b); break }
-        }
-      }
-
-      // AGÊNCIA
-      if (!agencia) {
-        const agM = (col4 + ' ' + col1).match(/AG(?:ENCIA|ÊNCIA|\.|\s)*[:\-]?\s*(\d{3,6})/i)
-        if (agM) agencia = agM[1]
-      }
-
-      // CONTA
-      if (!conta) {
-        const ctM = (col4 + ' ' + col1).match(/(?:CONTA|CC|C\/C)\s*[:\-]?\s*([0-9\s\-]+(?:-\d)?)/i)
-        if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
-      }
-
-      // PIX
-      if (!pix) {
-        const pxM = (col4 + ' ' + col1).match(/PIX[:\s]+([^\s]+)/i)
-        if (pxM) pix = pxM[1]
-        const celM = (col4 + ' ' + col1).match(/(\d{2}\s*\d\s*\d{4}[-\s]\d{4})/)
-        if (celM && (col4 + col1).toUpperCase().includes('PIX')) pix = celM[1]
-      }
-
-      // OBSERVAÇÕES e FUNÇÃO — apenas detectar quando é informação do colaborador
-      // Não detectar em linhas de declaração ou texto legal genérico
-      const texObs = col1Up + ' ' + col3Up
-      const ehLinhaLegal = col1Up.includes('DECLARO') || col1Up.includes('CNPJ') ||
-                           col1Up.includes('EMPRESA') || col1Up.includes('COMO MOTORISTA')
-      if (!ehLinhaLegal) {
-        if (texObs.includes('GRÁVIDA') || texObs.includes('GRAVIDA')) observacoes = 'Grávida'
-        if (texObs.includes('APOSENTADO') && !texObs.includes('DESCONTO') &&
-            (col1Up.includes('APOSENTADO') || col3Up.includes('APOSENTADO'))) {
-          observacoes = 'Aposentado'
-        }
-        if (texObs.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
-      }
-      if (texObs.includes('CARGO DE CONFIANÇA') || texObs.includes('CARGO CONFIANÇA')) {
-        if (!observacoes.includes('confiança')) observacoes += (observacoes ? ' · ' : '') + 'Cargo de confiança'
-      }
-      if (texObs.includes('MONITOR')) funcao = 'Monitor(a)'
-      if (texObs.includes('MECÂNIC') || texObs.includes('MECANICO')) funcao = 'Mecânico'
-      if (texObs.includes('CONTADOR') || texObs.includes('CONTABIL')) funcao = 'Administrativo'
     }
-
-    // Se não achou salário no texto mas tem antecipação → base = antecip/0.4
-    if (salarioBase === valor && antecipVal > 0) {
-      const base = Math.round(antecipVal / 0.4 * 100) / 100
-      if (base >= 500 && base <= 30000) salarioBase = base
-    }
-
-    resultado.push({
-      nome: nome.trim(), cpf, cidade, funcao,
-      salarioBase,
-      totalReceber: valor,
-      banco: banco || undefined,
-      agencia: agencia || undefined,
-      conta: conta || undefined,
-      pix: pix || undefined,
-      observacoes: observacoes.trim() || undefined,
-      jaExiste: false,
-    })
   }
 
-  return resultado
+  // 2E: TOTAL A RECEBER (fallback final)
+  if (totalAba === 0) {
+    const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO']
+    for (const row of dados) {
+      for (let j = 0; j < (row || []).length; j++) {
+        const c = String(row[j] ?? '').toUpperCase()
+        if (palavras.some(p => c.includes(p))) {
+          for (let k = j + 1; k < row.length; k++) {
+            const v = row[k]
+            if (typeof v === 'number' && v > 0) { totalAba += v; break }
+          }
+        }
+      }
+    }
+  }
+
+  if (totalAba <= 0) return []
+
+  return [{
+    nome: `__TOTAL__${cidade}`,
+    cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao,
+    salarioBase: totalAba, totalReceber: totalAba,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true,
+  }]
 }
-
-// ── Parser especial para Ubatuba ────────────────────────────────────────────
-// Ubatuba tem dois tipos de colaboradores:
-// 1. Com bloco individual: CPF(col1) | NOME(col3) | BANCO/AG/CC(col5) → extrai tudo
-// 2. Sem bloco (só no resumo): apelido curto → marca para revisão
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
   // ── 1. Detectar colunas do resumo automaticamente ────────────────────────
