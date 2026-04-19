@@ -353,9 +353,7 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
     const c1up = c1.toUpperCase()
     const ehTotal = (
       c1up.includes('TOTAL LIQUIDO') || c1up.includes('TOTAL LÍQUIDO') ||
-      (c1up.includes('TOTAL') && c1up.includes('QUINZENA')) ||
-      (c1up.includes('TOTAL A RECEB') && !c1up.includes('2')) ||
-      (c1up.includes('TOTAL  RECEB') && c1up.includes('QUINZENA'))
+      (c1up.includes('TOTAL') && c1up.includes('QUINZENA'))
     )
 
     if (ehTotal && typeof c5 === 'number' && c5 > 0) {
