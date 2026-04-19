@@ -368,12 +368,19 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
         antecipVal = col3
       }
 
-      // CPF: qualquer célula com 11 dígitos de CPF
+      // CPF: só aceitar em linhas que mencionem "CPF" ou que sejam APENAS o número
+      // Evita capturar PIX/CHAVE como CPF
       if (!cpf) {
-        const cpfM = (col1 + ' ' + col3Str).match(/\d{3}[\.\-]?\d{3}[\.\-]?\d{3}[\.\-]?\d{2}/)
-        if (cpfM) {
-          const digits = cpfM[0].replace(/\D/g, '')
-          if (digits.length === 11) cpf = cpfM[0]
+        const linhaTexto = col1 + ' ' + col3Str + ' ' + col4
+        const temPix = linhaTexto.toUpperCase().includes('PIX') ||
+                       linhaTexto.toUpperCase().includes('CHAVE') ||
+                       linhaTexto.toUpperCase().includes('CELULAR')
+        if (!temPix) {
+          const cpfM = linhaTexto.match(/\d{3}[\.\-]\d{3}[\.\-]\d{3}[\.\-]\d{2}/)
+          if (cpfM) {
+            const digits = cpfM[0].replace(/\D/g, '')
+            if (digits.length === 11) cpf = cpfM[0]
+          }
         }
       }
 
@@ -405,11 +412,19 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
         if (celM && (col4 + col1).toUpperCase().includes('PIX')) pix = celM[1]
       }
 
-      // OBSERVAÇÕES e FUNÇÃO
+      // OBSERVAÇÕES e FUNÇÃO — apenas detectar quando é informação do colaborador
+      // Não detectar em linhas de declaração ou texto legal genérico
       const texObs = col1Up + ' ' + col3Up
-      if (texObs.includes('GRÁVIDA') || texObs.includes('GRAVIDA')) observacoes = 'Grávida'
-      if (texObs.includes('APOSENTADO')) observacoes = 'Aposentado'
-      if (texObs.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
+      const ehLinhaLegal = col1Up.includes('DECLARO') || col1Up.includes('CNPJ') ||
+                           col1Up.includes('EMPRESA') || col1Up.includes('COMO MOTORISTA')
+      if (!ehLinhaLegal) {
+        if (texObs.includes('GRÁVIDA') || texObs.includes('GRAVIDA')) observacoes = 'Grávida'
+        if (texObs.includes('APOSENTADO') && !texObs.includes('DESCONTO') &&
+            (col1Up.includes('APOSENTADO') || col3Up.includes('APOSENTADO'))) {
+          observacoes = 'Aposentado'
+        }
+        if (texObs.includes('LICENÇA MATERNIDADE')) observacoes = 'Licença maternidade'
+      }
       if (texObs.includes('CARGO DE CONFIANÇA') || texObs.includes('CARGO CONFIANÇA')) {
         if (!observacoes.includes('confiança')) observacoes += (observacoes ? ' · ' : '') + 'Cargo de confiança'
       }
@@ -480,7 +495,9 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
 
   // ── 2b. Fallback Ubatuba: quando resumo não tem valores (folha de diárias)
   // Soma "TOTAL LIQUIDO RECEBIDO" de cada bloco individual (col5 = índice 5)
-  if (resumo.length === 0) {
+  // Ativa quando resumo está vazio OU quando nenhum item tem valor > 0
+  const resumoTemValores = resumo.some(r => r.valor > 0)
+  if (resumo.length === 0 || !resumoTemValores) {
     let totalUbatuba = 0
     for (let i = 0; i < dados.length; i++) {
       const row = dados[i] || []
