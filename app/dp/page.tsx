@@ -141,8 +141,8 @@ function extrairRealBR(s: string): number {
 }
 
 function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // ── Estratégia 1: RESUMO PAGAMENTO ───────────────────────────────────────
-  // Procura "RESUMO PAGAMENTO" e usa a coluna seguinte como nome e a outra como valor
+
+  // ── 1. Localizar RESUMO PAGAMENTO ────────────────────────────────────────
   let resumoLinha = -1, resumoCol = -1
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
@@ -154,143 +154,71 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     if (resumoLinha >= 0) break
   }
 
+  // ── 2. Com RESUMO: extrai nome + valor apenas ─────────────────────────────
   if (resumoLinha >= 0) {
-    // Detecta formato: col=índice+nome+valor (A) ou col=nome+valor (B)
-    const listaResumo: { nome: string; valor: number }[] = []
-    for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 120, dados.length); i++) {
+    const lista: { nome: string; valor: number }[] = []
+
+    // Detectar coluna do valor: procurar "VALOR" no cabeçalho logo após o RESUMO
+    let colValor = resumoCol + 2
+    for (let i = resumoLinha; i < Math.min(resumoLinha + 4, dados.length); i++) {
+      const row = dados[i] || []
+      for (let m = resumoCol; m < row.length; m++) {
+        if (String(row[m] ?? '').toUpperCase().includes('VALOR')) {
+          colValor = m; break
+        }
+      }
+    }
+
+    for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 150, dados.length); i++) {
       const row = dados[i] || []
       const c0 = row[resumoCol]
       const c1 = row[resumoCol + 1]
-      const c2 = row[resumoCol + 2]
       const c0s = String(c0 ?? '').trim()
       const c1s = String(c1 ?? '').trim()
+      const val = row[colValor]
 
+      // Parar no TOTAL
       if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
       if (c0s.includes('#REF') || c1s.includes('#REF')) continue
 
       // Formato A: índice numérico + nome + valor
-      if (typeof c0 === 'number' && c0 >= 1 && c0 <= 200 &&
-          c1s.length > 2 && typeof c2 === 'number' && c2 > 0) {
-        listaResumo.push({ nome: c1s, valor: c2 })
+      if (typeof c0 === 'number' && c0 >= 1 && c0 <= 300 &&
+          c1s.length > 2 && typeof val === 'number' && val > 0) {
+        lista.push({ nome: c1s, valor: val })
       }
-      // Formato B: nome + valor (sem índice)
-      else if (c0s.length > 3 && typeof c1 === 'number' && c1 > 0 &&
-               !c0s.match(/^\d/) && !c0s.toUpperCase().includes('VALE') &&
-               !c0s.toUpperCase().includes('RESUMO')) {
-        listaResumo.push({ nome: c0s, valor: c1 })
+      // Formato B: nome diretamente + valor (Morungaba, Casa Branca, Mogi Mirim)
+      else if (c0s.length > 3 && !c0s.match(/^\d/) &&
+               !c0s.toUpperCase().includes('VALE') &&
+               !c0s.toUpperCase().includes('RESUMO') &&
+               typeof c1 === 'number' && c1 > 0) {
+        lista.push({ nome: c0s, valor: c1 })
       }
     }
 
-    if (listaResumo.length > 0) {
-      // Para cada colaborador do resumo, busca CPF e banco no bloco individual
-      const resultado: ColaboradorImportado[] = []
-      for (const { nome, valor } of listaResumo) {
-        let cpf: string | undefined
-        let banco = '', agencia = '', conta = '', pix = ''
-        let observacoes = ''
-        let funcao: Funcao = 'Motorista'
-
-        // Busca bloco do colaborador: linha com nome em col0 (não assinatura)
-        // Assinaturas ficam após ___ e têm apenas o nome sem outros dados
-        const nomeUp = nome.toUpperCase().trim()
-        const primNome = nomeUp.split(' ')[0]
-        let blocoInicio = -1
-
-        for (let i = 0; i < dados.length; i++) {
-          const row = dados[i] || []
-          const c0 = String(row[0] ?? '').trim().toUpperCase()
-          const c1 = String(row[1] ?? '').trim().toUpperCase()
-
-          // Nome precisa estar no início da célula e a linha precisa ter outros dados
-          // (não é assinatura — assinatura tem apenas o nome e a linha anterior tem ___)
-          const bateC0 = c0.length > 3 && (c0.startsWith(primNome) || nomeUp.startsWith(c0.split(' ')[0]))
-          const bateC1 = c1.length > 3 && (c1.startsWith(primNome) || nomeUp.startsWith(c1.split(' ')[0]))
-          if (!bateC0 && !bateC1) continue
-
-          // Verificar se é assinatura (linha anterior tem ___ ou linha seguinte é vazia)
-          const antTexto = String((dados[i-1] || []).join(' '))
-          const proxTexto = String((dados[i+1] || []).join(' '))
-          const ehAssinatura = antTexto.includes('___') ||
-                               (proxTexto.trim() === '' && !row.some(v => typeof v === 'number'))
-          if (ehAssinatura) continue
-
-          // Linha tem dados úteis além do nome — é o início do bloco
-          const temDados = row.some((v, j) => j > 0 && v !== null && v !== undefined)
-          if (temDados || dados[i+1]?.some(v => v !== null)) {
-            blocoInicio = i
-            break
-          }
-        }
-
-        if (blocoInicio >= 0) {
-          // Delimitar fim do bloco (próximo ___ após início)
-          let blocoFim = Math.min(blocoInicio + 35, dados.length)
-          for (let j = blocoInicio + 3; j < blocoFim; j++) {
-            if (String((dados[j] || []).join(' ')).includes('___')) { blocoFim = j; break }
-          }
-
-          for (let j = blocoInicio; j < blocoFim; j++) {
-            const r = dados[j] || []
-            const allText = r.map(v => String(v ?? '')).join(' ')
-            const allUp = allText.toUpperCase()
-
-            // CPF — apenas em col0/col1 ou linhas com "CPF" explícito
-            // Não capturar de col3/col4 onde normalmente fica a chave PIX
-            if (!cpf) {
-              const c0v = String(r[0] ?? '').trim()
-              const c1v = String(r[1] ?? '').trim()
-              const linhaTemPix = allUp.includes('PIX') || allUp.includes('CHAVE')
-              // Linha anterior pode indicar que próxima é PIX
-              const linhaAnterior = (dados[j-1] || []).map(v => String(v??'')).join(' ').toUpperCase()
-              const anteriorTemPix = linhaAnterior.includes('PIX') || linhaAnterior.includes('CHAVE')
-              if (!linhaTemPix && !anteriorTemPix) {
-                // Buscar CPF apenas em col0 ou col1
-                const cpfM = (c0v + ' ' + c1v).match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
-                if (cpfM) cpf = cpfM[0]
-              }
-            }
-            // Banco
-            if (!banco) {
-              for (const b of ['NUBANK','NU PAGAMENTOS','ITAÚ','ITAU','CAIXA','BRADESCO','SANTANDER','BANCO DO BRASIL','INTER','SICOOB']) {
-                if (allUp.includes(b)) { banco = normalizarBanco(b); break }
-              }
-            }
-            // Agência
-            if (!agencia) {
-              const agM = allText.match(/AG(?:ENCIA|ÊNCIA|\.|\s)*[:\-]?\s*(\d{3,6})/i)
-              if (agM) agencia = agM[1]
-            }
-            // Conta
-            if (!conta) {
-              const ctM = allText.match(/(?:CONTA|C\/C)[:\s-]*([0-9][0-9\s-]{2,12})/i)
-              if (ctM) conta = ctM[1].trim().replace(/\s+/g, '')
-            }
-            // PIX
-            if (!pix) {
-              const pxM = allText.match(/PIX[:\s]+([^\s,]+)/i)
-              if (pxM) pix = pxM[1]
-            }
-          }
-        }
-
-        resultado.push({
-          nome, cpf, cidade, funcao,
-          salarioBase: valor, totalReceber: valor,
-          banco: banco || undefined, agencia: agencia || undefined,
-          conta: conta || undefined, pix: pix || undefined,
-          observacoes: observacoes || undefined,
-          jaExiste: false,
-        })
-      }
-      return resultado
+    if (lista.length > 0) {
+      // Retorna colaboradores com nome e valor — SEM tentar ler blocos individuais
+      // Dados bancários já estão no Redis (cadastrados anteriormente)
+      return lista.map(({ nome, valor }) => ({
+        nome,
+        cpf: undefined,
+        cidade,
+        funcao: 'Motorista' as Funcao,
+        salarioBase: valor,
+        totalReceber: valor,
+        banco: undefined,
+        agencia: undefined,
+        conta: undefined,
+        pix: undefined,
+        observacoes: undefined,
+        jaExiste: false,
+      }))
     }
   }
 
-  // ── Estratégia 2: sem RESUMO → soma totais por aba ───────────────────────
-  // Tentativas em ordem de prioridade
-
-  // 2A: "Valor líquido" em qualquer coluna (Porto Ferreira)
+  // ── 3. Sem RESUMO: calcular total da cidade em cascata ───────────────────
   let totalAba = 0
+
+  // 3A: "Valor líquido" (Porto Ferreira)
   for (const row of dados) {
     for (let j = 0; j < (row || []).length; j++) {
       const c = String(row[j] ?? '').toUpperCase()
@@ -303,7 +231,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
   }
 
-  // 2B: RESUMO lateral col7=nome, col9=valor (Rio Claro, Mococa, Pinhal)
+  // 3B: Resumo lateral col7=nome, col9=valor (Rio Claro, Mococa, Pinhal)
   if (totalAba === 0) {
     for (let i = 0; i < Math.min(8, dados.length); i++) {
       const row = dados[i] || []
@@ -311,15 +239,15 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       const c8 = String(row[8] ?? '').toUpperCase()
       const c9 = String(row[9] ?? '').toUpperCase()
       if ((c7.includes('NOME') || c7.includes('RESUMO')) &&
-          (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('N ') || c8.includes('VIAGEN')) &&
+          (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('VIAGEN')) &&
           (c9.includes('VALOR') || c9.includes('TOTAL'))) {
         for (let j = i + 1; j < dados.length; j++) {
           const r = dados[j] || []
           const nome = String(r[7] ?? '').trim()
           const val = r[9]
           if (nome.length > 2 && typeof val === 'number' && val > 0 &&
-              !nome.toUpperCase().includes('COMPLEMENTO') &&
               !nome.toUpperCase().includes('TOTAL') &&
+              !nome.toUpperCase().includes('COMPLEMENTO') &&
               !nome.toUpperCase().includes('ADM')) {
             totalAba += val
           }
@@ -329,7 +257,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
   }
 
-  // 2C: TOTAL BRUTO (Diárias Águas)
+  // 3C: TOTAL BRUTO col4 (Diárias Águas)
   if (totalAba === 0) {
     for (const row of dados) {
       if (String(row?.[0] ?? '').toUpperCase().includes('TOTAL BRUTO')) {
@@ -339,7 +267,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
   }
 
-  // 2D: TOTAL LIQUIDO (evita triplicar quinzenas)
+  // 3D: TOTAL LIQUIDO (evita triplicar quinzenas)
   if (totalAba === 0) {
     for (const row of dados) {
       for (let j = 0; j < (row || []).length; j++) {
@@ -354,7 +282,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
   }
 
-  // 2E: TOTAL A RECEBER (fallback final)
+  // 3E: TOTAL A RECEBER em qualquer coluna
   if (totalAba === 0) {
     const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO']
     for (const row of dados) {
