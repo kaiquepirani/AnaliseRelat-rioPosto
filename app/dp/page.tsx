@@ -310,15 +310,34 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 // 2. Sem bloco (só no resumo): apelido curto → marca para revisão
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // ── 1. Resumo à direita: col7=idx, col8=apelido, col10=valor ─────────────
+  // ── 1. Detectar colunas do resumo automaticamente ────────────────────────
+  // Procura "RESUMO PAGAMENTO" para achar a coluna base
+  // Pode estar em col7 (abril) ou col8 (março) dependendo do arquivo
+  let colIdx = 7   // coluna do índice (número sequencial)
+  let colNome = 8  // coluna do nome
+  let colValor = 10 // coluna do valor
+  for (let i = 0; i < Math.min(10, dados.length); i++) {
+    const row = dados[i] || []
+    for (let j = 6; j <= 9; j++) {
+      if (String(row[j] ?? '').toUpperCase().includes('RESUMO')) {
+        colIdx = j      // índice fica na mesma coluna do "RESUMO PAGAMENTO"
+        colNome = j + 1 // nome fica uma coluna à direita
+        colValor = j + 2 // valor fica duas colunas à direita
+        break
+      }
+    }
+  }
+
+  // ── 2. Resumo à direita: colIdx=número, colNome=nome, colValor=valor ──────
   const resumo: { idx: number; apelido: string; valor: number }[] = []
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
-    const idx = row[7]
-    const apelido = String(row[8] ?? '').trim()
-    const valor = row[10]
+    const idx = row[colIdx]
+    const apelido = String(row[colNome] ?? '').trim()
+    const valor = row[colValor]
     if (typeof idx === 'number' && idx >= 1 && idx <= 100 &&
-        apelido.length > 1 && typeof valor === 'number' && valor > 0) {
+        apelido.length > 1 && typeof valor === 'number' && valor > 0 &&
+        !apelido.toUpperCase().includes('TOTAL')) {
       resumo.push({ idx, apelido, valor })
     }
   }
