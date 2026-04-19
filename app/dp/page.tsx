@@ -19,8 +19,14 @@ const MAPA_CIDADES: Record<string, Cidade> = {
   'MORUNGABA':          'Morungaba',
   'MOGI MIRIM':         'Mogi Mirim',
   'ITAPIRA (ESCOLAR)':  'Itapira (Escolar)',
+  'ESCOLAR ITAPIRA':    'Itapira (Escolar)',
+  'ITAPIRA ESCOLAR':    'Itapira (Escolar)',
   'ITAPIRA (SAÚDE)':    'Itapira (Saúde)',
   'ITAPIRA (SAUDE)':    'Itapira (Saúde)',
+  'ITAPIRA SAUDE':      'Itapira (Saúde)',
+  'ITAPIRA SAÚDE':      'Itapira (Saúde)',
+  'ITAPIRA':            'Itapira (Saúde)',
+  'SAUDE ITAPIRA':      'Itapira (Saúde)',
   'AGUAÍ':              'Aguaí',
   'AGUAI':              'Aguaí',
   'CASA BRANCA':        'Casa Branca',
@@ -146,7 +152,68 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
     if (resumoLinha >= 0) break
   }
-  if (resumoLinha < 0) return []
+  // ── Fallback: sem RESUMO → soma todos "TOTAL A RECEBER" da aba ──────────
+  // Formato das folhas de pagamento (60%) que não têm RESUMO PAGAMENTO
+  if (resumoLinha < 0) {
+    // Estratégia: acumula todos os blocos individuais
+    // Cada bloco tem: nome na primeira linha, "TOTAL A RECEBER" com valor na col2 ou col3
+    let totalAba = 0
+    const nomes: string[] = []
+    let nomeAtual = ''
+
+    for (let i = 0; i < dados.length; i++) {
+      const row = dados[i] || []
+      const c0 = String(row[0] ?? '').trim()
+      const c1 = String(row[1] ?? '').trim()
+
+      // Detecta nome: linha com texto longo sem números no início, antes de CPF ou SALARIO
+      if (c0.length > 5 && !/^\d/.test(c0) &&
+          !c0.toUpperCase().includes('DECLARO') &&
+          !c0.toUpperCase().includes('PERIODO') &&
+          !c0.toUpperCase().includes('SALARIO') &&
+          !c0.toUpperCase().includes('ANTECIPACAO') &&
+          !c0.toUpperCase().includes('ANTECIPAÇÃO') &&
+          !c0.toUpperCase().includes('TOTAL') &&
+          !c0.toUpperCase().includes('BANCO') &&
+          !c0.toUpperCase().includes('CNPJ') &&
+          !c0.toUpperCase().includes('HORA') &&
+          !c0.toUpperCase().includes('COMO') &&
+          !c0.toUpperCase().includes('TAIS') &&
+          !c0.toUpperCase().includes('AGENCIA') &&
+          !c0.toUpperCase().includes('CONTA') &&
+          !c0.toUpperCase().includes('ETCO') &&
+          typeof row[2] !== 'number') {
+        nomeAtual = c0
+      }
+
+      // Detecta "TOTAL A RECEBER" com valor positivo
+      if (c0.toUpperCase().includes('TOTAL A RECEBER')) {
+        const val = row[2]
+        if (typeof val === 'number' && val > 0) {
+          totalAba += val
+          if (nomeAtual && !nomes.includes(nomeAtual)) {
+            nomes.push(nomeAtual)
+          }
+          nomeAtual = ''
+        }
+      }
+    }
+
+    if (totalAba <= 0) return []
+
+    // Retorna um único registro com o total da cidade (sem breakdown por colaborador)
+    return [{
+      nome: nomes.length === 1 ? nomes[0] : `${cidade} (${nomes.length} colaboradores)`,
+      cpf: undefined,
+      cidade,
+      funcao: 'Motorista' as Funcao,
+      salarioBase: totalAba,
+      totalReceber: totalAba,
+      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+      observacoes: nomes.length > 1 ? `Total acumulado de ${nomes.length} colaboradores` : undefined,
+      jaExiste: false,
+    }]
+  }
 
   // ── 2. Extrai lista do resumo: (nome, totalReceber) ──────────────────────
   const listaResumo: { nome: string; valor: number }[] = []
