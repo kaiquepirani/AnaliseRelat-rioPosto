@@ -234,10 +234,20 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
             const allText = r.map(v => String(v ?? '')).join(' ')
             const allUp = allText.toUpperCase()
 
-            // CPF — apenas em linhas que não mencionam PIX/CHAVE
-            if (!cpf && !allUp.includes('PIX') && !allUp.includes('CHAVE')) {
-              const cpfM = allText.match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
-              if (cpfM) cpf = cpfM[0]
+            // CPF — apenas em col0/col1 ou linhas com "CPF" explícito
+            // Não capturar de col3/col4 onde normalmente fica a chave PIX
+            if (!cpf) {
+              const c0v = String(r[0] ?? '').trim()
+              const c1v = String(r[1] ?? '').trim()
+              const linhaTemPix = allUp.includes('PIX') || allUp.includes('CHAVE')
+              // Linha anterior pode indicar que próxima é PIX
+              const linhaAnterior = (dados[j-1] || []).map(v => String(v??'')).join(' ').toUpperCase()
+              const anteriorTemPix = linhaAnterior.includes('PIX') || linhaAnterior.includes('CHAVE')
+              if (!linhaTemPix && !anteriorTemPix) {
+                // Buscar CPF apenas em col0 ou col1
+                const cpfM = (c0v + ' ' + c1v).match(/\d{3}\.\d{3}\.\d{3}-\d{2}/)
+                if (cpfM) cpf = cpfM[0]
+              }
             }
             // Banco
             if (!banco) {
@@ -417,7 +427,9 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
   // ── 2b. Fallback Ubatuba: quando resumo não tem valores (folha de diárias)
   // Soma "TOTAL LIQUIDO RECEBIDO" de cada bloco individual (col5 = índice 5)
   // Ativa quando resumo está vazio OU quando nenhum item tem valor > 0
-  const resumoTemValores = resumo.some(r => r.valor > 0)
+  // Se menos de 30% dos colaboradores têm valor no resumo, usar fallback
+  const resumoComValor = resumo.filter(r => r.valor > 0).length
+  const resumoTemValores = resumoComValor > 0 && resumoComValor >= resumo.length * 0.3
   if (resumo.length === 0 || !resumoTemValores) {
     let totalUbatuba = 0
     for (let i = 0; i < dados.length; i++) {
