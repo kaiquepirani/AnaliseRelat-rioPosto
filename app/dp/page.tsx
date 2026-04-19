@@ -254,8 +254,8 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
               }
             }
             // Função
-            if (allText.toUpperCase().includes('MONITOR')) funcao = 'Monitor'
-            if (allText.toUpperCase().includes('MECÂNICO') || allText.toUpperCase().includes('MECANICO')) funcao = 'Mecânico'
+            if (allText.toUpperCase().includes('MONITOR')) funcao = 'Monitor(a)' as Funcao
+            if (allText.toUpperCase().includes('MECÂNICO') || allText.toUpperCase().includes('MECANICO')) funcao = 'Mecânico' as Funcao
           }
           break
         }
