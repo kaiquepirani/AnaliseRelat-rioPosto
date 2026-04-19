@@ -51,7 +51,7 @@ function mesAnoAnterior(ma: string) {
   return `${ano}-${String(mes - 1).padStart(2, '0')}`
 }
 
-export default function ControlePagamentos() {
+export default function ControlePagamentos({ onReimportar }: { onReimportar?: (mesAno: string) => void }) {
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([])
   const [pagamentos, setPagamentos] = useState<Pagamento[]>([])
@@ -205,6 +205,27 @@ export default function ControlePagamentos() {
         <select value={mesAno} onChange={e => setMesAno(e.target.value)} style={{ ...inputStyle, fontSize: 13, fontWeight: 600 }}>
           {mesesDisponiveis.map(ma => <option key={ma} value={ma}>{labelMesAno(ma)}</option>)}
         </select>
+
+        {/* Botão reimportar folha */}
+        {onReimportar && (
+          <button
+            onClick={() => onReimportar(mesAno)}
+            style={{
+              padding: '0.4rem 0.875rem', fontSize: 12, fontWeight: 600,
+              background: 'var(--sky-light)', color: 'var(--navy)',
+              border: '1px solid var(--sky-mid)', borderRadius: 8,
+              cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            Reimportar folha
+          </button>
+        )}
 
         <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>
           Antecipação: dia 20/{mesAno.split('-')[1]} · Folha: dia 10/{String(parseInt(mesAno.split('-')[1]) % 12 + 1).padStart(2, '0')}
