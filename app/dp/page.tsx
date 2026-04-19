@@ -634,6 +634,37 @@ export default function DepartamentoPessoal() {
       body: JSON.stringify(fechamento),
     })
 
+    // Registra pagamento automaticamente para cada cidade que tem valor
+    // Data do pagamento: dia 20 para antecipação, dia 10 para folha
+    const [anoFech, mesFech] = resultado.mesAno.split('-').map(Number)
+    const diaPag = resultado.tipoFolha === 'antecipacao' ? 20 : 10
+    // Para folha: o pagamento é no mês seguinte (dia 10)
+    const mesPagNum = resultado.tipoFolha === 'folha'
+      ? (mesFech === 12 ? 1 : mesFech + 1)
+      : mesFech
+    const anoPagNum = resultado.tipoFolha === 'folha' && mesFech === 12
+      ? anoFech + 1
+      : anoFech
+    const dataPagStr = `${String(diaPag).padStart(2, '0')}/${String(mesPagNum).padStart(2, '0')}/${anoPagNum}`
+
+    for (const [cidadeStr, valorCidade] of Object.entries(resultado.totalPorCidade)) {
+      if (valorCidade > 0) {
+        const pag = {
+          id: `pag_${resultado.mesAno}_${resultado.tipoFolha}_${cidadeStr.replace(/\s+/g, '_')}`,
+          mesAno: resultado.mesAno,
+          cidade: cidadeStr,
+          tipo: resultado.tipoFolha,
+          valor: valorCidade,
+          dataPagamento: dataPagStr,
+          createdAt: agora,
+        }
+        await fetch('/api/dp/pagamentos', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(pag),
+        })
+      }
+    }
+
     // Cadastra colaboradores novos (se houver)
     for (const c of novos) {
       const colab: Colaborador = {
