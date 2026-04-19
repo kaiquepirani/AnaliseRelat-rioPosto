@@ -213,22 +213,34 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       }
     }
 
-    // ── Estratégia D: TOTAL A RECEBER/RECEBIDO em qualquer coluna ────────
+    // ── Estratégia D: TOTAL LIQUIDO ou TOTAL A RECEBER em qualquer coluna ──
     if (totalAba === 0) {
-      const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO', 'TOTAL RECEB']
-      const vistos = new Set<number>()
+      // Prioridade 1: TOTAL LIQUIDO (evita triplicar quinzenas)
+      let totalLiquido = 0
       for (let i = 0; i < dados.length; i++) {
         const row = dados[i] || []
         for (let j = 0; j < row.length; j++) {
           const cell = String(row[j] ?? '').toUpperCase()
-          if (palavras.some(p => cell.includes(p))) {
-            // Pega o primeiro número positivo na linha após a célula com texto
+          if (cell.includes('TOTAL LIQUIDO') || cell.includes('TOTAL LÍQUIDO')) {
             for (let k = j + 1; k < row.length; k++) {
               const v = row[k]
-              if (typeof v === 'number' && v > 0 && !vistos.has(Math.round(v * 100))) {
-                vistos.add(Math.round(v * 100))
-                totalAba += v
-                break
+              if (typeof v === 'number' && v > 0) { totalLiquido += v; break }
+            }
+          }
+        }
+      }
+      if (totalLiquido > 0) { totalAba = totalLiquido }
+      else {
+        // Prioridade 2: TOTAL A RECEBER (sem duplicar quinzenas)
+        const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO']
+        for (let i = 0; i < dados.length; i++) {
+          const row = dados[i] || []
+          for (let j = 0; j < row.length; j++) {
+            const cell = String(row[j] ?? '').toUpperCase()
+            if (palavras.some(p => cell.includes(p))) {
+              for (let k = j + 1; k < row.length; k++) {
+                const v = row[k]
+                if (typeof v === 'number' && v > 0) { totalAba += v; break }
               }
             }
           }
@@ -464,6 +476,35 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
         !apelido.toUpperCase().includes('TOTAL')) {
       resumo.push({ idx, apelido, valor })
     }
+  }
+
+  // ── 2b. Fallback Ubatuba: quando resumo não tem valores (folha de diárias)
+  // Soma "TOTAL LIQUIDO RECEBIDO" de cada bloco individual (col5 = índice 5)
+  if (resumo.length === 0) {
+    let totalUbatuba = 0
+    for (let i = 0; i < dados.length; i++) {
+      const row = dados[i] || []
+      const c1 = String(row[1] ?? '').toUpperCase()
+      const c5 = row[5]
+      if ((c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO')) &&
+          typeof c5 === 'number' && c5 > 0) {
+        totalUbatuba += c5
+      }
+    }
+    if (totalUbatuba > 0) {
+      return [{
+        nome: '__TOTAL__' + cidade,
+        cpf: undefined,
+        cidade,
+        funcao: 'Motorista' as Funcao,
+        salarioBase: totalUbatuba,
+        totalReceber: totalUbatuba,
+        banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+        observacoes: undefined,
+        jaExiste: true,
+      }]
+    }
+    return []
   }
 
   // ── 2. Blocos individuais: CPF(col1) | NOME(col3) | BANCO/AG/CC(col5) ────
