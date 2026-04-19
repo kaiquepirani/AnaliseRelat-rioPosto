@@ -238,24 +238,11 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 
     if (totalAba <= 0) return []
 
-    const nNomes = nomes.length
-    // Se temos nomes individuais, retornar um registro por colaborador
-    // (totalReceber distribuído — para o fechamento, o que importa é o total somado)
-    if (nNomes > 1) {
-      return nomes.map((nome, i) => ({
-        nome,
-        cpf: undefined,
-        cidade,
-        funcao: 'Motorista' as Funcao,
-        salarioBase: 0,
-        totalReceber: i === 0 ? totalAba : 0, // só o primeiro carrega o total da cidade
-        banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-        observacoes: `Total acumulado de ${nNomes} colaboradores`,
-        jaExiste: false,
-      }))
-    }
+    // Retorna registro interno apenas para carregar o totalPorCidade no fechamento
+    // jaExiste: true → não será cadastrado como colaborador novo
+    // nome com prefixo especial → não confunde com colaboradores reais
     return [{
-      nome: nNomes === 1 ? nomes[0] : `${cidade} (total)`,
+      nome: `__TOTAL__${cidade}`,
       cpf: undefined,
       cidade,
       funcao: 'Motorista' as Funcao,
@@ -263,7 +250,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       totalReceber: totalAba,
       banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
       observacoes: undefined,
-      jaExiste: false,
+      jaExiste: true, // não cadastra — só serve para o fechamento
     }]
   }
 
@@ -722,18 +709,26 @@ export default function DepartamentoPessoal() {
       // Marca duplicatas
       const res = await fetch('/api/dp/colaboradores')
       const cadastrados: Colaborador[] = await res.json()
-      const comStatus = colaboradores.map(c => {
+      // Filtrar registros internos __TOTAL__ (gerados pelo fallback de folhas sem RESUMO)
+      const semInternos = colaboradores.filter(c => !c.nome.startsWith('__TOTAL__'))
+      const comStatus = semInternos.map(c => {
         const existente = cadastrados.find(cad =>
           cad.nome.toLowerCase().trim() === c.nome.toLowerCase().trim()
         )
         return { ...c, jaExiste: !!existente, colaboradorId: existente?.id }
       })
 
-      const totalFolha = comStatus.reduce((s, c) => s + c.totalReceber, 0)
+      // Para o totalPorCidade, usar TODOS os registros (incluindo __TOTAL__)
+      // pois os __TOTAL__ carregam o valor real das cidades sem RESUMO
+      const totalFolha = colaboradores.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
       const valorPorColaborador: Record<string, number> = {}
-      for (const c of comStatus) {
+      // Usar todos os colaboradores (incluindo __TOTAL__) para totalPorCidade
+      for (const c of colaboradores) {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
+      }
+      // valorPorColaborador: apenas os colaboradores reais (sem __TOTAL__)
+      for (const c of comStatus) {
         valorPorColaborador[c.nome.trim().toUpperCase()] = c.totalReceber
       }
 
