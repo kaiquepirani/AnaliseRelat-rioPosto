@@ -152,65 +152,102 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
     if (resumoLinha >= 0) break
   }
-  // ── Fallback: sem RESUMO → soma todos "TOTAL A RECEBER" da aba ──────────
-  // Formato das folhas de pagamento (60%) que não têm RESUMO PAGAMENTO
+  // ── Fallback: sem RESUMO PAGAMENTO ──────────────────────────────────────
+  // Folhas de pagamento (60%) têm vários formatos. Tentamos em ordem:
   if (resumoLinha < 0) {
-    // Estratégia: acumula todos os blocos individuais
-    // Cada bloco tem: nome na primeira linha, "TOTAL A RECEBER" com valor na col2 ou col3
     let totalAba = 0
     const nomes: string[] = []
-    let nomeAtual = ''
 
+    // ── Estratégia A: "Valor líquido" em col7 (Porto Ferreira) ──────────
     for (let i = 0; i < dados.length; i++) {
       const row = dados[i] || []
-      const c0 = String(row[0] ?? '').trim()
-      const c1 = String(row[1] ?? '').trim()
-
-      // Detecta nome: linha com texto longo sem números no início, antes de CPF ou SALARIO
-      if (c0.length > 5 && !/^\d/.test(c0) &&
-          !c0.toUpperCase().includes('DECLARO') &&
-          !c0.toUpperCase().includes('PERIODO') &&
-          !c0.toUpperCase().includes('SALARIO') &&
-          !c0.toUpperCase().includes('ANTECIPACAO') &&
-          !c0.toUpperCase().includes('ANTECIPAÇÃO') &&
-          !c0.toUpperCase().includes('TOTAL') &&
-          !c0.toUpperCase().includes('BANCO') &&
-          !c0.toUpperCase().includes('CNPJ') &&
-          !c0.toUpperCase().includes('HORA') &&
-          !c0.toUpperCase().includes('COMO') &&
-          !c0.toUpperCase().includes('TAIS') &&
-          !c0.toUpperCase().includes('AGENCIA') &&
-          !c0.toUpperCase().includes('CONTA') &&
-          !c0.toUpperCase().includes('ETCO') &&
-          typeof row[2] !== 'number') {
-        nomeAtual = c0
+      const c3 = String(row[3] ?? '').toUpperCase()
+      const c0 = String(row[0] ?? '').toUpperCase()
+      if ((c3.includes('VALOR') && (c3.includes('LÍQUIDO') || c3.includes('LIQUIDO'))) ||
+          (c0.includes('VALOR') && (c0.includes('LÍQUIDO') || c0.includes('LIQUIDO')))) {
+        for (let k = row.length - 1; k >= 0; k--) {
+          const v = row[k]
+          if (typeof v === 'number' && v > 0) { totalAba += v; break }
+        }
       }
+    }
 
-      // Detecta "TOTAL A RECEBER" com valor positivo
-      if (c0.toUpperCase().includes('TOTAL A RECEBER')) {
-        const val = row[2]
-        if (typeof val === 'number' && val > 0) {
-          totalAba += val
-          if (nomeAtual && !nomes.includes(nomeAtual)) {
-            nomes.push(nomeAtual)
+    // ── Estratégia B: RESUMO à direita col7=nome, col8=N, col9=valor (Rio Claro, Mococa, Pinhal) ──
+    if (totalAba === 0) {
+      for (let i = 0; i < Math.min(5, dados.length); i++) {
+        const row = dados[i] || []
+        // Detectar linha de cabeçalho do resumo: col7='NOME', col8='Nº DE DIARIAS', col9='VALOR TOTAL'
+        const c7 = String(row[7] ?? '').toUpperCase()
+        const c8 = String(row[8] ?? '').toUpperCase()
+        const c9 = String(row[9] ?? '').toUpperCase()
+        if ((c7.includes('NOME') || c7.includes('RESUMO')) &&
+            (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('N ')) &&
+            (c9.includes('VALOR') || c9.includes('TOTAL'))) {
+          // Resumo encontrado — ler de col7=nome, col9=valor
+          for (let j = i + 1; j < dados.length; j++) {
+            const r = dados[j] || []
+            const nome = String(r[7] ?? '').trim()
+            const val = r[9]
+            if (nome.length > 2 && !nome.toUpperCase().includes('COMPLEMENTO') &&
+                !nome.toUpperCase().includes('ESCOLAR') &&
+                !nome.toUpperCase().includes('ADM') &&
+                typeof val === 'number' && val > 0) {
+              totalAba += val
+              if (!nomes.includes(nome)) nomes.push(nome)
+            }
           }
-          nomeAtual = ''
+          break
+        }
+      }
+    }
+
+    // ── Estratégia C: TOTAL BRUTO na coluna 4 (Diárias Águas) ───────────
+    if (totalAba === 0) {
+      for (let i = 0; i < dados.length; i++) {
+        const row = dados[i] || []
+        const c0 = String(row[0] ?? '').toUpperCase()
+        if (c0.includes('TOTAL BRUTO')) {
+          const v = row[4]
+          if (typeof v === 'number' && v > 0) totalAba += v
+        }
+      }
+    }
+
+    // ── Estratégia D: TOTAL A RECEBER/RECEBIDO em qualquer coluna ────────
+    if (totalAba === 0) {
+      const palavras = ['TOTAL A RECEBER', 'TOTAL A  RECEBER', 'TOTAL A RECEBIDO', 'TOTAL RECEB']
+      const vistos = new Set<number>()
+      for (let i = 0; i < dados.length; i++) {
+        const row = dados[i] || []
+        for (let j = 0; j < row.length; j++) {
+          const cell = String(row[j] ?? '').toUpperCase()
+          if (palavras.some(p => cell.includes(p))) {
+            // Pega o primeiro número positivo na linha após a célula com texto
+            for (let k = j + 1; k < row.length; k++) {
+              const v = row[k]
+              if (typeof v === 'number' && v > 0 && !vistos.has(Math.round(v * 100))) {
+                vistos.add(Math.round(v * 100))
+                totalAba += v
+                break
+              }
+            }
+          }
         }
       }
     }
 
     if (totalAba <= 0) return []
 
-    // Retorna um único registro com o total da cidade (sem breakdown por colaborador)
+    const nNomes = nomes.length
     return [{
-      nome: nomes.length === 1 ? nomes[0] : `${cidade} (${nomes.length} colaboradores)`,
+      nome: nNomes === 1 ? nomes[0] : `${cidade} (${nNomes > 0 ? nNomes : '?'} colaboradores)`,
       cpf: undefined,
       cidade,
       funcao: 'Motorista' as Funcao,
       salarioBase: totalAba,
       totalReceber: totalAba,
       banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: nomes.length > 1 ? `Total acumulado de ${nomes.length} colaboradores` : undefined,
+      observacoes: nNomes > 1 ? `Total acumulado de ${nNomes} colaboradores` : undefined,
       jaExiste: false,
     }]
   }
