@@ -265,11 +265,43 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 }
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // Ubatuba: blocos individuais com totais em col1→col5
-  // Prioridade: TOTAL LIQUIDO (folha) > TOTAL QUINZENA (antecipação)
-  // NUNCA somar os dois — são mutuamente exclusivos
+  // Ubatuba pode ter RESUMO PAGAMENTO (março/abril) ou apenas blocos individuais (fevereiro)
 
+  // 1. Tentar RESUMO PAGAMENTO primeiro (mesmo que parsearAba)
+  for (let i = 0; i < dados.length; i++) {
+    const row = dados[i] || []
+    for (let j = 0; j < row.length; j++) {
+      if (!String(row[j] ?? '').toUpperCase().includes('RESUMO PAGAMENTO')) continue
+      const lista: { nome: string; valor: number }[] = []
+      for (let k = i + 1; k < Math.min(i + 200, dados.length); k++) {
+        const r = dados[k] || []
+        const c0 = r[j], c1 = r[j+1], c2 = r[j+2]
+        const c0s = String(c0 ?? '').trim(), c1s = String(c1 ?? '').trim()
+        if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
+        if (c0s.includes('#REF') || c1s.includes('#REF')) continue
+        if (typeof c0 === 'number' && c0 >= 1 && c0 <= 500 &&
+            c1s.length > 2 && typeof c2 === 'number' && c2 > 0)
+          lista.push({ nome: c1s, valor: c2 })
+        else if (c0s.length > 3 && !c0s.match(/^\d/) &&
+                 !c0s.toUpperCase().includes('RESUMO') &&
+                 typeof c1 === 'number' && c1 > 0)
+          lista.push({ nome: c0s, valor: c1 })
+      }
+      if (lista.length > 0) {
+        return lista.map(({ nome, valor }) => ({
+          nome, cpf: undefined, cidade, funcao: 'Motorista' as Funcao,
+          salarioBase: valor, totalReceber: valor,
+          banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+          observacoes: undefined, jaExiste: false,
+        }))
+      }
+    }
+  }
+
+  // 2. Sem RESUMO: usar totais dos blocos individuais em col1→col5
+  // Prioridade: TOTAL LIQUIDO > TOTAL RECEBIDO NO MES > TOTAL QUINZENAS
   let totalLiquido = 0
+  let totalMensal = 0
   let totalQuinzena = 0
 
   for (const row of dados) {
@@ -278,11 +310,17 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
     if (typeof v !== 'number' || v <= 0) continue
     if (c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO'))
       totalLiquido += v
+    else if (c1.includes('TOTAL RECEBIDO NO MÊS') || c1.includes('TOTAL RECEBIDO NO MES'))
+      totalMensal += v
     else if (c1.includes('TOTAL') && c1.includes('QUINZENA'))
       totalQuinzena += v
   }
 
-  const total = totalLiquido > 0 ? totalLiquido : totalQuinzena
+  // Usar o total mais preciso disponível
+  const total = totalLiquido > 0 ? totalLiquido
+              : totalMensal > 0  ? totalMensal
+              : totalQuinzena
+
   if (total <= 0) return []
 
   return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
