@@ -184,7 +184,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     if ((c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO')) && typeof v === 'number' && v > 0)
       total += v
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -196,7 +196,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       if (typeof v === 'number' && v > 0) total += v
     }
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -209,7 +209,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       if (typeof v === 'number' && v > 0) total += v
     }
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -233,7 +233,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       if (total > 0) break
     }
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -244,7 +244,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     const v = row?.[5]
     if (c1.includes('TOTAL A RECEB') && typeof v === 'number' && v > 0) total += v
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -256,7 +256,7 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     if ((c0.includes('TOTAL A RECEBER') || c0.includes('TOTAL A  RECEBER')) && typeof v === 'number' && v > 0)
       total += v
   }
-  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
@@ -285,7 +285,7 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
   const total = totalLiquido > 0 ? totalLiquido : totalQuinzena
   if (total <= 0) return []
 
-  return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+  return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
     funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
     observacoes: undefined, jaExiste: true }]
