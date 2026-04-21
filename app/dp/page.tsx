@@ -142,57 +142,30 @@ function extrairRealBR(s: string): number {
 
 function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 
-  // ── Detecção automática do padrão da aba ─────────────────────────────────
-  // Cada aba usa um layout diferente. Detectamos pelo conteúdo e aplicamos
-  // a extração específica. Prioridade: RESUMO > padrões específicos > fallback.
-
-  const todaAba = dados.map(r => (r || []).map(v => String(v ?? '')).join(' ')).join('\n').toUpperCase()
-
-  // ── PADRÃO 1: RESUMO PAGAMENTO ───────────────────────────────────────────
-  let resumoLinha = -1, resumoCol = -1
+  // ── 1. RESUMO PAGAMENTO: padrão universal de todas as abas ───────────────
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
     for (let j = 0; j < row.length; j++) {
-      if (String(row[j] ?? '').toUpperCase().includes('RESUMO PAGAMENTO')) {
-        resumoLinha = i; resumoCol = j; break
+      if (!String(row[j] ?? '').toUpperCase().includes('RESUMO PAGAMENTO')) continue
+      const lista: { nome: string; valor: number }[] = []
+      for (let k = i + 1; k < Math.min(i + 200, dados.length); k++) {
+        const r = dados[k] || []
+        const c0 = r[j], c1 = r[j+1], c2 = r[j+2]
+        const c0s = String(c0 ?? '').trim(), c1s = String(c1 ?? '').trim()
+        if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
+        if (c0s.includes('#REF') || c1s.includes('#REF')) continue
+        // Formato A: número + nome + valor
+        if (typeof c0 === 'number' && c0 >= 1 && c0 <= 500 &&
+            c1s.length > 2 && typeof c2 === 'number' && c2 > 0)
+          lista.push({ nome: c1s, valor: c2 })
+        // Formato B: nome + valor direto
+        else if (c0s.length > 3 && !c0s.match(/^\d/) &&
+                 !c0s.toUpperCase().includes('VALE') && !c0s.toUpperCase().includes('RESUMO') &&
+                 typeof c1 === 'number' && c1 > 0)
+          lista.push({ nome: c0s, valor: c1 })
       }
-    }
-    if (resumoLinha >= 0) break
-  }
-
-  if (resumoLinha >= 0) {
-    // Detectar coluna do valor procurando "VALOR" no cabeçalho
-    let colValor = resumoCol + 2
-    for (let i = resumoLinha; i < Math.min(resumoLinha + 4, dados.length); i++) {
-      const row = dados[i] || []
-      for (let m = resumoCol; m < row.length; m++) {
-        if (String(row[m] ?? '').toUpperCase().includes('VALOR')) { colValor = m; break }
-      }
-    }
-    const lista: { nome: string; valor: number }[] = []
-    for (let i = resumoLinha + 1; i < Math.min(resumoLinha + 150, dados.length); i++) {
-      const row = dados[i] || []
-      const c0 = row[resumoCol], c1 = row[resumoCol + 1]
-      const c0s = String(c0 ?? '').trim(), c1s = String(c1 ?? '').trim()
-      const val = row[colValor]
-      if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
-      if (c0s.includes('#REF') || c1s.includes('#REF')) continue
-      // Formato A: índice + nome + valor
-      if (typeof c0 === 'number' && c0 >= 1 && c0 <= 300 &&
-          c1s.length > 2 && typeof val === 'number' && val > 0) {
-        lista.push({ nome: c1s, valor: val })
-      }
-      // Formato B: nome + valor direto
-      else if (c0s.length > 3 && !c0s.match(/^\d/) &&
-               !c0s.toUpperCase().includes('VALE') && !c0s.toUpperCase().includes('RESUMO') &&
-               typeof c1 === 'number' && c1 > 0) {
-        lista.push({ nome: c0s, valor: c1 })
-      }
-    }
-    if (lista.length > 0) {
-      return lista.map(({ nome, valor }) => ({
-        nome, cpf: undefined, cidade,
-        funcao: 'Motorista' as Funcao,
+      if (lista.length > 0) return lista.map(({ nome, valor }) => ({
+        nome, cpf: undefined, cidade, funcao: 'Motorista' as Funcao,
         salarioBase: valor, totalReceber: valor,
         banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
         observacoes: undefined, jaExiste: false,
@@ -200,190 +173,122 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
   }
 
-  // ── PADRÃO 2: TOTAL LIQUIDO em col1 → valor em col5 (Ubatuba) ───────────
-  if (todaAba.includes('TOTAL LIQUIDO') || todaAba.includes('TOTAL LÍQUIDO')) {
-    let total = 0
-    for (const row of dados) {
-      const c1 = String(row?.[1] ?? '').toUpperCase()
-      const c5 = row?.[5]
-      if ((c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO')) &&
-          typeof c5 === 'number' && c5 > 0) {
-        total += c5
-      }
-    }
-    if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-      funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined, jaExiste: true }]
-  }
+  // ── 2. Sem RESUMO: calcular total da aba em cascata ──────────────────────
+  let total = 0
 
-  // ── PADRÃO 3: TOTAL BRUTO em col0 → valor em col4 (Diárias Águas) ───────
-  if (todaAba.includes('TOTAL BRUTO')) {
-    let total = 0
-    for (const row of dados) {
-      if (String(row?.[0] ?? '').toUpperCase().includes('TOTAL BRUTO')) {
-        const v = row?.[4]
-        if (typeof v === 'number' && v > 0) total += v
-      }
-    }
-    if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-      funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined, jaExiste: true }]
+  // 2A: TOTAL LIQUIDO col1→col5 — prioridade máxima (Ubatuba folha)
+  // NUNCA combinar com QUINZENA — se existir LIQUIDO, usar só ele
+  for (const row of dados) {
+    const c1 = String(row?.[1] ?? '').toUpperCase()
+    const v = row?.[5]
+    if ((c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO')) && typeof v === 'number' && v > 0)
+      total += v
   }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
 
-  // ── PADRÃO 4: Valor líquido em col3 → valor em col7 (Porto Ferreira) ────
-  if (todaAba.includes('VALOR LÍQUIDO') || todaAba.includes('VALOR LIQUIDO')) {
-    let total = 0
-    for (const row of dados) {
-      const c3 = String(row?.[3] ?? '').toUpperCase()
-      if (c3.includes('VALOR') && (c3.includes('LÍQUIDO') || c3.includes('LIQUIDO'))) {
-        const v = row?.[7]
-        if (typeof v === 'number' && v > 0) total += v
-      }
+  // 2B: TOTAL BRUTO col0→col4 (Diárias Águas)
+  for (const row of dados) {
+    if (String(row?.[0] ?? '').toUpperCase().includes('TOTAL BRUTO')) {
+      const v = row?.[4]
+      if (typeof v === 'number' && v > 0) total += v
     }
-    if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-      funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined, jaExiste: true }]
   }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
 
-  // ── PADRÃO 5: Resumo lateral col7=nome, col9=valor (Rio Claro, Mococa) ──
+  // 2C: Valor líquido col3→col7 (Porto Ferreira)
+  for (const row of dados) {
+    const c3 = String(row?.[3] ?? '').toUpperCase()
+    if (c3.includes('VALOR') && (c3.includes('LÍQUIDO') || c3.includes('LIQUIDO'))) {
+      const v = row?.[7]
+      if (typeof v === 'number' && v > 0) total += v
+    }
+  }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
+
+  // 2D: Resumo lateral col7=nome, col8=nViagens, col9=valor (Rio Claro, Mococa)
   for (let i = 0; i < Math.min(8, dados.length); i++) {
     const row = dados[i] || []
     const c7 = String(row[7] ?? '').toUpperCase()
     const c8 = String(row[8] ?? '').toUpperCase()
     const c9 = String(row[9] ?? '').toUpperCase()
-    if ((c7.includes('NOME') || c7.includes('RESUMO')) &&
-        (c8.includes('DIARIA') || c8.includes('Nº') || c8.includes('VIAGEN')) &&
-        (c9.includes('VALOR') || c9.includes('TOTAL'))) {
-      let total = 0
+    if (c7.length > 2 && (c8.includes('VIAG') || c8.includes('DIARI') || c8.includes('N ') || c8.includes('Nº')) && c9.includes('VALOR')) {
       for (let j = i + 1; j < dados.length; j++) {
         const r = dados[j] || []
         const nome = String(r[7] ?? '').trim()
         const val = r[9]
         if (nome.length > 2 && typeof val === 'number' && val > 0 &&
-            !nome.toUpperCase().includes('TOTAL') &&
-            !nome.toUpperCase().includes('COMPLEMENTO') &&
-            !nome.toUpperCase().includes('ADM')) {
+            !nome.toUpperCase().includes('TOTAL') && !nome.toUpperCase().includes('COMPLEMENT') &&
+            !nome.toUpperCase().includes('FREELANCER') && !nome.toUpperCase().includes('MOTORISTAS'))
           total += val
-        }
       }
-      if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-        funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-        banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-        observacoes: undefined, jaExiste: true }]
+      if (total > 0) break
     }
   }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
 
-  // ── PADRÃO 6: TOTAL A RECEBIDO em col1 → col5 (Pinhal e similares) ──────
-  if (todaAba.includes('TOTAL A RECEBIDO') || todaAba.includes('TOTAL  RECEBIDO')) {
-    let total = 0
-    for (const row of dados) {
-      const c1 = String(row?.[1] ?? '').toUpperCase()
-      const c5 = row?.[5]
-      if (c1.includes('TOTAL A RECEB') && typeof c5 === 'number' && c5 > 0) {
-        total += c5
-      }
-    }
-    if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-      funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined, jaExiste: true }]
+  // 2E: TOTAL A RECEBIDO col1→col5 — soma 1ª+2ª quinzena (Pinhal)
+  for (const row of dados) {
+    const c1 = String(row?.[1] ?? '').toUpperCase()
+    const v = row?.[5]
+    if (c1.includes('TOTAL A RECEB') && typeof v === 'number' && v > 0) total += v
   }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
 
-  // ── PADRÃO 7: TOTAL A RECEBER em col0 → valor em col2 (maioria das abas) ─
-  {
-    let total = 0
-    for (const row of dados) {
-      const c0 = String(row?.[0] ?? '').toUpperCase()
-      const c2 = row?.[2]
-      if ((c0.includes('TOTAL A RECEBER') || c0.includes('TOTAL A  RECEBER')) &&
-          typeof c2 === 'number' && c2 > 0) {
-        total += c2
-      }
-    }
-    if (total > 0) return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-      funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-      banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-      observacoes: undefined, jaExiste: true }]
+  // 2F: TOTAL A RECEBER col0→col2 (Folha Águas, Escolar, Aguaí, Lindóia)
+  for (const row of dados) {
+    const c0 = String(row?.[0] ?? '').toUpperCase()
+    const v = row?.[2]
+    if ((c0.includes('TOTAL A RECEBER') || c0.includes('TOTAL A  RECEBER')) && typeof v === 'number' && v > 0)
+      total += v
   }
+  if (total > 0) return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
+    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
+    observacoes: undefined, jaExiste: true }]
 
   return []
 }
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // Ubatuba tem blocos individuais por colaborador.
-  // Ignoramos o resumo lateral (cols 7-10) que tem apenas apelidos e às vezes valores parciais.
-  // Usamos sempre os totais dos blocos individuais na col1→col5:
-  //   "TOTAL LIQUIDO" → total mensal (folhas)
-  //   "TOTAL * QUINZENA" → total da quinzena (antecipações)
+  // Ubatuba: blocos individuais com totais em col1→col5
+  // Prioridade: TOTAL LIQUIDO (folha) > TOTAL QUINZENA (antecipação)
+  // NUNCA somar os dois — são mutuamente exclusivos
 
-  const colaboradores: { nome: string; cpf: string | undefined; valor: number }[] = []
-  let cpfAtual: string | undefined
-  let nomeAtual: string | undefined
+  let totalLiquido = 0
+  let totalQuinzena = 0
 
-  for (let i = 0; i < dados.length; i++) {
-    const row = dados[i] || []
-    const c1 = String(row[1] ?? '').trim()
-    const c3 = String(row[3] ?? '').trim()
-    const c5 = row[5]
-
-    // Detectar CPF em col1
-    if (/^\d{3}[.\-]\d{3}[.\-]\d{3}[.\-]\d{2}$/.test(c1)) {
-      cpfAtual = c1
-      if (c3 && c3.toUpperCase() !== 'NOME' && c3.length > 2) {
-        nomeAtual = c3
-      }
-    }
-
-    // Detectar nome em linha de cabeçalho "CPF | NOME"
-    if (c1.toUpperCase() === 'CPF' && c3.toUpperCase() === 'NOME') {
-      // Próxima linha tem os dados
-      const proxRow = dados[i + 1] || []
-      const proxCpf = String(proxRow[1] ?? '').trim()
-      const proxNome = String(proxRow[3] ?? '').trim()
-      if (/^\d{3}[.\-]\d{3}[.\-]\d{3}[.\-]\d{2}$/.test(proxCpf) && proxNome.length > 2) {
-        cpfAtual = proxCpf
-        nomeAtual = proxNome
-      }
-    }
-
-    // Detectar TOTAL em col1 com valor em col5
-    const c1up = c1.toUpperCase()
-    const ehTotal = (
-      c1up.includes('TOTAL LIQUIDO') || c1up.includes('TOTAL LÍQUIDO') ||
-      (c1up.includes('TOTAL') && c1up.includes('QUINZENA'))
-    )
-
-    if (ehTotal && typeof c5 === 'number' && c5 > 0) {
-      colaboradores.push({
-        nome: nomeAtual || `Colaborador ${colaboradores.length + 1}`,
-        cpf: cpfAtual,
-        valor: c5,
-      })
-      cpfAtual = undefined
-      nomeAtual = undefined
-    }
+  for (const row of dados) {
+    const c1 = String(row?.[1] ?? '').toUpperCase().trim()
+    const v = row?.[5]
+    if (typeof v !== 'number' || v <= 0) continue
+    if (c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO'))
+      totalLiquido += v
+    else if (c1.includes('TOTAL') && c1.includes('QUINZENA'))
+      totalQuinzena += v
   }
 
-  if (colaboradores.length === 0) return []
+  const total = totalLiquido > 0 ? totalLiquido : totalQuinzena
+  if (total <= 0) return []
 
-  const total = colaboradores.reduce((s, c) => s + c.valor, 0)
-
-  // Retornar como __TOTAL__ para não recadastrar colaboradores
-  // (eles já foram cadastrados via antecipação de abril)
-  return [{
-    nome: `__TOTAL__${cidade}`,
-    cpf: undefined,
-    cidade,
-    funcao: 'Motorista' as Funcao,
-    salarioBase: total,
-    totalReceber: total,
+  return [{ nome: \`__TOTAL__\${cidade}\`, cpf: undefined, cidade,
+    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
     banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-    observacoes: undefined,
-    jaExiste: true,
-  }]
+    observacoes: undefined, jaExiste: true }]
 }
 
 // ── Extrai total geral da aba TOTAL GERAL DA FOLHA ─────────────────────────
