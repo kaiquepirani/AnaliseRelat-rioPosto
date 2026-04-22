@@ -227,7 +227,12 @@ export default function ResumoDPGeral() {
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b" />
               <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}
-                label={{ position: 'top', fontSize: 10, fontWeight: 600, formatter: (v: number) => v > 0 ? fmtK((evolucaoMensal.find(m => m.label) as any)?.total || v) : '' }}
+                label={{ position: 'top', fontSize: 10, fontWeight: 600, 
+                  formatter: (_v: number, _: any, index: number) => {
+                    const d = evolucaoMensal[index]
+                    return d ? fmtK(d.total) : ''
+                  }
+                }}
               />
             </BarChart>
           </ResponsiveContainer>
@@ -252,14 +257,27 @@ export default function ResumoDPGeral() {
               <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
               <YAxis type="category" dataKey="cidade" tick={{ fontSize: 12, fontWeight: 500 }} width={195} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar
-                dataKey={tipoVis === 'total' ? 'total' : tipoVis}
-                name={tipoVis === 'antecipacao' ? 'Antecipação' : tipoVis === 'folha' ? 'Folha' : 'Total'}
-                radius={[0, 4, 4, 0]}
-                label={{ position: 'right', fontSize: 11, fontWeight: 600, formatter: (v: number) => fmtK(v) }}
-              >
-                {dadosPorCidade.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
-              </Bar>
+              {tipoVis === 'total' ? (
+                <>
+                  <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b" />
+                  <Bar dataKey="folha" name="Folha" stackId="cidade" radius={[0, 4, 4, 0]}
+                    label={{ position: 'right', fontSize: 11, fontWeight: 600, formatter: (_v: number, _: any, index: number) => {
+                      const d = dadosPorCidade[index]
+                      return d ? fmtK(d.total) : ''
+                    }}}
+                  >
+                    {dadosPorCidade.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
+                  </Bar>
+                </>
+              ) : (
+                <Bar
+                  dataKey={tipoVis}
+                  name={tipoVis === 'antecipacao' ? 'Antecipação' : 'Folha'}
+                  radius={[0, 4, 4, 0]}
+                  fill={tipoVis === 'antecipacao' ? '#f59e0b' : '#2D3A6B'}
+                  label={{ position: 'right', fontSize: 11, fontWeight: 600, formatter: (v: number) => fmtK(v) }}
+                />
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
