@@ -227,10 +227,10 @@ export default function ResumoDPGeral() {
               <Tooltip content={<CustomTooltip />} />
               <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b" />
               <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}
-                label={{ position: 'top', fontSize: 10, fontWeight: 600, 
-                  formatter: (_v: number, _: any, index: number) => {
+                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#2D3A6B',
+                  formatter: (_v: number, _name: any, index: number) => {
                     const d = evolucaoMensal[index]
-                    return d ? fmtK(d.total) : ''
+                    return d && d.total > 0 ? fmtK(d.total) : ''
                   }
                 }}
               />
@@ -261,9 +261,9 @@ export default function ResumoDPGeral() {
                 <>
                   <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b" />
                   <Bar dataKey="folha" name="Folha" stackId="cidade" radius={[0, 4, 4, 0]}
-                    label={{ position: 'right', fontSize: 11, fontWeight: 600, formatter: (_v: number, _: any, index: number) => {
+                    label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (_v: number, _: any, index: number) => {
                       const d = dadosPorCidade[index]
-                      return d ? fmtK(d.total) : ''
+                      return d && d.total > 0 ? fmtK(d.total) : ''
                     }}}
                   >
                     {dadosPorCidade.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
@@ -275,7 +275,7 @@ export default function ResumoDPGeral() {
                   name={tipoVis === 'antecipacao' ? 'Antecipação' : 'Folha'}
                   radius={[0, 4, 4, 0]}
                   fill={tipoVis === 'antecipacao' ? '#f59e0b' : '#2D3A6B'}
-                  label={{ position: 'right', fontSize: 11, fontWeight: 600, formatter: (v: number) => fmtK(v) }}
+                  label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (v: number) => v > 0 ? fmtK(v) : '' }}
                 />
               )}
             </BarChart>
