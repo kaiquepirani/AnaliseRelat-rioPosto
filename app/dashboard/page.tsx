@@ -68,7 +68,6 @@ export default function Dashboard() {
     return false
   }
 
-  // Fila de arquivos para processar sequencialmente
   const filaRef = useRef<File[]>([])
   const processandoFilaRef = useRef(false)
 
@@ -193,7 +192,6 @@ export default function Dashboard() {
     naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
   }
 
-  // Badge de controle: só conta postos faltando em meses JÁ ENCERRADOS (anteriores ao mês atual)
   const hoje = new Date()
   const mesAtual = hoje.getMonth()
   const anoAtual = hoje.getFullYear()
@@ -218,7 +216,6 @@ export default function Dashboard() {
       const postos = salvo ? JSON.parse(salvo) : POSTOS_PADRAO
       const esperadoMes: Record<string, number> = { semanal: 4, quinzenal: 2, mensal: 1, esporadico: 0 }
 
-      // Verifica apenas o mês imediatamente anterior ao atual
       const mesVerif = mesAtual === 0 ? 11 : mesAtual - 1
       const anoVerif = mesAtual === 0 ? anoAtual - 1 : anoAtual
 
@@ -227,7 +224,6 @@ export default function Dashboard() {
         if (!parts) return false
         let ano = parseInt(parts[3]); if (ano < 100) ano += ano < 50 ? 2000 : 1900
         const mes = parseInt(parts[2]) - 1
-        // Cobre o mês verificado
         const primeiroDia = new Date(anoVerif, mesVerif, 1)
         const ultimoDia = new Date(anoVerif, mesVerif + 1, 0)
         const dataInicio = new Date(ano, mes, parseInt(parts[1]))
@@ -262,9 +258,6 @@ export default function Dashboard() {
     { id: 'precoatual', label: 'Preço Vigente' },
     { id: 'atipicos',   label: 'Atípicos' },
     { id: 'preco',      label: 'Alerta de Preços' },
-    // { id: 'historico',  label: 'Histórico' },
-    // { id: 'ranking',    label: 'Ranking' },
-    // { id: 'eficiencia', label: 'Eficiência' },
   ]
 
   return (
@@ -281,6 +274,13 @@ export default function Dashboard() {
           </div>
           <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <a href="/dp" style={{
+              padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
+              background: 'rgba(255,255,255,0.15)', color: 'white',
+              border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
+              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6,
+              fontFamily: 'inherit', whiteSpace: 'nowrap',
+            }}>👥 Dep. Pessoal</a>
             <button onClick={() => setAbaAtiva('frota')} style={{
               padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
               background: abaAtiva === 'frota' ? 'white' : 'rgba(255,255,255,0.15)',
@@ -348,7 +348,6 @@ export default function Dashboard() {
             </>
           )}
 
-          {/* Controle de Lançamentos — canto direito da barra de período */}
           <div style={{ marginLeft: 'auto' }}>
             <button
               onClick={() => setAbaAtiva('controle')}
@@ -426,9 +425,6 @@ export default function Dashboard() {
             {abaAtiva === 'preco'      && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
             {abaAtiva === 'controle'   && <ControleExtratos extratos={extratos} />}
             {abaAtiva === 'frota'      && <GerenciarFrota />}
-            {/* {abaAtiva === 'historico'  && <HistoricoComparativo extratos={extratos} />} */}
-            {/* {abaAtiva === 'ranking'    && <RankingConsumo extratos={extratosVisiveis} />} */}
-            {/* {abaAtiva === 'eficiencia' && <EficienciaKM extratos={extratosVisiveis} />} */}
           </>
         )}
       </main>
