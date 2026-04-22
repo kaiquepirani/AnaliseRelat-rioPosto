@@ -265,9 +265,17 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
 }
 
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // Ubatuba pode ter RESUMO PAGAMENTO (março/abril) ou apenas blocos individuais (fevereiro)
+  // UBATUBA: dois formatos possíveis
+  //
+  // FORMATO A (março/abril folha e antecipações): tem RESUMO PAGAMENTO
+  //   → col_resumo=idx | col+1=nome | col+2=valor (já é o valor correto a pagar)
+  //
+  // FORMATO B (fevereiro folha): SEM RESUMO PAGAMENTO
+  //   → cada bloco individual tem: 1ª quinzena + 2ª quinzena (amarela = valor a pagar)
+  //   → FOLHA: somar apenas as linhas de 2ª QUINZENA
+  //   → ANTECIP: somar apenas as linhas de 1ª QUINZENA
 
-  // 1. Tentar RESUMO PAGAMENTO primeiro (mesmo que parsearAba)
+  // 1. Tentar RESUMO PAGAMENTO
   for (let i = 0; i < dados.length; i++) {
     const row = dados[i] || []
     for (let j = 0; j < row.length; j++) {
@@ -279,9 +287,11 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
         const c0s = String(c0 ?? '').trim(), c1s = String(c1 ?? '').trim()
         if (c0s.toUpperCase() === 'TOTAL' || c1s.toUpperCase() === 'TOTAL') break
         if (c0s.includes('#REF') || c1s.includes('#REF')) continue
+        // Formato A: número + nome + valor
         if (typeof c0 === 'number' && c0 >= 1 && c0 <= 500 &&
             c1s.length > 2 && typeof c2 === 'number' && c2 > 0)
           lista.push({ nome: c1s, valor: c2 })
+        // Formato B: nome + valor
         else if (c0s.length > 3 && !c0s.match(/^\d/) &&
                  !c0s.toUpperCase().includes('RESUMO') &&
                  typeof c1 === 'number' && c1 > 0)
@@ -298,29 +308,29 @@ function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] 
     }
   }
 
-  // 2. Sem RESUMO: usar totais dos blocos individuais em col1→col5
-  // Prioridade: TOTAL LIQUIDO > TOTAL RECEBIDO NO MES > TOTAL QUINZENAS
-  let totalLiquido = 0
-  let totalMensal = 0
-  let totalQuinzena = 0
+  // 2. Sem RESUMO: detectar tipo (folha vs antecipação) pelo conteúdo
+  // Folha tem 1ª E 2ª quinzena → pagar = 2ª quinzena
+  // Antecipação tem só 1ª quinzena → pagar = 1ª quinzena
+  let total1q = 0
+  let total2q = 0
 
   for (const row of dados) {
     const c1 = String(row?.[1] ?? '').toUpperCase().trim()
     const v = row?.[5]
     if (typeof v !== 'number' || v <= 0) continue
-    if (c1.includes('TOTAL LIQUIDO') || c1.includes('TOTAL LÍQUIDO'))
-      totalLiquido += v
-    else if (c1.includes('TOTAL RECEBIDO NO MÊS') || c1.includes('TOTAL RECEBIDO NO MES'))
-      totalMensal += v
-    else if (c1.includes('TOTAL') && c1.includes('QUINZENA'))
-      totalQuinzena += v
+
+    const eh2q = c1.includes('2 QUINZENA') || c1.includes('2ª QUINZENA') ||
+                 c1.includes('2º QUINZENA') || c1.includes('RECEBIRO')
+    const eh1q = !eh2q && (c1.includes('1 QUINZENA') || c1.includes('1ª QUINZENA') ||
+                            c1.includes('1º QUINZENA'))
+
+    if (eh2q) total2q += v
+    else if (eh1q) total1q += v
   }
 
-  // Usar o total mais preciso disponível
-  const total = totalLiquido > 0 ? totalLiquido
-              : totalMensal > 0  ? totalMensal
-              : totalQuinzena
-
+  // Se temos 2ª quinzena, é folha → valor a pagar = 2ª quinzena
+  // Se temos só 1ª quinzena, é antecipação → valor a pagar = 1ª quinzena
+  const total = total2q > 0 ? total2q : total1q
   if (total <= 0) return []
 
   return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
