@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { requisicaoAutenticada, tokenDaRequest } from '@/lib/contratos-auth'
+import { requisicaoAutenticada } from '@/lib/contratos-auth'
 
 export const runtime = 'nodejs'
 
@@ -8,7 +8,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!requisicaoAutenticada(req)) {
     return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
   }
-  const sessao = tokenDaRequest(req)
 
   const body = (await req.json()) as HandleUploadBody
 
@@ -21,7 +20,6 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           allowedContentTypes: ['application/pdf'],
           maximumSizeInBytes: 25 * 1024 * 1024,
           addRandomSuffix: true,
-          tokenPayload: JSON.stringify({ sessao }),
         }
       },
       onUploadCompleted: async () => {
