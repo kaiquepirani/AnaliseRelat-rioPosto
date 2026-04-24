@@ -5,10 +5,10 @@ import { requisicaoAutenticada, tokenDaRequest } from '@/lib/contratos-auth'
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const sessao = tokenDaRequest(req)
   if (!requisicaoAutenticada(req)) {
     return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
   }
+  const sessao = tokenDaRequest(req)
 
   const body = (await req.json()) as HandleUploadBody
 
@@ -19,13 +19,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       onBeforeGenerateToken: async () => {
         return {
           allowedContentTypes: ['application/pdf'],
-          maximumSizeInBytes: 25 * 1024 * 1024, // 25 MB
+          maximumSizeInBytes: 25 * 1024 * 1024,
           addRandomSuffix: true,
           tokenPayload: JSON.stringify({ sessao }),
         }
       },
       onUploadCompleted: async () => {
-        // Opcional: webhook pós-upload
+        // nada necessário
       },
     })
     return NextResponse.json(jsonResponse)
