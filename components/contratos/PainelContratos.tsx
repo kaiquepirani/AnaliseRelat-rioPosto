@@ -37,12 +37,12 @@ const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
   return 'VIGENTE'
 }
 
-type FiltroSituacao = 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
+type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [carregando, setCarregando] = useState(true)
-  const [filtroSituacao, setFiltroSituacao] = useState<FiltroSituacao>('todos')
+  const [filtroSituacao, setFiltroSituacao] = useState<FiltroSituacao>('ativos')
   const [filtroCidade, setFiltroCidade] = useState<string>('')
   const [busca, setBusca] = useState('')
   const [formAberto, setFormAberto] = useState(false)
@@ -78,7 +78,11 @@ export default function PainelContratos({ token, onLogout }: Props) {
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
     return contratosComAlerta.filter(c => {
-      if (filtroSituacao !== 'todos' && c.situacao !== filtroSituacao) return false
+      if (filtroSituacao === 'ativos') {
+        if (c.situacao === 'encerrado') return false
+      } else if (filtroSituacao !== 'todos') {
+        if (c.situacao !== filtroSituacao) return false
+      }
       if (filtroCidade && c.cidade !== filtroCidade) return false
       if (termo) {
         const alvo = `${c.cliente} ${c.numero} ${c.tipoServico} ${c.cidade}`.toLowerCase()
@@ -214,10 +218,11 @@ export default function PainelContratos({ token, onLogout }: Props) {
             }}
           />
           <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
-            <option value="todos">Todas as situações</option>
-            <option value="vigente">Vigentes</option>
-            <option value="vencendo">Vencendo</option>
-            <option value="vencido">Vencidos</option>
+            <option value="ativos">Ativos (padrão)</option>
+            <option value="todos">Todos os contratos</option>
+            <option value="vigente">Apenas vigentes</option>
+            <option value="vencendo">Apenas vencendo</option>
+            <option value="vencido">Apenas vencidos</option>
             <option value="em_renovacao">Em renovação</option>
             <option value="encerrado">Encerrados</option>
           </select>
@@ -247,11 +252,16 @@ export default function PainelContratos({ token, onLogout }: Props) {
           <div style={{ display: 'grid', gap: 12 }}>
             {filtrados.map(c => {
               const cor = corSituacao(c.situacao)
+              const qtdAditamentos = Array.isArray(c.aditamentos) ? c.aditamentos.length : 0
+              const ultimoAditamento = qtdAditamentos > 0 && c.aditamentos
+                ? c.aditamentos[c.aditamentos.length - 1]
+                : null
               return (
                 <div key={c.id} style={{
                   background: '#fff', borderRadius: 12, padding: 18,
                   borderLeft: `4px solid ${cor.text}`,
                   boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                  opacity: c.situacao === 'encerrado' ? 0.7 : 1,
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: 220 }}>
@@ -262,6 +272,15 @@ export default function PainelContratos({ token, onLogout }: Props) {
                           padding: '3px 8px', borderRadius: 4,
                         }}>{rotuloSituacao(c.situacao)}</span>
                         {c.numero && <span style={{ fontSize: 12, color: '#64748b' }}>Nº {c.numero}</span>}
+                        {qtdAditamentos > 0 && (
+                          <span style={{
+                            fontSize: 11, fontWeight: 600, color: '#7c3aed',
+                            background: '#f5f3ff', border: '1px solid #ddd6fe',
+                            padding: '2px 8px', borderRadius: 4, letterSpacing: 0.2,
+                          }}>
+                            📎 {qtdAditamentos} {qtdAditamentos === 1 ? 'aditamento' : 'aditamentos'}
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginTop: 6 }}>
                         {c.cliente}
@@ -269,11 +288,18 @@ export default function PainelContratos({ token, onLogout }: Props) {
                       <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
                         {c.tipoServico}{c.cidade ? ` • ${c.cidade}` : ''}
                       </div>
+                      {ultimoAditamento && (
+                        <div style={{ fontSize: 12, color: '#7c3aed', marginTop: 4 }}>
+                          Última renovação: {fmtData(ultimoAditamento.data)}
+                        </div>
+                      )}
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>Vencimento</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>
+                        {c.situacao === 'encerrado' ? 'Encerrado em' : 'Vencimento'}
+                      </div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: cor.text }}>
-                        {fmtData(c.dataVencimento)}
+                        {fmtData(c.situacao === 'encerrado' && c.dataEncerramento ? c.dataEncerramento : c.dataVencimento)}
                       </div>
                       <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
                         {c.situacao === 'vencido'
@@ -325,6 +351,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
         <FormularioContrato
           contrato={emEdicao} token={token}
           onCancelar={fecharForm} onSalvar={salvar}
+          onAtualizarLista={carregar}
         />
       )}
     </div>
