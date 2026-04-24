@@ -255,7 +255,7 @@ function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, 
 // ── Componente principal ───────────────────────────────────────────────────
 
 export default function DepartamentoPessoal() {
-  const [abaAtiva, setAbaAtiva] = useState<Aba>('pagamentos')
+  const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [processando, setProcessando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoImportacao | null>(null)
   const [importando, setImportando] = useState(false)
