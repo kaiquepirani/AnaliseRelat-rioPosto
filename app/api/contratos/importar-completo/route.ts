@@ -5,54 +5,68 @@ import { get } from '@vercel/blob'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const PROMPT = `Você está analisando um PDF que contém um CONTRATO de transporte firmado entre a ETCO Empresa de Turismo e Transporte Coletivo Ltda (CONTRATADA) e um órgão público (CONTRATANTE), e possivelmente também TERMOS DE ADITAMENTO desse mesmo contrato, todos em um único arquivo.
+const PROMPT_CONTRATO = `Extraia APENAS os dados do CONTRATO ORIGINAL deste PDF (ignore termos de aditamento/apostilamento, se houver).
 
-Seu trabalho é extrair TODAS as informações contratuais e organizar cronologicamente. Retorne APENAS um objeto JSON puro, sem markdown, sem crases, sem explicações.
-
-Estrutura esperada:
+Retorne APENAS um objeto JSON puro, sem markdown, sem crases, sem explicações:
 
 {
-  "contemAditamentos": true/false,
-  "contrato": {
-    "numero": "ex: '007/2024'",
-    "contratante": "razão social completa (ex: 'Prefeitura Municipal de Aguaí')",
-    "cnpjContratante": "CNPJ apenas números e pontuação (ex: '46.425.229/0001-79')",
-    "cliente": "o mesmo que contratante, forma curta (ex: 'Prefeitura Municipal de Aguaí')",
-    "cidade": "nome da cidade (ex: 'Aguaí')",
-    "tipoServico": "'Transporte Escolar' | 'Transporte Saúde' | 'Fretamento' | 'Outro'",
-    "processoAdministrativo": "ex: '152/2023'",
-    "modalidadeLicitacao": "ex: 'Pregão Eletrônico nº 043/2023'",
-    "dataInicio": "YYYY-MM-DD",
-    "dataVencimento": "YYYY-MM-DD",
-    "valorTotal": 1700111.70,
-    "objeto": "resumo em até 300 caracteres",
-    "clausulaReajuste": "texto curto da cláusula",
-    "itens": [{"descricao": "Rota 01", "quantidade": 23730, "unidade": "km", "valorUnitario": 7.11, "valorTotal": 168720.30}]
-  },
+  "numero": "número do contrato",
+  "contratante": "razão social completa",
+  "cnpjContratante": "CNPJ com pontuação",
+  "cliente": "mesmo que contratante (forma curta)",
+  "cidade": "nome da cidade",
+  "tipoServico": "'Transporte Escolar' | 'Transporte Saúde' | 'Fretamento' | 'Outro'",
+  "processoAdministrativo": "número do processo",
+  "modalidadeLicitacao": "ex: 'Pregão Eletrônico nº X/YYYY'",
+  "dataInicio": "YYYY-MM-DD",
+  "dataVencimento": "YYYY-MM-DD (12 meses após início, salvo indicação em contrário)",
+  "valorTotal": 1700111.70,
+  "objeto": "resumo em até 250 caracteres",
+  "clausulaReajuste": "texto curto da cláusula",
+  "itens": [{"descricao": "Rota 01", "quantidade": 23730, "unidade": "km", "valorUnitario": 7.11, "valorTotal": 168720.30}]
+}
+
+REGRAS:
+- Foco APENAS na primeira tabela de valores (do contrato nativo), mesmo que haja tabelas de aditamentos depois
+- Se não encontrar algum campo, retorne null
+- Valores decimais (ponto), sem R$, sem milhar
+- Datas YYYY-MM-DD
+- Ignore datas de assinatura digital
+- NÃO invente dados
+
+Responda APENAS o JSON.`
+
+const PROMPT_ADITAMENTOS = `Extraia APENAS os TERMOS DE ADITAMENTO e APOSTILAMENTOS deste PDF (ignore o contrato original se houver).
+
+Cada aditamento ou apostilamento é um evento cronológico que alterou o contrato (reajuste, acréscimo, supressão, prorrogação).
+
+Retorne APENAS um JSON puro (sem markdown), em ordem cronológica (mais antigo primeiro):
+
+{
   "aditamentos": [
     {
       "numero": 1,
       "data": "YYYY-MM-DD",
       "tipo": "'reajuste' | 'acrescimo' | 'supressao' | 'prorrogacao' | 'misto'",
       "novaDataVencimento": "YYYY-MM-DD ou null",
-      "novoValorTotal": 1777314.00,
-      "percentualReajuste": 4.56,
-      "indiceReajuste": "'IPCA' | 'IGP-M' | 'INPC' | null",
-      "observacoes": "resumo em até 300 caracteres",
+      "novoValorTotal": número ou null,
+      "percentualReajuste": número ou null,
+      "indiceReajuste": "IPCA/IGP-M/INPC ou null",
+      "observacoes": "resumo em até 200 caracteres",
       "itensResultantes": [{"descricao": "Rota 01", "quantidade": 23730, "unidade": "km", "valorUnitario": 7.43, "valorTotal": 176313.90}]
     }
   ]
 }
 
 REGRAS:
-1. Aditamentos em ordem cronológica (mais antigo primeiro).
-2. itensResultantes: LISTA COMPLETA de itens vigentes APÓS cada aditamento (inclusive os que não mudaram).
-3. Tipo: "reajuste"=só valores; "acrescimo"=itens novos; "supressao"=removeu; "prorrogacao"=só prazo; "misto"=combinação.
-4. Valores decimais (ponto), sem R$, sem milhar.
-5. Datas YYYY-MM-DD. Ignore assinaturas digitais.
-6. Sem aditamentos: contemAditamentos=false, aditamentos=[].
-7. Campos não identificados: null.
-8. NÃO invente dados.
+- Se o PDF não tem aditamentos/apostilamentos, retorne {"aditamentos": []}
+- itensResultantes: lista COMPLETA de itens após o aditamento (inclui os que não mudaram)
+- Se um aditamento não tem tabela de itens, retorne itensResultantes: []
+- Apostilamentos também contam como aditamentos do tipo "reajuste"
+- Se um aditamento NÃO alterou valores (ex: só prorrogou o prazo), use tipo "prorrogacao"
+- Se o aditamento diz "valores já corrigidos por apostilamento anterior" e mostra uma tabela, use esses valores como itensResultantes e tipo "reajuste"
+- Valores decimais (ponto), sem R$, sem milhar
+- NÃO invente dados
 
 Responda APENAS o JSON.`
 
@@ -95,6 +109,41 @@ const normalizarItens = (lista: any): any[] => {
   })).filter(it => it.descricao)
 }
 
+const chamarIA = async (apiKey: string, base64: string, prompt: string, maxTokens: number): Promise<any> => {
+  const resp = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: maxTokens,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: prompt },
+        ],
+      }],
+    }),
+  })
+  if (!resp.ok) {
+    const detalhe = await resp.text()
+    throw new Error(`IA falhou: ${detalhe.slice(0, 300)}`)
+  }
+  const data = await resp.json()
+  const blocos = Array.isArray(data.content) ? data.content : []
+  const textoBloco = blocos.find((b: any) => b && b.type === 'text')
+  if (!textoBloco || typeof textoBloco.text !== 'string') throw new Error('Resposta vazia da IA')
+  try {
+    return JSON.parse(limparTexto(textoBloco.text))
+  } catch {
+    throw new Error(`IA retornou JSON inválido: ${textoBloco.text.slice(0, 200)}`)
+  }
+}
+
 export async function POST(req: NextRequest) {
   if (!requisicaoAutenticada(req)) {
     return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
@@ -105,11 +154,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: 'ANTHROPIC_API_KEY ausente' }, { status: 500 })
   }
 
-  // Lê body JSON com a URL do Blob (arquivo já foi enviado antes)
   let body: any
-  try {
-    body = await req.json()
-  } catch {
+  try { body = await req.json() } catch {
     return NextResponse.json({ erro: 'Body inválido' }, { status: 400 })
   }
 
@@ -118,7 +164,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: 'blobUrl ausente' }, { status: 400 })
   }
 
-  // Baixa o PDF do Blob
   let base64: string
   try {
     const result = await get(blobUrl, { access: 'private' })
@@ -135,65 +180,26 @@ export async function POST(req: NextRequest) {
     base64 = Buffer.concat(chunks).toString('base64')
   } catch (e: any) {
     return NextResponse.json(
-      { erro: 'Falha ao ler arquivo do armazenamento', detalhe: String(e?.message || e).slice(0, 300) },
+      { erro: 'Falha ao ler arquivo', detalhe: String(e?.message || e).slice(0, 300) },
       { status: 500 },
     )
   }
 
+  // Dispara as 2 chamadas à IA em paralelo (mais rápido)
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 16000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64,
-              },
-            },
-            { type: 'text', text: PROMPT },
-          ],
-        }],
-      }),
-    })
+    const [resContrato, resAditamentos] = await Promise.all([
+      chamarIA(apiKey, base64, PROMPT_CONTRATO, 6000).catch(e => ({ __erro: e.message })),
+      chamarIA(apiKey, base64, PROMPT_ADITAMENTOS, 10000).catch(e => ({ __erro: e.message })),
+    ])
 
-    if (!resp.ok) {
-      const detalhe = await resp.text()
-      return NextResponse.json(
-        { erro: 'Falha ao chamar a IA', detalhe: detalhe.slice(0, 500) },
-        { status: 500 },
-      )
+    if ((resContrato as any)?.__erro && (resAditamentos as any)?.__erro) {
+      return NextResponse.json({
+        erro: 'IA falhou nas duas análises',
+        detalhe: `Contrato: ${(resContrato as any).__erro}. Aditamentos: ${(resAditamentos as any).__erro}`,
+      }, { status: 500 })
     }
 
-    const data = await resp.json()
-    const blocos = Array.isArray(data.content) ? data.content : []
-    const textoBloco = blocos.find((b: any) => b && b.type === 'text')
-    if (!textoBloco || typeof textoBloco.text !== 'string') {
-      return NextResponse.json({ erro: 'Resposta vazia da IA' }, { status: 500 })
-    }
-
-    let parsed: any
-    try {
-      parsed = JSON.parse(limparTexto(textoBloco.text))
-    } catch {
-      return NextResponse.json(
-        { erro: 'IA não retornou JSON válido', textoBruto: textoBloco.text.slice(0, 500) },
-        { status: 500 },
-      )
-    }
-
-    const c = parsed.contrato || null
+    const c = (resContrato as any)?.__erro ? null : resContrato
     const contrato = c ? {
       numero: str(c.numero, 50),
       contratante: str(c.contratante, 200),
@@ -211,7 +217,10 @@ export async function POST(req: NextRequest) {
       itens: normalizarItens(c.itens),
     } : null
 
-    const aditamentosRaw = Array.isArray(parsed.aditamentos) ? parsed.aditamentos : []
+    const aditamentosRaw = (resAditamentos as any)?.__erro
+      ? []
+      : (Array.isArray((resAditamentos as any)?.aditamentos) ? (resAditamentos as any).aditamentos : [])
+
     const aditamentos = aditamentosRaw
       .map((a: any, idx: number) => ({
         numero: Number(a?.numero) || (idx + 1),
@@ -228,13 +237,13 @@ export async function POST(req: NextRequest) {
       .sort((a: any, b: any) => a.data.localeCompare(b.data))
       .map((a: any, idx: number) => ({ ...a, numero: idx + 1 }))
 
-    const contemAditamentos = aditamentos.length > 0
-
     return NextResponse.json({
       ok: true,
-      contemAditamentos,
+      contemAditamentos: aditamentos.length > 0,
       contrato,
       aditamentos,
+      avisoContrato: (resContrato as any)?.__erro || undefined,
+      avisoAditamentos: (resAditamentos as any)?.__erro || undefined,
     })
   } catch (e: any) {
     return NextResponse.json(
