@@ -1,11 +1,15 @@
 'use client'
 import Image from 'next/image'
 import Link from 'next/link'
-import { useEffect, useMemo, useState, useCallback } from 'react'
-import type { Contrato, ContratoComAlerta } from '@/lib/contratos-types'
-import { calcularSituacao } from '@/lib/contratos-types'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import type { Contrato, ContratoComAlerta, ItemContrato } from '@/lib/contratos-types'
+import {
+  calcularSituacao, itensVigentes, valorTotalAtual,
+  rotuloAditamentoAtual, rotuloTipoAditamento, corTipoAditamento,
+} from '@/lib/contratos-types'
 import { abrirContratoPDF } from '@/lib/contratos-download'
 import FormularioContrato from './FormularioContrato'
+import PreviaImportacao from './PreviaImportacao'
 
 interface Props {
   token: string
@@ -13,12 +17,14 @@ interface Props {
 }
 
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+const fmtNum = (n: number) => n.toLocaleString('pt-BR')
 
-const fmtData = (iso: string) => {
+const fmtData = (iso: string | undefined) => {
   if (!iso) return '—'
-  const parts = iso.split('-')
-  if (parts.length !== 3) return iso
-  return `${parts[2]}/${parts[1]}/${parts[0]}`
+  const p = iso.split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
 }
 
 const corSituacao = (s: ContratoComAlerta['situacao']) => {
@@ -47,6 +53,10 @@ export default function PainelContratos({ token, onLogout }: Props) {
   const [busca, setBusca] = useState('')
   const [formAberto, setFormAberto] = useState(false)
   const [emEdicao, setEmEdicao] = useState<Contrato | null>(null)
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  const [importando, setImportando] = useState(false)
+  const [previaDados, setPreviaDados] = useState<any>(null)
+  const inputImportRef = useRef<HTMLInputElement>(null)
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
 
@@ -85,7 +95,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
       }
       if (filtroCidade && c.cidade !== filtroCidade) return false
       if (termo) {
-        const alvo = `${c.cliente} ${c.numero} ${c.tipoServico} ${c.cidade}`.toLowerCase()
+        const alvo = `${c.cliente} ${c.contratante || ''} ${c.numero} ${c.tipoServico} ${c.cidade}`.toLowerCase()
         if (alvo.indexOf(termo) === -1) return false
       }
       return true
@@ -96,13 +106,19 @@ export default function PainelContratos({ token, onLogout }: Props) {
     const vigentes = contratosComAlerta.filter(c => c.situacao === 'vigente' || c.situacao === 'vencendo')
     const vencendo = contratosComAlerta.filter(c => c.situacao === 'vencendo')
     const vencidos = contratosComAlerta.filter(c => c.situacao === 'vencido')
-    const valorMensal = vigentes.reduce((acc, c) => acc + (c.valorMensal || 0), 0)
-    return { vigentes: vigentes.length, vencendo: vencendo.length, vencidos: vencidos.length, valorMensal }
+    const valorTotal = vigentes.reduce((acc, c) => acc + valorTotalAtual(c), 0)
+    return { vigentes: vigentes.length, vencendo: vencendo.length, vencidos: vencidos.length, valorTotal }
   }, [contratosComAlerta])
 
   const abrirNovo = () => { setEmEdicao(null); setFormAberto(true) }
   const abrirEdicao = (c: Contrato) => { setEmEdicao(c); setFormAberto(true) }
   const fecharForm = () => { setFormAberto(false); setEmEdicao(null) }
+
+  const toggleExpandido = (id: string) => {
+    const novo = new Set(expandidos)
+    if (novo.has(id)) novo.delete(id); else novo.add(id)
+    setExpandidos(novo)
+  }
 
   const salvar = async (dados: Partial<Contrato>) => {
     const url = emEdicao ? `/api/contratos/${emEdicao.id}` : '/api/contratos'
@@ -122,9 +138,73 @@ export default function PainelContratos({ token, onLogout }: Props) {
   }
 
   const excluir = async (c: Contrato) => {
-    if (!confirm(`Excluir o contrato de "${c.cliente}"? Esta ação não pode ser desfeita.`)) return
+    if (!confirm(`Excluir o contrato de "${c.cliente}"? Esta ação também removerá todos os aditamentos e PDFs associados. Não pode ser desfeita.`)) return
     const r = await fetch(`/api/contratos/${c.id}`, { method: 'DELETE', headers })
     if (!r.ok) { alert('Erro ao excluir'); return }
+    await carregar()
+  }
+
+  const importarPDF = async (file: File) => {
+    setImportando(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const r = await fetch('/api/contratos/importar-completo', {
+        method: 'POST',
+        headers,
+        body: fd,
+      })
+      const data = await r.json()
+      if (!r.ok) {
+        alert(data.erro || 'Erro ao analisar PDF')
+        return
+      }
+      // salva file pra usar no upload depois
+      setPreviaDados({ ...data, file })
+    } catch {
+      alert('Falha de rede ao importar')
+    } finally {
+      setImportando(false)
+      if (inputImportRef.current) inputImportRef.current.value = ''
+    }
+  }
+
+  const confirmarImportacao = async (dadosFinais: any) => {
+    // 1. Faz upload do PDF principal ao Blob
+    const fdUp = new FormData()
+    fdUp.append('file', previaDados.file)
+    const rUp = await fetch('/api/contratos/upload', {
+      method: 'POST', headers, body: fdUp,
+    })
+    if (!rUp.ok) { alert('Falha ao subir o PDF'); return }
+    const upData = await rUp.json()
+
+    // 2. Cria o contrato completo (com aditamentos)
+    const body = {
+      ...dadosFinais.contrato,
+      arquivoUrl: upData.url,
+      arquivoNome: upData.nome,
+      arquivoSize: upData.tamanho,
+      aditamentos: (dadosFinais.aditamentos || []).map((a: any) => ({
+        ...a,
+        // aditamentos do PDF único compartilham o arquivo principal
+        arquivoUrl: upData.url,
+        arquivoNome: upData.nome,
+        arquivoSize: upData.tamanho,
+      })),
+    }
+
+    const r = await fetch('/api/contratos', {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}))
+      alert(d.erro || 'Erro ao salvar contrato')
+      return
+    }
+    setPreviaDados(null)
     await carregar()
   }
 
@@ -144,53 +224,23 @@ export default function PainelContratos({ token, onLogout }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link href="/" style={{
-            background: 'rgba(255,255,255,0.12)', color: '#fff', padding: '8px 14px',
-            borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 600,
-          }}>← Início</Link>
-          <button onClick={onLogout} style={{
-            background: 'rgba(255,255,255,0.12)', color: '#fff', padding: '8px 14px',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit',
-          }}>Sair</button>
+          <Link href="/" style={headerBtn}>← Início</Link>
+          <button onClick={onLogout} style={{ ...headerBtn, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Sair</button>
         </div>
       </header>
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
         {kpis.vencendo > 0 && (
-          <div style={{
-            marginBottom: 14, padding: '14px 18px', background: '#fffbeb',
-            border: '1px solid #fde68a', borderLeft: '4px solid #f59e0b', borderRadius: 8,
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            <span style={{ fontSize: 24 }}>⚠️</span>
-            <div>
-              <div style={{ fontWeight: 700, color: '#92400e' }}>
-                {kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias
-              </div>
-              <div style={{ fontSize: 13, color: '#a16207', marginTop: 2 }}>
-                Revise e providencie a renovação antes do vencimento.
-              </div>
-            </div>
-          </div>
+          <AlertaTopo cor="#f59e0b" bg="#fffbeb" borda="#fde68a" textoCor="#92400e"
+            emoji="⚠️"
+            titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
+            sub="Revise e providencie a renovação antes do vencimento." />
         )}
-
         {kpis.vencidos > 0 && (
-          <div style={{
-            marginBottom: 14, padding: '14px 18px', background: '#fef2f2',
-            border: '1px solid #fecaca', borderLeft: '4px solid #dc2626', borderRadius: 8,
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            <span style={{ fontSize: 24 }}>🚨</span>
-            <div>
-              <div style={{ fontWeight: 700, color: '#991b1b' }}>
-                {kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}
-              </div>
-              <div style={{ fontSize: 13, color: '#b91c1c', marginTop: 2 }}>
-                Atualize o status (renovado ou encerrado) para manter o painel correto.
-              </div>
-            </div>
-          </div>
+          <AlertaTopo cor="#dc2626" bg="#fef2f2" borda="#fecaca" textoCor="#991b1b"
+            emoji="🚨"
+            titulo={`${kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}`}
+            sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
         )}
 
         <div style={{
@@ -201,7 +251,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
           <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B" />
           <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b" />
           <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626" />
-          <KPI titulo="Valor mensal total" valor={fmtReal(kpis.valorMensal)} cor="#4AABDB" />
+          <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
         </div>
 
         <div style={{
@@ -210,7 +260,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
           marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
         }}>
           <input
-            placeholder="Buscar por cliente, número, serviço..."
+            placeholder="Buscar por contratante, número, cidade..."
             value={busca} onChange={e => setBusca(e.target.value)}
             style={{
               flex: '1 1 220px', padding: '10px 12px', border: '1px solid #e5e7eb',
@@ -219,10 +269,10 @@ export default function PainelContratos({ token, onLogout }: Props) {
           />
           <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
             <option value="ativos">Ativos (padrão)</option>
-            <option value="todos">Todos os contratos</option>
-            <option value="vigente">Apenas vigentes</option>
-            <option value="vencendo">Apenas vencendo</option>
-            <option value="vencido">Apenas vencidos</option>
+            <option value="todos">Todos</option>
+            <option value="vigente">Vigentes</option>
+            <option value="vencendo">Vencendo</option>
+            <option value="vencido">Vencidos</option>
             <option value="em_renovacao">Em renovação</option>
             <option value="encerrado">Encerrados</option>
           </select>
@@ -230,11 +280,22 @@ export default function PainelContratos({ token, onLogout }: Props) {
             <option value="">Todas as cidades</option>
             {cidades.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+
+          <input ref={inputImportRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) importarPDF(f) }} />
+          <button onClick={() => inputImportRef.current?.click()} disabled={importando} style={{
+            padding: '10px 16px',
+            background: importando ? '#94a3b8' : '#7c3aed', color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+            cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+          }}>
+            {importando ? '✨ Analisando PDF...' : '✨ Importar PDF (IA)'}
+          </button>
           <button onClick={abrirNovo} style={{
             padding: '10px 16px', background: '#2D3A6B', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit',
-          }}>+ Novo contrato</button>
+          }}>+ Novo manual</button>
         </div>
 
         {carregando ? (
@@ -245,104 +306,20 @@ export default function PainelContratos({ token, onLogout }: Props) {
             background: '#fff', borderRadius: 12,
           }}>
             {contratos.length === 0
-              ? 'Nenhum contrato cadastrado ainda. Clique em "+ Novo contrato" para começar.'
+              ? 'Nenhum contrato cadastrado. Clique em "✨ Importar PDF (IA)" para começar.'
               : 'Nenhum contrato encontrado com esses filtros.'}
           </div>
         ) : (
-          <div style={{ display: 'grid', gap: 12 }}>
-            {filtrados.map(c => {
-              const cor = corSituacao(c.situacao)
-              const qtdAditamentos = Array.isArray(c.aditamentos) ? c.aditamentos.length : 0
-              const ultimoAditamento = qtdAditamentos > 0 && c.aditamentos
-                ? c.aditamentos[c.aditamentos.length - 1]
-                : null
-              return (
-                <div key={c.id} style={{
-                  background: '#fff', borderRadius: 12, padding: 18,
-                  borderLeft: `4px solid ${cor.text}`,
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-                  opacity: c.situacao === 'encerrado' ? 0.7 : 1,
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 220 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <span style={{
-                          fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
-                          background: cor.bg, color: cor.text, border: `1px solid ${cor.border}`,
-                          padding: '3px 8px', borderRadius: 4,
-                        }}>{rotuloSituacao(c.situacao)}</span>
-                        {c.numero && <span style={{ fontSize: 12, color: '#64748b' }}>Nº {c.numero}</span>}
-                        {qtdAditamentos > 0 && (
-                          <span style={{
-                            fontSize: 11, fontWeight: 600, color: '#7c3aed',
-                            background: '#f5f3ff', border: '1px solid #ddd6fe',
-                            padding: '2px 8px', borderRadius: 4, letterSpacing: 0.2,
-                          }}>
-                            📎 {qtdAditamentos} {qtdAditamentos === 1 ? 'aditamento' : 'aditamentos'}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginTop: 6 }}>
-                        {c.cliente}
-                      </div>
-                      <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
-                        {c.tipoServico}{c.cidade ? ` • ${c.cidade}` : ''}
-                      </div>
-                      {ultimoAditamento && (
-                        <div style={{ fontSize: 12, color: '#7c3aed', marginTop: 4 }}>
-                          Última renovação: {fmtData(ultimoAditamento.data)}
-                        </div>
-                      )}
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 12, color: '#64748b' }}>
-                        {c.situacao === 'encerrado' ? 'Encerrado em' : 'Vencimento'}
-                      </div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: cor.text }}>
-                        {fmtData(c.situacao === 'encerrado' && c.dataEncerramento ? c.dataEncerramento : c.dataVencimento)}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                        {c.situacao === 'vencido'
-                          ? `Venceu há ${Math.abs(c.diasRestantes)} dia${Math.abs(c.diasRestantes) === 1 ? '' : 's'}`
-                          : c.situacao === 'encerrado' || c.situacao === 'em_renovacao'
-                          ? ''
-                          : `Faltam ${c.diasRestantes} dia${c.diasRestantes === 1 ? '' : 's'}`}
-                      </div>
-                    </div>
-                  </div>
-
-                  {(c.valorMensal != null || c.valorTotal != null) && (
-                    <div style={{ display: 'flex', gap: 20, marginTop: 12, fontSize: 13, color: '#475569', flexWrap: 'wrap' }}>
-                      {c.valorMensal != null && <span><strong>Mensal:</strong> {fmtReal(c.valorMensal)}</span>}
-                      {c.valorTotal != null && <span><strong>Total:</strong> {fmtReal(c.valorTotal)}</span>}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                    {c.arquivoUrl && (
-                      <button
-                        type="button"
-                        onClick={() => abrirContratoPDF(c.id, c.arquivoNome, token)}
-                        style={acaoStyle('#4AABDB')}
-                      >
-                        📄 Abrir PDF
-                      </button>
-                    )}
-                    <button onClick={() => abrirEdicao(c)} style={acaoStyle('#2D3A6B')}>Editar</button>
-                    <button onClick={() => excluir(c)} style={{
-                      ...acaoStyle('#dc2626'),
-                      background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
-                    }}>Excluir</button>
-                  </div>
-
-                  {c.objeto && (
-                    <div style={{ marginTop: 12, fontSize: 13, color: '#475569', background: '#f8fafc', padding: 10, borderRadius: 6 }}>
-                      {c.objeto}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          <div style={{ display: 'grid', gap: 14 }}>
+            {filtrados.map(c => (
+              <CardContrato
+                key={c.id} contrato={c} token={token}
+                expandido={expandidos.has(c.id)}
+                onToggle={() => toggleExpandido(c.id)}
+                onEditar={() => abrirEdicao(c)}
+                onExcluir={() => excluir(c)}
+              />
+            ))}
           </div>
         )}
       </main>
@@ -354,9 +331,208 @@ export default function PainelContratos({ token, onLogout }: Props) {
           onAtualizarLista={carregar}
         />
       )}
+
+      {previaDados && (
+        <PreviaImportacao
+          dados={previaDados}
+          onCancelar={() => setPreviaDados(null)}
+          onConfirmar={confirmarImportacao}
+        />
+      )}
     </div>
   )
 }
+
+const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExcluir }: {
+  contrato: ContratoComAlerta
+  token: string
+  expandido: boolean
+  onToggle: () => void
+  onEditar: () => void
+  onExcluir: () => void
+}) => {
+  const cor = corSituacao(contrato.situacao)
+  const qtdAditamentos = Array.isArray(contrato.aditamentos) ? contrato.aditamentos.length : 0
+  const ultimoAd = qtdAditamentos > 0 && contrato.aditamentos
+    ? contrato.aditamentos[contrato.aditamentos.length - 1]
+    : null
+  const itens = itensVigentes(contrato)
+  const totalAtual = valorTotalAtual(contrato)
+
+  return (
+    <div style={{
+      background: '#fff', borderRadius: 12, padding: 18,
+      borderLeft: `4px solid ${cor.text}`,
+      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+      opacity: contrato.situacao === 'encerrado' ? 0.7 : 1,
+    }}>
+      {/* Topo: status + número + aditamento atual + vencimento */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 240 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
+              background: cor.bg, color: cor.text, border: `1px solid ${cor.border}`,
+              padding: '3px 8px', borderRadius: 4,
+            }}>{rotuloSituacao(contrato.situacao)}</span>
+            {contrato.numero && (
+              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Nº {contrato.numero}</span>
+            )}
+            <span style={{
+              fontSize: 11, fontWeight: 600, color: '#7c3aed',
+              background: '#f5f3ff', border: '1px solid #ddd6fe',
+              padding: '2px 8px', borderRadius: 4,
+            }}>📋 {rotuloAditamentoAtual(contrato)}</span>
+          </div>
+
+          <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginTop: 8 }}>
+            {contrato.contratante || contrato.cliente}
+          </div>
+          {contrato.contratante && contrato.contratante !== contrato.cliente && (
+            <div style={{ fontSize: 12, color: '#64748b', marginTop: 1 }}>{contrato.cliente}</div>
+          )}
+          <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+            {contrato.tipoServico}{contrato.cidade ? ` • ${contrato.cidade}` : ''}
+            {contrato.cnpjContratante && <> • CNPJ {contrato.cnpjContratante}</>}
+          </div>
+
+          {ultimoAd && (
+            <div style={{ fontSize: 12, color: corTipoAditamento(ultimoAd.tipo), marginTop: 6, fontWeight: 600 }}>
+              Último: {ultimoAd.numero}º TA ({rotuloTipoAditamento(ultimoAd.tipo)})
+              {ultimoAd.percentualReajuste != null && ` • ${ultimoAd.percentualReajuste.toFixed(2).replace('.', ',')}% ${ultimoAd.indiceReajuste || ''}`}
+              {' '}em {fmtData(ultimoAd.data)}
+            </div>
+          )}
+        </div>
+
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ fontSize: 12, color: '#64748b' }}>
+            {contrato.situacao === 'encerrado' ? 'Encerrado em' : 'Vencimento'}
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: cor.text }}>
+            {fmtData(contrato.situacao === 'encerrado' && contrato.dataEncerramento ? contrato.dataEncerramento : contrato.dataVencimento)}
+          </div>
+          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            {contrato.situacao === 'vencido'
+              ? `Venceu há ${Math.abs(contrato.diasRestantes)} dia${Math.abs(contrato.diasRestantes) === 1 ? '' : 's'}`
+              : contrato.situacao === 'encerrado' || contrato.situacao === 'em_renovacao'
+              ? ''
+              : `Faltam ${contrato.diasRestantes} dia${contrato.diasRestantes === 1 ? '' : 's'}`}
+          </div>
+        </div>
+      </div>
+
+      {/* Objeto */}
+      {contrato.objeto && (
+        <div style={{
+          marginTop: 14, fontSize: 13, color: '#475569',
+          background: '#f8fafc', padding: 10, borderRadius: 6,
+        }}>
+          <strong>Objeto:</strong> {contrato.objeto}
+        </div>
+      )}
+
+      {/* Valor total */}
+      <div style={{
+        marginTop: 12, display: 'flex', alignItems: 'center',
+        justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+        padding: '10px 14px', background: '#f0fdf4',
+        border: '1px solid #bbf7d0', borderRadius: 8,
+      }}>
+        <div>
+          <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, letterSpacing: 0.3 }}>VALOR TOTAL ATUAL</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</div>
+        </div>
+        {contrato.valorTotalOriginal != null && contrato.valorTotalOriginal !== totalAtual && (
+          <div style={{ textAlign: 'right', fontSize: 12, color: '#64748b' }}>
+            <div>Valor original: {fmtReal(contrato.valorTotalOriginal)}</div>
+            <div style={{ color: '#047857', fontWeight: 600 }}>
+              +{fmtReal(totalAtual - contrato.valorTotalOriginal)} ({(((totalAtual / contrato.valorTotalOriginal) - 1) * 100).toFixed(2).replace('.', ',')}%)
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Ações */}
+      <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+        {contrato.arquivoUrl && (
+          <button type="button"
+            onClick={() => abrirContratoPDF(contrato.id, contrato.arquivoNome, token)}
+            style={acaoStyle('#4AABDB')}>
+            📄 Abrir PDF
+          </button>
+        )}
+        <button onClick={onToggle} style={acaoStyle(expandido ? '#64748b' : '#047857')}>
+          {expandido ? '▲ Ocultar itens' : `🔍 Verificar ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`}
+        </button>
+        <button onClick={onEditar} style={acaoStyle('#2D3A6B')}>Editar</button>
+        <button onClick={onExcluir} style={{
+          ...acaoStyle('#dc2626'),
+          background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+        }}>Excluir</button>
+      </div>
+
+      {/* Tabela expansível de itens */}
+      {expandido && itens.length > 0 && (
+        <div style={{ marginTop: 16, background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{
+            padding: '10px 14px', background: '#f1f5f9',
+            fontSize: 12, fontWeight: 700, color: '#334155',
+            borderBottom: '1px solid #e5e7eb',
+          }}>
+            ITENS / ROTAS VIGENTES ({itens.length})
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                  <th style={thStyle}>#</th>
+                  <th style={thStyle}>Descrição</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
+                  <th style={thStyle}>Unidade</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Valor Unit.</th>
+                  <th style={{ ...thStyle, textAlign: 'right' }}>Valor Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {itens.map((it, idx) => (
+                  <tr key={it.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                    <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
+                    <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+                    <td style={tdStyle}>{it.unidade || '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+                  </tr>
+                ))}
+                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: '#047857' }} colSpan={5}>TOTAL GERAL</td>
+                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const AlertaTopo = ({ cor, bg, borda, textoCor, emoji, titulo, sub }: {
+  cor: string; bg: string; borda: string; textoCor: string; emoji: string; titulo: string; sub: string
+}) => (
+  <div style={{
+    marginBottom: 14, padding: '14px 18px', background: bg,
+    border: `1px solid ${borda}`, borderLeft: `4px solid ${cor}`, borderRadius: 8,
+    display: 'flex', alignItems: 'center', gap: 12,
+  }}>
+    <span style={{ fontSize: 24 }}>{emoji}</span>
+    <div>
+      <div style={{ fontWeight: 700, color: textoCor }}>{titulo}</div>
+      <div style={{ fontSize: 13, color: textoCor, opacity: 0.8, marginTop: 2 }}>{sub}</div>
+    </div>
+  </div>
+)
 
 const KPI = ({ titulo, valor, cor }: { titulo: string; valor: string; cor: string }) => (
   <div style={{
@@ -370,6 +546,11 @@ const KPI = ({ titulo, valor, cor }: { titulo: string; valor: string; cor: strin
   </div>
 )
 
+const headerBtn: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.12)', color: '#fff', padding: '8px 14px',
+  borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 600,
+}
+
 const selectStyle: React.CSSProperties = {
   padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
   fontSize: 14, background: '#fff', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
@@ -380,3 +561,11 @@ const acaoStyle = (cor: string): React.CSSProperties => ({
   borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
   textDecoration: 'none', fontFamily: 'inherit',
 })
+
+const thStyle: React.CSSProperties = {
+  padding: '8px 12px', textAlign: 'left', fontWeight: 600,
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '8px 12px', color: '#334155',
+}
