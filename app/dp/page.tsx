@@ -61,19 +61,16 @@ interface ResultadoImportacao {
   totalFolha: number
   totalReal: number
   totalPorCidade: Record<string, number>
-  valorPorColaborador: Record<string, number>  // nome → valor a receber
+  valorPorColaborador: Record<string, number>
   nomeArquivo: string
   tipoFolha: 'antecipacao' | 'folha'
   erros: string[]
   avisos: string[]
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
 function extrairCPF(texto: string): string | undefined {
   const m = texto.match(/\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\.\s]?\d{2}/)
   if (!m) return undefined
-  // Valida que é realmente um CPF (11 dígitos)
   const digits = m[0].replace(/\D/g, '')
   return digits.length === 11 ? m[0].replace(/\s/g, '') : undefined
 }
@@ -121,14 +118,6 @@ function detectarBanco(texto: string): string {
   return ''
 }
 
-// ── Parser principal: usa RESUMO PAGAMENTO como âncora ─────────────────────
-// Lê as colunas da ESQUERDA diretamente (col1=B=rótulo, col3=D=valor)
-// para evitar contaminação do RESUMO PAGAMENTO que fica nas colunas da direita.
-// Prioridade do salário base:
-//   1. Linha com "SALARIO" em col1/col3 → primeiro R$X.XXX na linha
-//   2. Antecipação/0.4 → fallback quando não há texto de salário
-//   3. totalReceber → último fallback
-
 function extrairRealBR(s: string): number {
   const t = (s || '').trim()
   if (!t) return 0
@@ -141,13 +130,6 @@ function extrairRealBR(s: string): number {
 }
 
 function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  // VERSION: 2026-04-23-V4 — SEM RESUMO PAGAMENTO
-  // Regra baseada nos recibos reais:
-  // FOLHA: valor amarelo = 2ª quinzena por colaborador
-  // ANTECIP: valor amarelo = 1ª quinzena ou TOTAL A RECEBER
-  // Porto Ferreira: "Valor líquido" em qualquer coluna
-
-  // 1. Detectar se é folha (tem 2ª quinzena com valor) ou antecipação
   let tem2q = false
   for (const row of dados) {
     if (!row) continue
@@ -164,12 +146,10 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     if (tem2q) break
   }
 
-  // 2. Somar valores corretos
   let total = 0
   for (const row of dados) {
     if (!row) continue
 
-    // Porto Ferreira: "Valor líquido" em qualquer coluna → próximo número
     let foundLiquido = false
     for (let ci = 0; ci < Math.min(8, row.length); ci++) {
       const c = String(row[ci] ?? '').toUpperCase()
@@ -183,12 +163,10 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     }
     if (foundLiquido) continue
 
-    // TOTAL em col0 ou col1
     for (const ci of [0, 1]) {
       const cell = String(row[ci] ?? '').trim().toUpperCase()
       if (!cell.includes('TOTAL') || !cell.includes('RECEB')) continue
 
-      // Buscar primeiro valor positivo após esta coluna
       let v: number | null = null
       for (let k = ci + 1; k < Math.min(ci + 6, row.length); k++) {
         const rv = row[k]
@@ -197,12 +175,10 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
       if (v === null) break
 
       if (tem2q) {
-        // Folha: só 2ª quinzena
         if (/2[ªº°]?\s*QUINZENA/.test(cell) || cell.includes('RECEBIRO')) {
           total += v
         }
       } else {
-        // Antecipação: 1ª quinzena OU TOTAL A RECEBER simples
         if (/1[ªº°]?\s*QUINZENA/.test(cell)) {
           total += v
         } else if (!cell.includes('QUINZENA') &&
@@ -221,13 +197,9 @@ function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
     observacoes: undefined, jaExiste: true }]
 }
 
-// parsearUbatuba usa a mesma lógica — é uma alias
 function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
   return parsearAba(dados, cidade)
 }
-
-
-// ── Extrai total geral da aba TOTAL GERAL DA FOLHA ─────────────────────────
 
 function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, number> } {
   const nomeAba = wb.SheetNames.find((n: string) => n.toUpperCase().includes('TOTAL GERAL'))
@@ -252,8 +224,6 @@ function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, 
   return { total, porCidade }
 }
 
-// ── Componente principal ───────────────────────────────────────────────────
-
 export default function DepartamentoPessoal() {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [processando, setProcessando] = useState(false)
@@ -261,9 +231,7 @@ export default function DepartamentoPessoal() {
   const [importando, setImportando] = useState(false)
   const [erroImport, setErroImport] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
-  const [mesAnoReimportar, setMesAnoReimportar] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const inputReimportarRef = useRef<HTMLInputElement>(null)
 
   const processarExcel = async (arquivo: File, mesAnoOverride?: string) => {
     setProcessando(true)
@@ -277,17 +245,13 @@ export default function DepartamentoPessoal() {
       const avisos: string[] = []
 
       const nomeArq = arquivo.name
-      // Detecta mês e ano pelo nome do arquivo
-      // Formatos aceitos: "03__Folha...", "03_Antecip...", "Folha_Março_2025...", "2025-03..."
       const matchMes = nomeArq.match(/^(\d{2})[_\-]/)
       const matchAno = nomeArq.match(/(20\d{2})/)
       const mes = matchMes ? parseInt(matchMes[1]) : new Date().getMonth() + 1
       const anoArq = matchAno ? parseInt(matchAno[1]) : new Date().getFullYear()
-      // Sanidade: mês entre 1-12, ano entre 2020-2030
       const mesValido = mes >= 1 && mes <= 12 ? mes : new Date().getMonth() + 1
       const anoValido = anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
       const ano = anoValido
-      // Se veio de "Reimportar folha" de um mês específico, usa ele como override
       const mesAno = mesAnoOverride || `${ano}-${String(mesValido).padStart(2, '0')}`
 
       const { total: totalReal, porCidade: totaisReais } = extrairTotalGeral(wb)
@@ -313,10 +277,8 @@ export default function DepartamentoPessoal() {
         colaboradores.push(...colabs)
       }
 
-      // Marca duplicatas
       const res = await fetch('/api/dp/colaboradores')
       const cadastrados: Colaborador[] = await res.json()
-      // Filtrar registros internos __TOTAL__ (gerados pelo fallback de folhas sem RESUMO)
       const semInternos = colaboradores.filter(c => !c.nome.startsWith('__TOTAL__'))
       const comStatus = semInternos.map(c => {
         const existente = cadastrados.find(cad =>
@@ -325,16 +287,12 @@ export default function DepartamentoPessoal() {
         return { ...c, jaExiste: !!existente, colaboradorId: existente?.id }
       })
 
-      // Para o totalPorCidade, usar TODOS os registros (incluindo __TOTAL__)
-      // pois os __TOTAL__ carregam o valor real das cidades sem RESUMO
       const totalFolha = colaboradores.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
       const valorPorColaborador: Record<string, number> = {}
-      // Usar todos os colaboradores (incluindo __TOTAL__) para totalPorCidade
       for (const c of colaboradores) {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
       }
-      // valorPorColaborador: apenas os colaboradores reais (sem __TOTAL__)
       for (const c of comStatus) {
         valorPorColaborador[c.nome.trim().toUpperCase()] = c.totalReceber
       }
@@ -356,7 +314,6 @@ export default function DepartamentoPessoal() {
     const novos = resultado.colaboradores.filter(c => !c.jaExiste)
     const agora = new Date().toISOString()
 
-    // Sempre salva o fechamento — independente de ter colaboradores novos
     const fechamento = {
       id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
       mesAno: resultado.mesAno,
@@ -373,11 +330,8 @@ export default function DepartamentoPessoal() {
       body: JSON.stringify(fechamento),
     })
 
-    // Registra pagamento automaticamente para cada cidade que tem valor
-    // Data do pagamento: dia 20 para antecipação, dia 10 para folha
     const [anoFech, mesFech] = resultado.mesAno.split('-').map(Number)
     const diaPag = resultado.tipoFolha === 'antecipacao' ? 20 : 10
-    // Para folha: o pagamento é no mês seguinte (dia 10)
     const mesPagNum = resultado.tipoFolha === 'folha'
       ? (mesFech === 12 ? 1 : mesFech + 1)
       : mesFech
@@ -404,7 +358,6 @@ export default function DepartamentoPessoal() {
       }
     }
 
-    // Cadastra colaboradores novos (se houver)
     for (const c of novos) {
       const colab: Colaborador = {
         id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -423,13 +376,7 @@ export default function DepartamentoPessoal() {
     setResultado(null)
     setImportando(false)
     setReload(r => r + 1)
-    // Se tem novos, vai para colaboradores; senão fica no resumo
     setAbaAtiva(novos.length > 0 ? 'colaboradores' : 'resumo')
-  }
-
-  const handleReimportar = (mesAno: string) => {
-    setMesAnoReimportar(mesAno)
-    setTimeout(() => inputReimportarRef.current?.click(), 50)
   }
 
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -458,7 +405,6 @@ export default function DepartamentoPessoal() {
             <Link href="/dashboard" style={{ padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'inherit' }}>⛽ Combustível</Link>
             <div className={`upload-area ${processando ? 'upload-processando' : ''}`} onClick={() => !processando && inputRef.current?.click()} style={{ cursor: processando ? 'not-allowed' : 'pointer' }}>
               <input ref={inputRef} type="file" accept=".xlsx,.xls" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { processarExcel(f); e.target.value = '' } }} />
-              <input ref={inputReimportarRef} type="file" accept=".xlsx,.xls" hidden onChange={e => { const f = e.target.files?.[0]; if (f) { processarExcel(f, mesAnoReimportar || undefined); setMesAnoReimportar(null); e.target.value = '' } }} />
               <span className="upload-texto">
                 {processando ? <><span className="spinner" /> Processando...</> : <>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -499,7 +445,7 @@ export default function DepartamentoPessoal() {
                 <button onClick={() => setResultado(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
               </div>
 
-              {/* Confirmação de mês/tipo — editável antes de salvar */}
+              {/* Confirmação de mês/tipo */}
               <div style={{ background: 'var(--sky-light)', border: '1px solid var(--sky-mid)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--navy)' }}>📅 Confirme antes de salvar:</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -610,12 +556,14 @@ export default function DepartamentoPessoal() {
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button onClick={() => setResultado(null)} style={{ padding: '0.55rem 1.1rem', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
-                <button onClick={confirmarImportacao}
+                <button
+                  onClick={confirmarImportacao}
                   disabled={importando}
-                  style={{ padding: '0.55rem 1.25rem', fontSize: 13, fontWeight: 700, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', opacity: importando || resultado.colaboradores.filter(c => !c.jaExiste).length === 0 ? 0.6 : 1 }}>
+                  style={{ padding: '0.55rem 1.25rem', fontSize: 13, fontWeight: 700, background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit', opacity: importando ? 0.6 : 1 }}
+                >
                   {importando ? 'Salvando...' : resultado.colaboradores.filter(c => !c.jaExiste).length > 0
-  ? `Importar ${resultado.colaboradores.filter(c => !c.jaExiste).length} colaboradores`
-  : 'Salvar fechamento'}
+                    ? `Importar ${resultado.colaboradores.filter(c => !c.jaExiste).length} colaboradores`
+                    : 'Salvar fechamento'}
                 </button>
               </div>
             </div>
@@ -623,7 +571,7 @@ export default function DepartamentoPessoal() {
         )}
 
         {abaAtiva === 'resumo'        && <ResumoDPGeral key={reload} />}
-        {abaAtiva === 'pagamentos'    && <ControlePagamentos key={reload} onReimportar={handleReimportar} />}
+        {abaAtiva === 'pagamentos'    && <ControlePagamentos key={reload} />}
         {abaAtiva === 'colaboradores' && <CadastroColaboradores key={reload} />}
       </main>
     </div>
