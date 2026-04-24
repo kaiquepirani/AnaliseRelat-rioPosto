@@ -39,6 +39,13 @@ const MAPA_CIDADES: Record<string, Cidade> = {
   'RIO CLARO':          'Rio Claro',
 }
 
+// Abas que usam Formato B (CPF/CNPJ header → nome col3 → TOTAL col5)
+const ABAS_FORMATO_B = new Set([
+  'ÁGUAS (DIÁRIAS)', 'AGUAS (DIARIAS)', 'DIÁRIAS ÁGUAS',
+  'ITAPIRA (SAÚDE)', 'ITAPIRA (SAUDE)', 'ITAPIRA SAÚDE', 'ITAPIRA SAUDE', 'ITAPIRA', 'SAUDE ITAPIRA',
+  'PINHAL', 'MOCOCA', 'RIO CLARO', 'UBATUBA',
+])
+
 interface ColaboradorImportado {
   nome: string
   cpf?: string
@@ -68,32 +75,7 @@ interface ResultadoImportacao {
   avisos: string[]
 }
 
-function extrairCPF(texto: string): string | undefined {
-  const m = texto.match(/\d{3}[\.\s]?\d{3}[\.\s]?\d{3}[-\.\s]?\d{2}/)
-  if (!m) return undefined
-  const digits = m[0].replace(/\D/g, '')
-  return digits.length === 11 ? m[0].replace(/\s/g, '') : undefined
-}
-
-function extrairFuncao(texto: string): Funcao {
-  const t = texto.toUpperCase()
-  if (t.includes('MONITOR')) return 'Monitor(a)'
-  if (t.includes('MECÂNIC') || t.includes('MECANICO')) return 'Mecânico'
-  if (t.includes('CONTADOR') || t.includes('CONTABIL')) return 'Administrativo'
-  if (t.includes('ADMINISTR')) return 'Administrativo'
-  return 'Motorista'
-}
-
-function extrairObservacoes(texto: string): string {
-  const obs: string[] = []
-  const t = texto.toUpperCase()
-  if (t.includes('GRÁVIDA') || t.includes('GRAVIDA')) obs.push('Grávida')
-  if (t.includes('APOSENTADO')) obs.push('Aposentado')
-  if (t.includes('LICENÇA MATERNIDADE') || t.includes('LICENCA MATERNIDADE')) obs.push('Licença maternidade')
-  if (t.includes('CARGO DE CONFIANÇA') || t.includes('CARGO CONFIANÇA')) obs.push('Cargo de confiança')
-  if (t.includes('ENCARREGADO')) obs.push('Encarregado')
-  return obs.join(', ')
-}
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function normalizarBanco(texto: string): string {
   const t = texto.toUpperCase()
@@ -108,99 +90,136 @@ function normalizarBanco(texto: string): string {
   return texto.trim()
 }
 
-function detectarBanco(texto: string): string {
-  const t = texto.toUpperCase()
-  const bancos = ['NUBANK', 'NU PAGAMENTOS', 'ITAÚ', 'ITAU', 'CAIXA ECONÔMICA', 'CAIXA',
-    'BRADESCO', 'SANTANDER', 'BANCO DO BRASIL', 'INTER', 'SICOOB', 'C6']
-  for (const b of bancos) {
-    if (t.includes(b)) return normalizarBanco(b)
+const NOMES_SKIP = [
+  'RECIBO','PERIODO','DECLARO','CNPJ 0','HORA ','TOTAL','BANCO','DESCONT',
+  'DESCONTOS','COMO M','TAIS ','ANTECIP','ETCO','PENSAO','PENSÃO',
+  'UBATUBA','MORUNGABA','AGUAÍ','AGUAI','AGUAS','ÁGUAS','MOGI','ITAPIRA',
+  'CASA BRANCA','PINHAL','MOCOCA','LINDÓIA','LINDOIA','RIO CLARO','PORTO',
+  'ESPÍRITO SANTO','ESPIRITO SANTO','SEM REG','MECANICO','MECÂNICO',
+  'AUXILIAR','ENCARREGADO','MOTORISTA SAL','CARGO','SALÁRIO R$','SALARIO R$',
+  'RECIBO DE','CPF','CNPJ','INICIO','NÃO ','_','REEMBOLSO',
+]
+
+function ehNomeValido(s: string): boolean {
+  if (!s || s.length < 4) return false
+  if (/^\d/.test(s)) return false
+  const su = s.trim().toUpperCase()
+  for (const k of NOMES_SKIP) {
+    if (su.startsWith(k)) return false
   }
-  return ''
+  return true
 }
 
-function extrairRealBR(s: string): number {
-  const t = (s || '').trim()
-  if (!t) return 0
-  if (t.includes(',')) return parseFloat(t.replace(/\./g, '').replace(',', '.')) || 0
-  if (t.includes('.')) {
-    const partes = t.split('.')
-    return partes[partes.length - 1].length <= 2 ? parseFloat(t) : parseFloat(t.replace(/\./g, ''))
-  }
-  return parseFloat(t) || 0
-}
-
-function parsearAba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  let tem2q = false
-  for (const row of dados) {
-    if (!row) continue
-    for (let ci = 0; ci <= 1; ci++) {
-      const c = String(row[ci] ?? '').toUpperCase()
-      if (/2[ªº°]?\s*QUINZENA/.test(c) || c.includes('RECEBIRO')) {
-        for (const vi of [4, 5]) {
-          const v = row[vi]
-          if (typeof v === 'number' && v > 0) { tem2q = true; break }
-        }
-      }
-      if (tem2q) break
-    }
-    if (tem2q) break
-  }
-
-  let total = 0
-  for (const row of dados) {
-    if (!row) continue
-
-    let foundLiquido = false
-    for (let ci = 0; ci < Math.min(8, row.length); ci++) {
-      const c = String(row[ci] ?? '').toUpperCase()
-      if (c.includes('VALOR') && (c.includes('LÍQUIDO') || c.includes('LIQUIDO'))) {
-        for (let k = ci + 1; k < Math.min(ci + 6, row.length); k++) {
-          const v = row[k]
-          if (typeof v === 'number' && v > 0) { total += v; foundLiquido = true; break }
-        }
-        break
-      }
-    }
-    if (foundLiquido) continue
-
-    for (const ci of [0, 1]) {
-      const cell = String(row[ci] ?? '').trim().toUpperCase()
-      if (!cell.includes('TOTAL') || !cell.includes('RECEB')) continue
-
-      let v: number | null = null
-      for (let k = ci + 1; k < Math.min(ci + 6, row.length); k++) {
-        const rv = row[k]
-        if (typeof rv === 'number' && rv > 0) { v = rv; break }
-      }
-      if (v === null) break
-
-      if (tem2q) {
-        if (/2[ªº°]?\s*QUINZENA/.test(cell) || cell.includes('RECEBIRO')) {
-          total += v
-        }
-      } else {
-        if (/1[ªº°]?\s*QUINZENA/.test(cell)) {
-          total += v
-        } else if (!cell.includes('QUINZENA') &&
-                   (cell.includes('A RECEBER') || cell.includes('BRUTO'))) {
-          total += v
-        }
-      }
-      break
+// ── Formato A: nome em col1 → "TOTAL A RECEBER" col1 → valor col3 ──────────
+// Usado em: Águas Folha, Morungaba, Mogi Mirim, Itapira Escolar, Aguaí, Casa Branca, Lindóia
+function parsearFormatoA(dados: any[][]): { nome: string; valor: number }[] {
+  const result: { nome: string; valor: number }[] = []
+  for (let i = 0; i < dados.length; i++) {
+    const c1 = String(dados[i]?.[1] ?? '').trim().toUpperCase()
+    if (!c1.includes('TOTAL') || !c1.includes('RECEB')) continue
+    const v = dados[i]?.[3]
+    if (typeof v !== 'number' || v <= 0) continue
+    for (let j = i - 1; j >= Math.max(i - 30, 0); j--) {
+      const c = String(dados[j]?.[1] ?? '').trim()
+      if (ehNomeValido(c)) { result.push({ nome: c, valor: v }); break }
     }
   }
-
-  if (total <= 0) return []
-  return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade,
-    funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total,
-    banco: undefined, agencia: undefined, conta: undefined, pix: undefined,
-    observacoes: undefined, jaExiste: true }]
+  return result
 }
 
-function parsearUbatuba(dados: any[][], cidade: Cidade): ColaboradorImportado[] {
-  return parsearAba(dados, cidade)
+// ── Formato B: "CPF"/"CNPJ" col1 → nome col3 → TOTAL col5 (1ª quinzena) ───
+// Usado em: Águas Diárias, Itapira Saúde, Pinhal, Mococa, Rio Claro, Ubatuba
+function parsearFormatoB(dados: any[][]): { nome: string; cpf?: string; banco?: string; valor: number }[] {
+  const result: { nome: string; cpf?: string; banco?: string; valor: number }[] = []
+  let i = 0
+  while (i < dados.length) {
+    const c1 = String(dados[i]?.[1] ?? '').trim().toUpperCase().replace(/:$/, '').trim()
+    if (c1 === 'CPF' || c1 === 'CNPJ') {
+      const nr = dados[i + 1]
+      if (nr) {
+        const cpf = String(nr[1] ?? '').trim()
+        const nome = String(nr[3] ?? '').trim()
+        const banco = String(nr[5] ?? '').trim()
+        if (nome.length > 3) {
+          for (let j = i + 2; j < Math.min(i + 55, dados.length); j++) {
+            const c1j = String(dados[j]?.[1] ?? '').toUpperCase()
+            // Parar se entrar na 2ª quinzena
+            if (c1j.includes('QUINZENA') && /2[ªº°]/.test(c1j)) break
+            if (c1j.includes('TOTAL') && (c1j.includes('RECEB') || c1j.includes('QUINZENA'))) {
+              const v = dados[j]?.[5]
+              if (typeof v === 'number' && v > 0) {
+                result.push({ nome, cpf: cpf.length > 5 ? cpf : undefined, banco: banco || undefined, valor: v })
+                break
+              }
+            }
+          }
+        }
+      }
+    }
+    i++
+  }
+  return result
 }
 
+// ── Porto Ferreira: "Funcionário:" col1 → nome col3 → "Valor líquido" col4 → valor col8
+function parsearPortoFerreira(dados: any[][]): { nome: string; valor: number }[] {
+  const result: { nome: string; valor: number }[] = []
+  for (let i = 0; i < dados.length; i++) {
+    if (String(dados[i]?.[1] ?? '').trim() !== 'Funcionário:') continue
+    const nome = String(dados[i]?.[3] ?? '').trim()
+    for (let j = i + 1; j < Math.min(i + 20, dados.length); j++) {
+      if (String(dados[j]?.[4] ?? '').includes('Valor líquido')) {
+        const v = dados[j]?.[8]
+        if (typeof v === 'number' && v > 0) { result.push({ nome, valor: v }); break }
+      }
+    }
+  }
+  return result
+}
+
+// ── Dispatcher principal ──────────────────────────────────────────────────
+function parsearAba(dados: any[][], cidade: Cidade, chaveAba: string): ColaboradorImportado[] {
+  type Extraido = { nome: string; cpf?: string; banco?: string; valor: number }
+  let extraidos: Extraido[] = []
+
+  if (chaveAba === 'PORTO FERREIRA') {
+    extraidos = parsearPortoFerreira(dados)
+  } else if (ABAS_FORMATO_B.has(chaveAba)) {
+    extraidos = parsearFormatoB(dados)
+  } else {
+    extraidos = parsearFormatoA(dados)
+  }
+
+  // Fallback: se não extraiu nenhum, registrar total da cidade como __TOTAL__
+  if (extraidos.length === 0) {
+    let total = 0
+    for (const row of dados) {
+      const c1 = String(row?.[1] ?? '').toUpperCase()
+      if (c1.includes('TOTAL') && c1.includes('RECEB')) {
+        const v5 = row?.[5]; const v3 = row?.[3]
+        if (typeof v5 === 'number' && v5 > 0) { total += v5; break }
+        if (typeof v3 === 'number' && v3 > 0) { total += v3; break }
+      }
+    }
+    if (total > 0) {
+      return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade, funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total, jaExiste: true }]
+    }
+    return []
+  }
+
+  return extraidos.map(e => ({
+    nome: e.nome.trim(),
+    cpf: e.cpf,
+    cidade,
+    funcao: 'Motorista' as Funcao,
+    salarioBase: e.valor,
+    totalReceber: e.valor,
+    banco: e.banco ? normalizarBanco(e.banco) : undefined,
+    jaExiste: false,
+  }))
+}
+
+// ── Aba TOTAL GERAL DA FOLHA ──────────────────────────────────────────────
 function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, number> } {
   const nomeAba = wb.SheetNames.find((n: string) => n.toUpperCase().includes('TOTAL GERAL'))
   if (!nomeAba) return { total: 0, porCidade: {} }
@@ -224,6 +243,7 @@ function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, 
   return { total, porCidade }
 }
 
+// ── Componente principal ───────────────────────────────────────────────────
 export default function DepartamentoPessoal() {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [processando, setProcessando] = useState(false)
@@ -242,7 +262,6 @@ export default function DepartamentoPessoal() {
       const wb = XLSX.read(buf, { type: 'array', cellDates: true })
       const colaboradores: ColaboradorImportado[] = []
       const erros: string[] = []
-      const avisos: string[] = []
 
       const nomeArq = arquivo.name
       const matchMes = nomeArq.match(/^(\d{2})[_\-]/)
@@ -251,32 +270,27 @@ export default function DepartamentoPessoal() {
       const anoArq = matchAno ? parseInt(matchAno[1]) : new Date().getFullYear()
       const mesValido = mes >= 1 && mes <= 12 ? mes : new Date().getMonth() + 1
       const anoValido = anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
-      const ano = anoValido
-      const mesAno = mesAnoOverride || `${ano}-${String(mesValido).padStart(2, '0')}`
+      const mesAno = mesAnoOverride || `${anoValido}-${String(mesValido).padStart(2, '0')}`
 
-      const { total: totalReal, porCidade: totaisReais } = extrairTotalGeral(wb)
+      const { total: totalReal } = extrairTotalGeral(wb)
 
       for (const nomeAba of wb.SheetNames) {
         const chave = nomeAba.trim().toUpperCase()
         const cidade = MAPA_CIDADES[chave]
         if (!cidade) {
-          if (!['TOTAL GERAL DA FOLHA', 'TOTAL GERAL'].includes(chave)) {
+          if (!chave.includes('TOTAL GERAL') && !chave.includes('MODELO')) {
             erros.push(`Aba "${nomeAba}" não reconhecida`)
           }
           continue
         }
         const ws = wb.Sheets[nomeAba]
         const dadosAba: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
-        const colabs = chave === 'UBATUBA'
-          ? parsearUbatuba(dadosAba, cidade)
-          : parsearAba(dadosAba, cidade)
-
-        if (colabs.length === 0) {
-          erros.push(`Aba "${nomeAba}" — nenhum colaborador extraído`)
-        }
+        const colabs = parsearAba(dadosAba, cidade, chave)
+        if (colabs.length === 0) erros.push(`Aba "${nomeAba}" — nenhum colaborador extraído`)
         colaboradores.push(...colabs)
       }
 
+      // Marcar existentes
       const res = await fetch('/api/dp/colaboradores')
       const cadastrados: Colaborador[] = await res.json()
       const semInternos = colaboradores.filter(c => !c.nome.startsWith('__TOTAL__'))
@@ -290,6 +304,7 @@ export default function DepartamentoPessoal() {
       const totalFolha = colaboradores.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
       const valorPorColaborador: Record<string, number> = {}
+
       for (const c of colaboradores) {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
       }
@@ -300,7 +315,7 @@ export default function DepartamentoPessoal() {
       const nomeUpper = nomeArq.toUpperCase()
       const tipoFolha: 'antecipacao' | 'folha' = nomeUpper.includes('ANTECIP') ? 'antecipacao' : 'folha'
 
-      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, valorPorColaborador, nomeArquivo: nomeArq, tipoFolha, erros, avisos })
+      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, valorPorColaborador, nomeArquivo: nomeArq, tipoFolha, erros, avisos: [] })
     } catch (e: any) {
       setErroImport('Erro ao processar: ' + e.message)
     } finally {
@@ -314,46 +329,36 @@ export default function DepartamentoPessoal() {
     const novos = resultado.colaboradores.filter(c => !c.jaExiste)
     const agora = new Date().toISOString()
 
-    const fechamento = {
-      id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
-      mesAno: resultado.mesAno,
-      tipo: resultado.tipoFolha,
-      arquivo: resultado.nomeArquivo,
-      totalGeral: resultado.totalFolha,
-      totalPorCidade: resultado.totalPorCidade,
-      valorPorColaborador: resultado.valorPorColaborador,
-      totalColaboradores: resultado.colaboradores.length,
-      dataImport: agora,
-    }
     await fetch('/api/dp/fechamentos', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fechamento),
+      body: JSON.stringify({
+        id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
+        mesAno: resultado.mesAno,
+        tipo: resultado.tipoFolha,
+        arquivo: resultado.nomeArquivo,
+        totalGeral: resultado.totalFolha,
+        totalPorCidade: resultado.totalPorCidade,
+        valorPorColaborador: resultado.valorPorColaborador,
+        totalColaboradores: resultado.colaboradores.length,
+        dataImport: agora,
+      }),
     })
 
     const [anoFech, mesFech] = resultado.mesAno.split('-').map(Number)
     const diaPag = resultado.tipoFolha === 'antecipacao' ? 20 : 10
-    const mesPagNum = resultado.tipoFolha === 'folha'
-      ? (mesFech === 12 ? 1 : mesFech + 1)
-      : mesFech
-    const anoPagNum = resultado.tipoFolha === 'folha' && mesFech === 12
-      ? anoFech + 1
-      : anoFech
+    const mesPagNum = resultado.tipoFolha === 'folha' ? (mesFech === 12 ? 1 : mesFech + 1) : mesFech
+    const anoPagNum = resultado.tipoFolha === 'folha' && mesFech === 12 ? anoFech + 1 : anoFech
     const dataPagStr = `${String(diaPag).padStart(2, '0')}/${String(mesPagNum).padStart(2, '0')}/${anoPagNum}`
 
     for (const [cidadeStr, valorCidade] of Object.entries(resultado.totalPorCidade)) {
       if (valorCidade > 0) {
-        const pag = {
-          id: `pag_${resultado.mesAno}_${resultado.tipoFolha}_${cidadeStr.replace(/\s+/g, '_')}`,
-          mesAno: resultado.mesAno,
-          cidade: cidadeStr,
-          tipo: resultado.tipoFolha,
-          valor: valorCidade,
-          dataPagamento: dataPagStr,
-          createdAt: agora,
-        }
         await fetch('/api/dp/pagamentos', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(pag),
+          body: JSON.stringify({
+            id: `pag_${resultado.mesAno}_${resultado.tipoFolha}_${cidadeStr.replace(/\s+/g, '_')}`,
+            mesAno: resultado.mesAno, cidade: cidadeStr, tipo: resultado.tipoFolha,
+            valor: valorCidade, dataPagamento: dataPagStr, createdAt: agora,
+          }),
         })
       }
     }
@@ -364,8 +369,7 @@ export default function DepartamentoPessoal() {
         nome: c.nome, cpf: c.cpf, cidade: c.cidade, funcao: c.funcao,
         salarioBase: c.salarioBase, dataInicio: '', status: 'ativo',
         dadosBancarios: { banco: c.banco || '', agencia: c.agencia, conta: c.conta, pix: c.pix },
-        observacoes: c.observacoes,
-        createdAt: agora, updatedAt: agora,
+        observacoes: c.observacoes, createdAt: agora, updatedAt: agora,
       }
       await fetch('/api/dp/colaboradores', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -380,7 +384,6 @@ export default function DepartamentoPessoal() {
   }
 
   const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-
   const abas: { id: Aba; label: string; icon: string }[] = [
     { id: 'resumo',        label: 'Resumo',                 icon: '📊' },
     { id: 'pagamentos',    label: 'Controle de Pagamentos', icon: '💰' },
@@ -445,7 +448,6 @@ export default function DepartamentoPessoal() {
                 <button onClick={() => setResultado(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
               </div>
 
-              {/* Confirmação de mês/tipo */}
               <div style={{ background: 'var(--sky-light)', border: '1px solid var(--sky-mid)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--navy)' }}>📅 Confirme antes de salvar:</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -485,13 +487,13 @@ export default function DepartamentoPessoal() {
                     <div style={{ background: 'var(--navy)', borderRadius: 10, padding: '0.875rem', textAlign: 'center' }}>
                       <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 600, textTransform: 'uppercase' as const }}>💰 Total a pagar</div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'white' }}>{fmt(resultado.totalFolha)}</div>
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>valor real do desembolso</div>
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>soma dos recibos</div>
                     </div>
                     <div style={{ background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 10, padding: '0.875rem', textAlign: 'center' }}>
                       <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 600, textTransform: 'uppercase' as const }}>📋 Total geral folha</div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-2)' }}>{fmt(resultado.totalReal)}</div>
                       <div style={{ fontSize: 10, color: diff > 0 ? '#d97706' : '#16a34a', marginTop: 2 }}>
-                        {diff > 0 ? `+${fmt(diff)} (${difpct}% acima — itens extras)` : diff < -1 ? `${fmt(diff)} (${difpct}% abaixo)` : '✓ valores idênticos'}
+                        {diff > 0 ? `+${fmt(diff)} (${difpct}% acima)` : diff < -1 ? `${fmt(diff)} (${difpct}% abaixo)` : '✓ valores idênticos'}
                       </div>
                     </div>
                     <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 10, padding: '0.875rem', textAlign: 'center' }}>
@@ -518,7 +520,6 @@ export default function DepartamentoPessoal() {
                   <tr>
                     <th>Nome</th>
                     <th>Cidade</th>
-                    <th>CPF</th>
                     <th>Banco / Conta</th>
                     <th style={{ textAlign: 'right' }}>A receber</th>
                     <th>Status</th>
@@ -532,7 +533,6 @@ export default function DepartamentoPessoal() {
                         {c.observacoes && <div style={{ fontSize: 10, color: 'var(--amber)' }}>📌 {c.observacoes}</div>}
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--text-2)' }}>{c.cidade}</td>
-                      <td style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-3)' }}>{c.cpf || '—'}</td>
                       <td style={{ fontSize: 11 }}>
                         {c.banco && <div>{c.banco}</div>}
                         {c.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.agencia}{c.conta ? ` · C ${c.conta}` : ''}</div>}
