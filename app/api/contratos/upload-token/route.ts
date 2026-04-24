@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { requisicaoAutenticada } from '@/lib/contratos-auth'
 
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  if (!requisicaoAutenticada(req)) {
-    return NextResponse.json({ erro: 'Não autorizado' }, { status: 401 })
-  }
-
   const body = (await req.json()) as HandleUploadBody
 
   try {
