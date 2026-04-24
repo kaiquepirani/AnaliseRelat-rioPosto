@@ -1,6 +1,19 @@
 export type TipoServicoContrato = 'Transporte Escolar' | 'Transporte Saúde' | 'Fretamento' | 'Outro'
 export type StatusContrato = 'vigente' | 'encerrado' | 'em_renovacao'
 
+export interface Aditamento {
+  id: string
+  data: string                    // YYYY-MM-DD — data em que o aditamento foi assinado
+  novaDataVencimento?: string     // YYYY-MM-DD
+  novoValorMensal?: number
+  novoValorTotal?: number
+  observacoes?: string
+  arquivoUrl: string
+  arquivoNome: string
+  arquivoSize: number
+  createdAt: string
+}
+
 export interface Contrato {
   id: string
   numero: string
@@ -17,6 +30,8 @@ export interface Contrato {
   arquivoUrl?: string
   arquivoNome?: string
   arquivoSize?: number
+  aditamentos?: Aditamento[]
+  dataEncerramento?: string
   createdAt: string
   updatedAt: string
 }
