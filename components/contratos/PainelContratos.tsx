@@ -7,11 +7,12 @@ const importarPDF = async (file: File) => {
         return
       }
 
-      // 1. Upload direto do navegador pro Vercel Blob (sem passar pela Function)
+      // 1. Upload direto do navegador pro Blob (sem passar pela Function)
       const { upload } = await import('@vercel/blob/client')
       let blobResult: { url: string; pathname: string }
       try {
-        blobResult = await upload(`contratos/${Date.now()}-${file.name.replace(/[^\w.\-]/g, '_')}`, file, {
+        const nomeLimpo = file.name.replace(/[^\w.\-]/g, '_')
+        blobResult = await upload(`contratos/${Date.now()}-${nomeLimpo}`, file, {
           access: 'public',
           handleUploadUrl: '/api/contratos/upload-token',
           clientPayload: JSON.stringify({ token }),
