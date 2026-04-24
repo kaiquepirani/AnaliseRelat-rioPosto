@@ -225,12 +225,21 @@ export default function ResumoDPGeral() {
               <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 600 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtK} width={60} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b" />
-              <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}
-                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#2D3A6B',
+              <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b"
+                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#374151',
                   formatter: (_v: number, _name: any, index: number) => {
                     const d = evolucaoMensal[index]
-                    return d && d.total > 0 ? fmtK(d.total) : ''
+                    // Mostrar total aqui só se não há folha neste mês
+                    return d && d.total > 0 && (!d.folha || d.folha === 0) ? fmtK(d.total) : ''
+                  }
+                }}
+              />
+              <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}
+                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#374151',
+                  formatter: (_v: number, _name: any, index: number) => {
+                    const d = evolucaoMensal[index]
+                    // Mostrar total aqui só se há folha neste mês
+                    return d && d.folha && d.folha > 0 ? fmtK(d.total) : ''
                   }
                 }}
               />
@@ -259,11 +268,16 @@ export default function ResumoDPGeral() {
               <Tooltip content={<CustomTooltip />} />
               {tipoVis === 'total' ? (
                 <>
-                  <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b" />
+                  <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b"
+                    label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (_v: number, _: any, index: number) => {
+                      const d = dadosPorCidade[index]
+                      return d && d.total > 0 && (!d.folha || d.folha === 0) ? fmtK(d.total) : ''
+                    }}}
+                  />
                   <Bar dataKey="folha" name="Folha" stackId="cidade" radius={[0, 4, 4, 0]}
                     label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (_v: number, _: any, index: number) => {
                       const d = dadosPorCidade[index]
-                      return d && d.total > 0 ? fmtK(d.total) : ''
+                      return d && d.folha && d.folha > 0 ? fmtK(d.total) : ''
                     }}}
                   >
                     {dadosPorCidade.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
