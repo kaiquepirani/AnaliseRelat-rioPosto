@@ -4,25 +4,54 @@ import { requisicaoAutenticada } from '@/lib/contratos-auth'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const LIMITE_BYTES = 10 * 1024 * 1024
+const LIMITE_BYTES = 15 * 1024 * 1024
 
-const PROMPT = `Você está analisando um TERMO DE ADITAMENTO de um contrato entre a ETCO Empresa de Turismo e Transporte Coletivo Ltda e uma prefeitura ou cliente.
+const PROMPT = `Você está analisando um TERMO DE ADITAMENTO de um contrato entre a ETCO Empresa de Turismo e Transporte Coletivo Ltda e um órgão público (geralmente uma prefeitura).
 
-Um termo de aditamento geralmente estende o prazo de vigência, altera o valor do contrato, ou ambos.
+Termos de aditamento geralmente fazem uma ou mais destas coisas:
+- REAJUSTE: aplicam um percentual nos valores unitários (geralmente IPCA)
+- ACRÉSCIMO: adicionam novos itens/rotas
+- SUPRESSÃO: removem itens/rotas
+- PRORROGAÇÃO: estendem o prazo
+- MISTO: combinam várias dessas coisas
 
-Extraia os seguintes dados e retorne APENAS um objeto JSON puro (sem markdown, sem crases, sem explicações):
+Extraia os dados e retorne APENAS um objeto JSON puro (sem markdown, sem crases):
 
 {
-  "data": "data em que o aditamento foi assinado, no formato YYYY-MM-DD",
-  "novaDataVencimento": "nova data de vencimento do contrato após o aditamento, no formato YYYY-MM-DD. Se o aditamento não altera o prazo, retorne null",
-  "novoValorMensal": "novo valor mensal em reais após o aditamento, apenas número (ex.: 48000 ou 48000.50). Se não alterar o valor mensal, retorne null",
-  "novoValorTotal": "novo valor total do contrato após o aditamento, apenas número. Se não alterar, retorne null",
-  "observacoes": "resumo curto do que foi alterado neste aditamento, em no máximo 200 caracteres"
+  "numeroContrato": "número do contrato original ao qual este aditamento se refere (ex: '007/2024')",
+  "data": "YYYY-MM-DD (data de assinatura do aditamento)",
+  "tipo": "'reajuste' | 'acrescimo' | 'supressao' | 'prorrogacao' | 'misto'",
+  "novaDataVencimento": "YYYY-MM-DD (nova data de término) ou null",
+  "novoValorTotal": número (novo valor global do contrato após este aditamento) ou null,
+  "percentualReajuste": número (ex: 4.56) ou null,
+  "indiceReajuste": "'IPCA' | 'IGP-M' | 'INPC'" ou null,
+  "observacoes": "resumo curto do que mudou, em até 300 caracteres",
+  "itensResultantes": [
+    {
+      "descricao": "ex: 'Rota 01'",
+      "quantidade": 23730,
+      "unidade": "km",
+      "valorUnitario": 7.43,
+      "valorTotal": 176313.90
+    }
+  ]
 }
 
-Se algum campo não for identificado com certeza, retorne null. Não invente dados.
-Responda APENAS com o JSON puro.`
+REGRAS CRUCIAIS:
 
+1. itensResultantes deve conter a LISTA COMPLETA DE ITENS VIGENTES APÓS este aditamento — mesmo itens que não mudaram. Ou seja: se havia 10 rotas e o aditamento só aplicou reajuste, retorne as 10 rotas com os valores novos. Se o aditamento adicionou 3 rotas novas a 10 existentes, retorne as 13.
+
+2. Valores sempre em número decimal (ponto), sem R$, sem separador de milhar.
+
+3. Datas sempre YYYY-MM-DD. Ignore datas de assinatura digital, use as do corpo do documento.
+
+4. Se um campo não for identificado, retorne null.
+
+5. NÃO invente dados.
+
+Responda APENAS o JSON.`
+
+const TIPOS_ADITAMENTO = ['reajuste', 'acrescimo', 'supressao', 'prorrogacao', 'misto']
 const REGEX_DATA = /^\d{4}-\d{2}-\d{2}$/
 
 const limparTexto = (s: string): string => {
@@ -31,12 +60,30 @@ const limparTexto = (s: string): string => {
   return t.trim()
 }
 
-const normalizarNumero = (v: any): number | null => {
+const num = (v: any): number | null => {
   if (v == null) return null
-  const s = String(v).replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
+  if (typeof v === 'number') return isNaN(v) ? null : v
+  const s = String(v).replace(/\s/g, '').replace(/R\$/gi, '').replace(/\./g, '').replace(',', '.')
   const n = Number(s)
-  if (isNaN(n) || n <= 0) return null
-  return n
+  return isNaN(n) ? null : n
+}
+
+const str = (v: any, limite = 500): string | null => {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  if (!t) return null
+  return t.slice(0, limite)
+}
+
+const normalizarItens = (lista: any): any[] => {
+  if (!Array.isArray(lista)) return []
+  return lista.map(it => ({
+    descricao: str(it?.descricao, 200) || 'Item',
+    quantidade: num(it?.quantidade) || undefined,
+    unidade: str(it?.unidade, 30) || undefined,
+    valorUnitario: num(it?.valorUnitario) || undefined,
+    valorTotal: num(it?.valorTotal) || undefined,
+  })).filter(it => it.descricao)
 }
 
 export async function POST(req: NextRequest) {
@@ -51,9 +98,7 @@ export async function POST(req: NextRequest) {
 
   const formData = await req.formData()
   const file = formData.get('file') as File | null
-  if (!file) {
-    return NextResponse.json({ erro: 'Arquivo não enviado' }, { status: 400 })
-  }
+  if (!file) return NextResponse.json({ erro: 'Arquivo não enviado' }, { status: 400 })
   if (file.size > LIMITE_BYTES) {
     return NextResponse.json({ erro: 'Arquivo muito grande' }, { status: 413 })
   }
@@ -71,7 +116,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1024,
+        max_tokens: 6000,
         messages: [{
           role: 'user',
           content: [
@@ -112,11 +157,15 @@ export async function POST(req: NextRequest) {
     }
 
     const dados = {
+      numeroContrato: str(parsed.numeroContrato, 50),
       data: typeof parsed.data === 'string' && REGEX_DATA.test(parsed.data) ? parsed.data : null,
+      tipo: TIPOS_ADITAMENTO.indexOf(parsed.tipo) !== -1 ? parsed.tipo : 'misto',
       novaDataVencimento: typeof parsed.novaDataVencimento === 'string' && REGEX_DATA.test(parsed.novaDataVencimento) ? parsed.novaDataVencimento : null,
-      novoValorMensal: normalizarNumero(parsed.novoValorMensal),
-      novoValorTotal: normalizarNumero(parsed.novoValorTotal),
-      observacoes: typeof parsed.observacoes === 'string' && parsed.observacoes.trim() ? parsed.observacoes.trim().slice(0, 500) : null,
+      novoValorTotal: num(parsed.novoValorTotal),
+      percentualReajuste: num(parsed.percentualReajuste),
+      indiceReajuste: str(parsed.indiceReajuste, 20),
+      observacoes: str(parsed.observacoes, 300),
+      itensResultantes: normalizarItens(parsed.itensResultantes),
     }
 
     return NextResponse.json({ ok: true, dados })
