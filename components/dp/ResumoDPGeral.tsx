@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtK = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(1)}k` : fmt(v)
@@ -31,6 +31,79 @@ function labelMesCurto(ma: string) {
 const CORES = ['#2D3A6B','#4AABDB','#10b981','#f59e0b','#ef4444','#8b5cf6',
                '#ec4899','#06b6d4','#84cc16','#f97316','#14b8a6','#6366f1','#a855f7','#fb7185']
 
+// ─── Label customizado: total acima da barra vertical ───────────────────────
+// Usado na barra de FOLHA (topo do stack). Só renderiza quando folha > 0.
+// Usado na barra de ANTECIPAÇÃO quando não há folha naquele mês.
+function makeLabelMensal(dados: Array<{ folha: number; total: number }>, isAntecipacao: boolean) {
+  const LabelMensal = (props: any) => {
+    const { x, y, width, index } = props
+    const d = dados[index]
+    if (!d || d.total <= 0) return null
+    if (isAntecipacao && d.folha > 0) return null   // folha vai mostrar
+    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null  // antecipação vai mostrar
+    return (
+      <text
+        x={x + width / 2}
+        y={y - 5}
+        textAnchor="middle"
+        fontSize={10}
+        fontWeight={700}
+        fill="#374151"
+      >
+        {fmtK(d.total)}
+      </text>
+    )
+  }
+  LabelMensal.displayName = 'LabelMensal'
+  return LabelMensal
+}
+
+// ─── Label customizado: total à direita da barra horizontal ─────────────────
+// Usado na barra da direita do stack (folha ou antecipação, dependendo do caso).
+function makeLabelCidade(dados: Array<{ folha: number; antecipacao: number; total: number }>, isAntecipacao: boolean) {
+  const LabelCidade = (props: any) => {
+    const { x, y, width, height, index } = props
+    const d = dados[index]
+    if (!d || d.total <= 0) return null
+    if (isAntecipacao && d.folha > 0) return null   // folha vai mostrar
+    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null  // antecipação vai mostrar
+    return (
+      <text
+        x={x + width + 6}
+        y={y + height / 2 + 4}
+        textAnchor="start"
+        fontSize={11}
+        fontWeight={700}
+        fill="#374151"
+      >
+        {fmtK(d.total)}
+      </text>
+    )
+  }
+  LabelCidade.displayName = 'LabelCidade'
+  return LabelCidade
+}
+
+// ─── Label para barra única (modo antecipação ou folha isolado) ──────────────
+const LabelSimples = (props: any) => {
+  const { x, y, width, height, value, layout } = props
+  if (!value || value <= 0) return null
+  if (layout === 'vertical') {
+    // barra horizontal
+    return (
+      <text x={x + width + 6} y={y + height / 2 + 4} textAnchor="start" fontSize={11} fontWeight={700} fill="#374151">
+        {fmtK(value)}
+      </text>
+    )
+  }
+  // barra vertical
+  return (
+    <text x={x + width / 2} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={700} fill="#374151">
+      {fmtK(value)}
+    </text>
+  )
+}
+
 export default function ResumoDPGeral() {
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([])
   const [carregando, setCarregando] = useState(true)
@@ -57,12 +130,10 @@ export default function ResumoDPGeral() {
     if (fechamentos.find(f => f.id === id)) setMesSel('todos')
   }
 
-  // Meses únicos disponíveis
   const mesesDisponiveis = useMemo(() =>
     Array.from(new Set(fechamentos.map(f => f.mesAno))).sort().reverse(),
   [fechamentos])
 
-  // Fechamentos do mês selecionado
   const fechsFiltrados = useMemo(() =>
     mesSel === 'todos' ? fechamentos : fechamentos.filter(f => f.mesAno === mesSel),
   [fechamentos, mesSel])
@@ -70,12 +141,10 @@ export default function ResumoDPGeral() {
   const fechAntecip = fechsFiltrados.find(f => f.tipo === 'antecipacao')
   const fechFolha   = fechsFiltrados.find(f => f.tipo === 'folha')
 
-  // Totais do mês/seleção
   const totalAntecipacao = fechAntecip?.totalGeral ?? 0
   const totalFolha       = fechFolha?.totalGeral ?? 0
   const totalGeral       = totalAntecipacao + totalFolha
 
-  // Dados por cidade (do mês selecionado ou todos somados por mês)
   const dadosPorCidade = useMemo(() => {
     const mapa: Record<string, { antecipacao: number; folha: number }> = {}
     for (const f of fechsFiltrados) {
@@ -91,7 +160,6 @@ export default function ResumoDPGeral() {
       .sort((a, b) => b.total - a.total)
   }, [fechsFiltrados])
 
-  // Gráfico evolução mensal — um ponto por mês (antecipação + folha)
   const evolucaoMensal = useMemo(() => {
     return mesesDisponiveis.slice().reverse().map(mes => {
       const fsMes = fechamentos.filter(f => f.mesAno === mes)
@@ -101,8 +169,11 @@ export default function ResumoDPGeral() {
     })
   }, [fechamentos, mesesDisponiveis])
 
-  const valorCidade = (d: any) =>
-    tipoVis === 'antecipacao' ? d.antecipacao : tipoVis === 'folha' ? d.folha : d.total
+  // Memoizar os componentes de label para evitar recriação desnecessária
+  const LabelMensalAntecip = useMemo(() => makeLabelMensal(evolucaoMensal, true), [evolucaoMensal])
+  const LabelMensalFolha   = useMemo(() => makeLabelMensal(evolucaoMensal, false), [evolucaoMensal])
+  const LabelCidadeAntecip = useMemo(() => makeLabelCidade(dadosPorCidade, true), [dadosPorCidade])
+  const LabelCidadeFolha   = useMemo(() => makeLabelCidade(dadosPorCidade, false), [dadosPorCidade])
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null
@@ -148,7 +219,6 @@ export default function ResumoDPGeral() {
           ))}
         </select>
 
-        {/* Botões remover fechamento do mês */}
         {mesSel !== 'todos' && (
           <div style={{ display: 'flex', gap: 6 }}>
             {fechAntecip && (
@@ -164,7 +234,6 @@ export default function ResumoDPGeral() {
           </div>
         )}
 
-        {/* Toggle tipo */}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
           {(['antecipacao', 'folha', 'total'] as const).map(t => (
             <button key={t} onClick={() => setTipoVis(t)} style={{
@@ -209,40 +278,32 @@ export default function ResumoDPGeral() {
         </div>
       </div>
 
-      {/* ── Gráfico de evolução mensal (sempre visível quando tem mais de 1 mês) ── */}
+      {/* ── Gráfico de evolução mensal ── */}
       {evolucaoMensal.length > 1 && (
         <div className="grafico-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
             <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal</div>
             <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Clique em um mês para filtrar</div>
           </div>
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={evolucaoMensal} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="20%"
+          <ResponsiveContainer width="100%" height={240}>
+            <BarChart
+              data={evolucaoMensal}
+              margin={{ top: 28, right: 20, left: 10, bottom: 5 }}
+              barCategoryGap="20%"
               onClick={d => d?.activeLabel && setMesSel(
                 evolucaoMensal.find(m => m.label === d.activeLabel)?.mes || 'todos'
-              )}>
+              )}
+            >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fontWeight: 600 }} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={fmtK} width={60} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b"
-                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#374151',
-                  formatter: (_v: number, _name: any, index: number) => {
-                    const d = evolucaoMensal[index]
-                    // Mostrar total aqui só se não há folha neste mês
-                    return d && d.total > 0 && (!d.folha || d.folha === 0) ? fmtK(d.total) : ''
-                  }
-                }}
-              />
-              <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}
-                label={{ position: 'top', fontSize: 10, fontWeight: 700, fill: '#374151',
-                  formatter: (_v: number, _name: any, index: number) => {
-                    const d = evolucaoMensal[index]
-                    // Mostrar total aqui só se há folha neste mês
-                    return d && d.folha && d.folha > 0 ? fmtK(d.total) : ''
-                  }
-                }}
-              />
+              <Bar dataKey="antecipacao" name="Antecipação" stackId="a" fill="#f59e0b">
+                <LabelList content={<LabelMensalAntecip />} />
+              </Bar>
+              <Bar dataKey="folha" name="Folha" stackId="a" fill="#2D3A6B" radius={[3, 3, 0, 0]}>
+                <LabelList content={<LabelMensalFolha />} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
           <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
@@ -261,26 +322,19 @@ export default function ResumoDPGeral() {
             </div>
           </div>
           <ResponsiveContainer width="100%" height={Math.max(280, dadosPorCidade.length * 46)}>
-            <BarChart data={dadosPorCidade} layout="vertical" margin={{ top: 0, right: 90, left: 8, bottom: 0 }} barSize={26}>
+            <BarChart data={dadosPorCidade} layout="vertical" margin={{ top: 0, right: 100, left: 8, bottom: 0 }} barSize={26}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" horizontal={false} />
               <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={fmtK} />
               <YAxis type="category" dataKey="cidade" tick={{ fontSize: 12, fontWeight: 500 }} width={195} />
               <Tooltip content={<CustomTooltip />} />
               {tipoVis === 'total' ? (
                 <>
-                  <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b"
-                    label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (_v: number, _: any, index: number) => {
-                      const d = dadosPorCidade[index]
-                      return d && d.total > 0 && (!d.folha || d.folha === 0) ? fmtK(d.total) : ''
-                    }}}
-                  />
-                  <Bar dataKey="folha" name="Folha" stackId="cidade" radius={[0, 4, 4, 0]}
-                    label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (_v: number, _: any, index: number) => {
-                      const d = dadosPorCidade[index]
-                      return d && d.folha && d.folha > 0 ? fmtK(d.total) : ''
-                    }}}
-                  >
+                  <Bar dataKey="antecipacao" name="Antecipação" stackId="cidade" fill="#f59e0b">
+                    <LabelList content={<LabelCidadeAntecip />} />
+                  </Bar>
+                  <Bar dataKey="folha" name="Folha" stackId="cidade" radius={[0, 4, 4, 0]}>
                     {dadosPorCidade.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
+                    <LabelList content={<LabelCidadeFolha />} />
                   </Bar>
                 </>
               ) : (
@@ -289,8 +343,9 @@ export default function ResumoDPGeral() {
                   name={tipoVis === 'antecipacao' ? 'Antecipação' : 'Folha'}
                   radius={[0, 4, 4, 0]}
                   fill={tipoVis === 'antecipacao' ? '#f59e0b' : '#2D3A6B'}
-                  label={{ position: 'right', fontSize: 11, fontWeight: 700, fill: '#374151', formatter: (v: number) => v > 0 ? fmtK(v) : '' }}
-                />
+                >
+                  <LabelList content={<LabelSimples />} />
+                </Bar>
               )}
             </BarChart>
           </ResponsiveContainer>
