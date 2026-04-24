@@ -54,7 +54,7 @@ export default function Home() {
           align-items: center;
           gap: 3rem;
           width: 100%;
-          max-width: 860px;
+          max-width: 1180px;
         }
 
         /* Cabeçalho */
@@ -118,7 +118,7 @@ export default function Home() {
         /* Cards dos sistemas */
         .hub-cards {
           display: grid;
-          grid-template-columns: 1fr 1fr;
+          grid-template-columns: repeat(3, 1fr);
           gap: 1.25rem;
           width: 100%;
         }
@@ -153,6 +153,10 @@ export default function Home() {
 
         .hub-card-dp::before {
           background: linear-gradient(135deg, rgba(16,140,100,0.4) 0%, rgba(52,211,153,0.12) 100%);
+        }
+
+        .hub-card-contratos::before {
+          background: linear-gradient(135deg, rgba(109,40,217,0.5) 0%, rgba(167,139,250,0.12) 100%);
         }
 
         .hub-card-em-breve::before {
@@ -206,6 +210,11 @@ export default function Home() {
           border: 1px solid rgba(52,211,153,0.2);
         }
 
+        .hub-card-contratos .hub-card-icon {
+          background: rgba(167,139,250,0.15);
+          border: 1px solid rgba(167,139,250,0.25);
+        }
+
         .hub-card-em-breve .hub-card-icon {
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.08);
@@ -230,6 +239,12 @@ export default function Home() {
           background: rgba(52,211,153,0.15);
           color: #34d399;
           border: 1px solid rgba(52,211,153,0.25);
+        }
+
+        .hub-card-contratos .hub-card-badge {
+          background: rgba(167,139,250,0.18);
+          color: #c4b5fd;
+          border: 1px solid rgba(167,139,250,0.3);
         }
 
         .hub-card-em-breve .hub-card-badge {
@@ -316,6 +331,10 @@ export default function Home() {
           letter-spacing: 0.04em;
         }
 
+        @media (max-width: 980px) {
+          .hub-cards { grid-template-columns: 1fr 1fr; }
+        }
+
         @media (max-width: 640px) {
           .hub-cards { grid-template-columns: 1fr; }
           .hub-logo { height: 48px; }
@@ -388,6 +407,33 @@ export default function Home() {
                   <span className="hub-card-feature">Folha</span>
                   <span className="hub-card-feature">Férias</span>
                   <span className="hub-card-feature">Ponto</span>
+                </div>
+                <div className="hub-card-arrow">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            {/* Contratos */}
+            <Link href="/contratos" className="hub-card hub-card-contratos">
+              <div className="hub-card-top">
+                <div className="hub-card-icon">📋</div>
+                <span className="hub-card-badge">🔒 Restrito</span>
+              </div>
+              <div className="hub-card-body">
+                <div className="hub-card-title">Gestão de Contratos</div>
+                <div className="hub-card-desc">
+                  Acompanhamento de contratos vigentes com prefeituras, alertas de vencimento e acesso rápido aos documentos em PDF.
+                </div>
+              </div>
+              <div className="hub-card-footer">
+                <div className="hub-card-features">
+                  <span className="hub-card-feature">Prefeituras</span>
+                  <span className="hub-card-feature">Vencimentos</span>
+                  <span className="hub-card-feature">PDFs</span>
+                  <span className="hub-card-feature">Alertas</span>
                 </div>
                 <div className="hub-card-arrow">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
