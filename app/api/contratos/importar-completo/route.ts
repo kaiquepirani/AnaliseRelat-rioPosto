@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requisicaoAutenticada } from '@/lib/contratos-auth'
+import { get } from '@vercel/blob'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
-
-const LIMITE_BYTES = 15 * 1024 * 1024
+export const maxDuration = 60
 
 const PROMPT = `Você está analisando um PDF que contém um CONTRATO de transporte firmado entre a ETCO Empresa de Turismo e Transporte Coletivo Ltda (CONTRATADA) e um órgão público (CONTRATANTE), e possivelmente também TERMOS DE ADITAMENTO desse mesmo contrato, todos em um único arquivo.
 
@@ -23,68 +22,39 @@ Estrutura esperada:
     "tipoServico": "'Transporte Escolar' | 'Transporte Saúde' | 'Fretamento' | 'Outro'",
     "processoAdministrativo": "ex: '152/2023'",
     "modalidadeLicitacao": "ex: 'Pregão Eletrônico nº 043/2023'",
-    "dataInicio": "YYYY-MM-DD (data de assinatura do contrato original)",
-    "dataVencimento": "YYYY-MM-DD (12 meses após assinatura, salvo indicação em contrário)",
+    "dataInicio": "YYYY-MM-DD",
+    "dataVencimento": "YYYY-MM-DD",
     "valorTotal": 1700111.70,
-    "objeto": "resumo do objeto em até 300 caracteres",
-    "clausulaReajuste": "texto curto da cláusula de reajuste (ex: 'Reajuste anual pelo IPCA/IBGE acumulado')",
-    "itens": [
-      {
-        "descricao": "ex: 'Rota 01'",
-        "quantidade": 23730,
-        "unidade": "km",
-        "valorUnitario": 7.11,
-        "valorTotal": 168720.30
-      }
-    ]
+    "objeto": "resumo em até 300 caracteres",
+    "clausulaReajuste": "texto curto da cláusula",
+    "itens": [{"descricao": "Rota 01", "quantidade": 23730, "unidade": "km", "valorUnitario": 7.11, "valorTotal": 168720.30}]
   },
   "aditamentos": [
     {
       "numero": 1,
-      "data": "YYYY-MM-DD (data de assinatura deste aditamento)",
+      "data": "YYYY-MM-DD",
       "tipo": "'reajuste' | 'acrescimo' | 'supressao' | 'prorrogacao' | 'misto'",
       "novaDataVencimento": "YYYY-MM-DD ou null",
       "novoValorTotal": 1777314.00,
       "percentualReajuste": 4.56,
       "indiceReajuste": "'IPCA' | 'IGP-M' | 'INPC' | null",
-      "observacoes": "resumo curto do que mudou (ex: 'Reajuste IPCA 4,56% e prorrogação por 12 meses')",
-      "itensResultantes": [
-        {
-          "descricao": "Rota 01",
-          "quantidade": 23730,
-          "unidade": "km",
-          "valorUnitario": 7.43,
-          "valorTotal": 176313.90
-        }
-      ]
+      "observacoes": "resumo em até 300 caracteres",
+      "itensResultantes": [{"descricao": "Rota 01", "quantidade": 23730, "unidade": "km", "valorUnitario": 7.43, "valorTotal": 176313.90}]
     }
   ]
 }
 
-REGRAS CRUCIAIS:
+REGRAS:
+1. Aditamentos em ordem cronológica (mais antigo primeiro).
+2. itensResultantes: LISTA COMPLETA de itens vigentes APÓS cada aditamento (inclusive os que não mudaram).
+3. Tipo: "reajuste"=só valores; "acrescimo"=itens novos; "supressao"=removeu; "prorrogacao"=só prazo; "misto"=combinação.
+4. Valores decimais (ponto), sem R$, sem milhar.
+5. Datas YYYY-MM-DD. Ignore assinaturas digitais.
+6. Sem aditamentos: contemAditamentos=false, aditamentos=[].
+7. Campos não identificados: null.
+8. NÃO invente dados.
 
-1. ORDEM: Os aditamentos devem estar em ordem cronológica (mais antigo primeiro). Numere 1º, 2º, 3º...
-
-2. ITENS RESULTANTES: Para CADA aditamento, inclua a LISTA COMPLETA de itens vigentes APÓS aquele aditamento — inclusive os que não mudaram. Se o 1º aditamento aplicou reajuste de 4,56% em 10 rotas, retorne as 10 rotas com os valores novos. Se o 2º aditamento adicionou 3 rotas novas, retorne as 13 rotas completas (10 antigas + 3 novas). Se houver supressão, retorne só as restantes.
-
-3. TIPO DO ADITAMENTO:
-   - "reajuste" — só alterou valores unitários (ex: aplicou IPCA)
-   - "acrescimo" — adicionou itens/rotas novos
-   - "supressao" — removeu itens/rotas
-   - "prorrogacao" — só estendeu prazo, sem alterar valores nem itens
-   - "misto" — combinação (ex: reajuste + prorrogação, ou acréscimo + prorrogação)
-
-4. VALORES: Use números decimais padrão (ponto como separador), sem "R$", sem separador de milhar. Exemplo: 1700111.70 e não "R$ 1.700.111,70".
-
-5. DATAS: Sempre formato YYYY-MM-DD. Ignore datas de assinatura digital — use a data explicitamente citada no corpo ("Aguaí, 05 de março de 2024" = "2024-03-05").
-
-6. SE O PDF TEM SÓ O CONTRATO (sem aditamentos): retorne contemAditamentos: false e aditamentos: [].
-
-7. SE O PDF É APENAS UM ADITAMENTO AVULSO (sem o contrato original): retorne contemAditamentos: true, contrato: null, e preencha só o objeto aditamentos com o que identificou.
-
-8. CAMPOS NÃO IDENTIFICADOS: retorne null.
-
-Responda APENAS com o JSON puro, pronto para parse.`
+Responda APENAS o JSON.`
 
 const TIPOS_ADITAMENTO = ['reajuste', 'acrescimo', 'supressao', 'prorrogacao', 'misto']
 const TIPOS_SERVICO = ['Transporte Escolar', 'Transporte Saúde', 'Fretamento', 'Outro']
@@ -111,9 +81,8 @@ const str = (v: any, limite = 500): string | null => {
   return t.slice(0, limite)
 }
 
-const dataOuNull = (v: any): string | null => {
-  return typeof v === 'string' && REGEX_DATA.test(v) ? v : null
-}
+const dataOuNull = (v: any): string | null =>
+  typeof v === 'string' && REGEX_DATA.test(v) ? v : null
 
 const normalizarItens = (lista: any): any[] => {
   if (!Array.isArray(lista)) return []
@@ -136,15 +105,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: 'ANTHROPIC_API_KEY ausente' }, { status: 500 })
   }
 
-  const formData = await req.formData()
-  const file = formData.get('file') as File | null
-  if (!file) return NextResponse.json({ erro: 'Arquivo não enviado' }, { status: 400 })
-  if (file.size > LIMITE_BYTES) {
-    return NextResponse.json({ erro: 'Arquivo maior que 15 MB' }, { status: 413 })
+  // Lê body JSON com a URL do Blob (arquivo já foi enviado antes)
+  let body: any
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ erro: 'Body inválido' }, { status: 400 })
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer())
-  const base64 = buffer.toString('base64')
+  const blobUrl = body?.blobUrl
+  if (!blobUrl || typeof blobUrl !== 'string') {
+    return NextResponse.json({ erro: 'blobUrl ausente' }, { status: 400 })
+  }
+
+  // Baixa o PDF do Blob
+  let base64: string
+  try {
+    const result = await get(blobUrl, { access: 'private' })
+    if (!result || !result.stream) {
+      return NextResponse.json({ erro: 'Arquivo não encontrado no Blob' }, { status: 404 })
+    }
+    const chunks: Buffer[] = []
+    const reader = result.stream.getReader()
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(Buffer.from(value))
+    }
+    base64 = Buffer.concat(chunks).toString('base64')
+  } catch (e: any) {
+    return NextResponse.json(
+      { erro: 'Falha ao ler arquivo do armazenamento', detalhe: String(e?.message || e).slice(0, 300) },
+      { status: 500 },
+    )
+  }
 
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
