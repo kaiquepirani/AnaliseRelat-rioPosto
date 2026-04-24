@@ -146,12 +146,12 @@ function ModalHistorico({
         </div>
 
         {/* Dados bancários */}
-        {(colaborador.banco || colaborador.pix) && (
+        {(colaborador.dadosBancarios.banco || colaborador.dadosBancarios.pix) && (
           <div style={{ padding: '0.75rem 1.5rem', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>💳 Dados bancários</span>
-            {colaborador.banco && <span style={{ fontSize: 12, color: '#166534' }}>{colaborador.banco}</span>}
-            {colaborador.agencia && <span style={{ fontSize: 12, color: '#166534' }}>Ag {colaborador.agencia}{colaborador.conta ? ` · C ${colaborador.conta}` : ''}</span>}
-            {colaborador.pix && <span style={{ fontSize: 12, color: '#166534' }}>PIX: {colaborador.pix}</span>}
+            {colaborador.dadosBancarios.banco && <span style={{ fontSize: 12, color: '#166534' }}>{colaborador.dadosBancarios.banco}</span>}
+            {colaborador.dadosBancarios.agencia && <span style={{ fontSize: 12, color: '#166534' }}>Ag {colaborador.dadosBancarios.agencia}{colaborador.dadosBancarios.conta ? ` · C ${colaborador.dadosBancarios.conta}` : ''}</span>}
+            {colaborador.dadosBancarios.pix && <span style={{ fontSize: 12, color: '#166534' }}>PIX: {colaborador.dadosBancarios.pix}</span>}
           </div>
         )}
 
@@ -486,10 +486,10 @@ export default function ControlePagamentos({ onReimportar }: { onReimportar?: (m
 
                             {/* Banco */}
                             <td style={{ fontSize: 12 }}>
-                              {c.banco && <div>{c.banco}</div>}
-                              {c.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.agencia}{c.conta ? ` · C ${c.conta}` : ''}</div>}
-                              {c.pix && <div style={{ color: 'var(--text-3)' }}>PIX: {c.pix}</div>}
-                              {!c.banco && !c.pix && <span style={{ color: 'var(--text-3)' }}>—</span>}
+                              {c.dadosBancarios?.banco && <div>{c.dadosBancarios.banco}</div>}
+                              {c.dadosBancarios?.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.dadosBancarios.agencia}{c.dadosBancarios.conta ? ` · C ${c.dadosBancarios.conta}` : ''}</div>}
+                              {c.dadosBancarios?.pix && <div style={{ color: 'var(--text-3)' }}>PIX: {c.dadosBancarios.pix}</div>}
+                              {!c.dadosBancarios?.banco && !c.dadosBancarios?.pix && <span style={{ color: 'var(--text-3)' }}>—</span>}
                             </td>
                           </tr>
                         )
