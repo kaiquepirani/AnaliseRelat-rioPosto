@@ -26,12 +26,19 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
 
   try {
-    const blob = await get(contrato.arquivoUrl)
+    const result = await get(contrato.arquivoUrl, { access: 'private' })
+    if (!result || result.statusCode !== 200 || !result.stream) {
+      return new Response(JSON.stringify({ erro: 'Arquivo indisponível' }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
     const nome = (contrato.arquivoNome || 'contrato.pdf').replace(/"/g, '')
-    return new Response(blob.stream, {
+    const contentType = result.blob?.contentType || 'application/pdf'
+    return new Response(result.stream, {
       status: 200,
       headers: {
-        'Content-Type': blob.contentType || 'application/pdf',
+        'Content-Type': contentType,
         'Content-Disposition': `inline; filename="${nome}"`,
         'Cache-Control': 'private, no-cache',
       },
