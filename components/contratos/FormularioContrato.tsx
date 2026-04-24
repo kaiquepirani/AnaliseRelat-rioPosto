@@ -1,7 +1,13 @@
 'use client'
 import { useState, useRef } from 'react'
-import type { Contrato, TipoServicoContrato, StatusContrato, Aditamento } from '@/lib/contratos-types'
-import { TIPOS_SERVICO } from '@/lib/contratos-types'
+import type {
+  Contrato, TipoServicoContrato, StatusContrato, Aditamento,
+  ItemContrato, TipoAditamento,
+} from '@/lib/contratos-types'
+import {
+  TIPOS_SERVICO, rotuloTipoAditamento, corTipoAditamento,
+  itensVigentes, somarValoresItens, aplicarReajustePercentual,
+} from '@/lib/contratos-types'
 import { abrirContratoPDF } from '@/lib/contratos-download'
 
 interface Props {
@@ -12,27 +18,10 @@ interface Props {
   onAtualizarLista: () => Promise<void>
 }
 
-interface DadosIA {
-  cliente: string | null
-  numero: string | null
-  cidade: string | null
-  tipoServico: TipoServicoContrato | null
-  dataInicio: string | null
-  dataVencimento: string | null
-  valorMensal: number | null
-  valorTotal: number | null
-  objeto: string | null
-}
-
-interface DadosAditamentoIA {
-  data: string | null
-  novaDataVencimento: string | null
-  novoValorMensal: number | null
-  novoValorTotal: number | null
-  observacoes: string | null
-}
-
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+const fmtNum = (n: number) => n.toLocaleString('pt-BR')
+
 const fmtData = (iso: string | undefined) => {
   if (!iso) return '—'
   const p = iso.split('-')
@@ -40,124 +29,87 @@ const fmtData = (iso: string | undefined) => {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
+const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random()
+
 export default function FormularioContrato({ contrato, token, onCancelar, onSalvar, onAtualizarLista }: Props) {
   const [numero, setNumero] = useState(contrato?.numero || '')
   const [cliente, setCliente] = useState(contrato?.cliente || '')
+  const [contratante, setContratante] = useState(contrato?.contratante || '')
+  const [cnpjContratante, setCnpjContratante] = useState(contrato?.cnpjContratante || '')
+  const [processoAdministrativo, setProcessoAdministrativo] = useState(contrato?.processoAdministrativo || '')
+  const [modalidadeLicitacao, setModalidadeLicitacao] = useState(contrato?.modalidadeLicitacao || '')
   const [tipoServico, setTipoServico] = useState<TipoServicoContrato>(contrato?.tipoServico || 'Transporte Escolar')
   const [cidade, setCidade] = useState(contrato?.cidade || '')
   const [dataInicio, setDataInicio] = useState(contrato?.dataInicio || '')
   const [dataVencimento, setDataVencimento] = useState(contrato?.dataVencimento || '')
-  const [valorMensal, setValorMensal] = useState(contrato?.valorMensal != null ? String(contrato.valorMensal) : '')
   const [valorTotal, setValorTotal] = useState(contrato?.valorTotal != null ? String(contrato.valorTotal) : '')
   const [objeto, setObjeto] = useState(contrato?.objeto || '')
   const [observacoes, setObservacoes] = useState(contrato?.observacoes || '')
+  const [clausulaReajuste, setClausulaReajuste] = useState(contrato?.clausulaReajuste || '')
   const [status, setStatus] = useState<StatusContrato>(contrato?.status || 'vigente')
-  const [arquivoUrl, setArquivoUrl] = useState(contrato?.arquivoUrl || '')
-  const [arquivoNome, setArquivoNome] = useState(contrato?.arquivoNome || '')
-  const [arquivoSize, setArquivoSize] = useState(contrato?.arquivoSize || 0)
-  const [enviandoArquivo, setEnviandoArquivo] = useState(false)
-  const [extraindo, setExtraindo] = useState(false)
-  const [mensagemIA, setMensagemIA] = useState('')
-  const [erroUpload, setErroUpload] = useState('')
-  const [salvando, setSalvando] = useState(false)
-  const [camposIA, setCamposIA] = useState<Set<string>>(new Set())
+  const [itensState, setItensState] = useState<ItemContrato[]>(contrato?.itens || [])
   const [aditamentos, setAditamentos] = useState<Aditamento[]>(contrato?.aditamentos || [])
   const [adicionandoAditamento, setAdicionandoAditamento] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
+  const [salvando, setSalvando] = useState(false)
+  const [aditExpandidos, setAditExpandidos] = useState<Set<string>>(new Set())
 
-  const marcarEdicaoManual = (nome: string) => {
-    if (camposIA.has(nome)) {
-      const novo = new Set(camposIA)
-      novo.delete(nome)
-      setCamposIA(novo)
-    }
-  }
+  const arquivoUrl = contrato?.arquivoUrl || ''
+  const arquivoNome = contrato?.arquivoNome || ''
+  const arquivoSize = contrato?.arquivoSize || 0
 
-  const aplicarDadosIA = (dados: DadosIA) => {
-    const novos = new Set<string>()
-    if (dados.cliente) { setCliente(dados.cliente); novos.add('cliente') }
-    if (dados.numero) { setNumero(dados.numero); novos.add('numero') }
-    if (dados.cidade) { setCidade(dados.cidade); novos.add('cidade') }
-    if (dados.tipoServico) { setTipoServico(dados.tipoServico); novos.add('tipoServico') }
-    if (dados.dataInicio) { setDataInicio(dados.dataInicio); novos.add('dataInicio') }
-    if (dados.dataVencimento) { setDataVencimento(dados.dataVencimento); novos.add('dataVencimento') }
-    if (dados.valorMensal != null) { setValorMensal(String(dados.valorMensal)); novos.add('valorMensal') }
-    if (dados.valorTotal != null) { setValorTotal(String(dados.valorTotal)); novos.add('valorTotal') }
-    if (dados.objeto) { setObjeto(dados.objeto); novos.add('objeto') }
-    setCamposIA(novos)
-  }
+  const itensAtuais = aditamentos.length > 0
+    ? (() => {
+        for (let i = aditamentos.length - 1; i >= 0; i--) {
+          const ad = aditamentos[i]
+          if (ad.itensResultantes && ad.itensResultantes.length > 0) return ad.itensResultantes
+        }
+        return itensState
+      })()
+    : itensState
 
-  const uploadArquivo = async (file: File) => {
-    setErroUpload('')
-    setMensagemIA('')
-    setEnviandoArquivo(true)
-    setExtraindo(true)
-
-    const fdUp = new FormData(); fdUp.append('file', file)
-    const fdEx = new FormData(); fdEx.append('file', file)
-    const auth = { Authorization: `Bearer ${token}` }
-
-    const pUp = fetch('/api/contratos/upload', { method: 'POST', headers: auth, body: fdUp })
-    const pEx = fetch('/api/contratos/extrair', { method: 'POST', headers: auth, body: fdEx })
-
-    try {
-      const rUp = await pUp
-      const dUp = await rUp.json()
-      if (!rUp.ok) setErroUpload(dUp.erro || 'Erro no upload')
-      else {
-        setArquivoUrl(dUp.url); setArquivoNome(dUp.nome); setArquivoSize(dUp.tamanho)
-      }
-    } catch { setErroUpload('Falha na rede ao subir arquivo') }
-    finally { setEnviandoArquivo(false) }
-
-    try {
-      const rEx = await pEx
-      const dEx = await rEx.json()
-      if (rEx.ok && dEx.dados) {
-        aplicarDadosIA(dEx.dados)
-        const preenchidos = Object.values(dEx.dados).filter(v => v != null).length
-        setMensagemIA(preenchidos > 0
-          ? `✨ ${preenchidos} ${preenchidos === 1 ? 'campo preenchido' : 'campos preenchidos'} automaticamente pela IA — revise antes de salvar.`
-          : 'A IA analisou o PDF mas não identificou os dados. Preencha manualmente.'
-        )
-      }
-    } catch { /* bônus, não bloqueia */ }
-    finally { setExtraindo(false) }
+  const toggleExpandirAd = (id: string) => {
+    const n = new Set(aditExpandidos)
+    if (n.has(id)) n.delete(id); else n.add(id)
+    setAditExpandidos(n)
   }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!cliente.trim() || !dataVencimento) {
-      alert('Cliente e data de vencimento são obrigatórios')
+    if (!cliente.trim() && !contratante.trim()) {
+      alert('Informe o contratante')
+      return
+    }
+    if (!dataVencimento) {
+      alert('Informe a data de vencimento')
       return
     }
     setSalvando(true)
     await onSalvar({
-      numero: numero.trim(), cliente: cliente.trim(),
+      numero: numero.trim(),
+      cliente: cliente.trim() || contratante.trim(),
+      contratante: contratante.trim() || undefined,
+      cnpjContratante: cnpjContratante.trim() || undefined,
+      processoAdministrativo: processoAdministrativo.trim() || undefined,
+      modalidadeLicitacao: modalidadeLicitacao.trim() || undefined,
       tipoServico, cidade: cidade.trim(), dataInicio, dataVencimento,
-      valorMensal: valorMensal ? Number(valorMensal.replace(',', '.')) : undefined,
       valorTotal: valorTotal ? Number(valorTotal.replace(',', '.')) : undefined,
-      objeto: objeto.trim(), observacoes: observacoes.trim(), status,
-      arquivoUrl: arquivoUrl || undefined,
-      arquivoNome: arquivoNome || undefined,
-      arquivoSize: arquivoSize || undefined,
+      objeto: objeto.trim(), observacoes: observacoes.trim(),
+      clausulaReajuste: clausulaReajuste.trim() || undefined,
+      status,
+      itens: itensState,
+      aditamentos,
     })
     setSalvando(false)
   }
 
-  const removerArquivo = () => {
-    setArquivoUrl(''); setArquivoNome(''); setArquivoSize(0); setMensagemIA('')
-    if (fileRef.current) fileRef.current.value = ''
-  }
-
   const visualizarArquivo = () => {
-    if (contrato?.id) abrirContratoPDF(contrato.id, arquivoNome, token)
-    else alert('Salve o contrato primeiro para visualizar o arquivo.')
+    if (contrato?.id && arquivoUrl) abrirContratoPDF(contrato.id, arquivoNome, token)
+    else alert('Nenhum PDF associado a este contrato.')
   }
 
   const encerrarContrato = async () => {
     if (!contrato?.id) return
-    if (!confirm(`Encerrar o contrato de "${cliente}"? Ele sairá da lista principal e irá para o filtro "Encerrados".`)) return
+    if (!confirm(`Encerrar o contrato de "${cliente || contratante}"? Ele sairá da lista principal e irá para o filtro "Encerrados".`)) return
     const r = await fetch(`/api/contratos/${contrato.id}/encerrar`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
@@ -169,7 +121,7 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
   const excluirAditamento = async (ad: Aditamento) => {
     if (!contrato?.id) return
-    if (!confirm('Excluir este aditamento? Esta ação não pode ser desfeita.')) return
+    if (!confirm(`Excluir o ${ad.numero}º Termo Aditivo? Esta ação não pode ser desfeita.`)) return
     const r = await fetch(`/api/contratos/${contrato.id}/aditamentos/${ad.id}`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
@@ -180,21 +132,19 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
   }
 
   const aditamentoAdicionado = (novo: Aditamento, contratoAtualizado?: Contrato) => {
-    setAditamentos([...aditamentos, novo].sort((a, b) => a.data.localeCompare(b.data)))
     if (contratoAtualizado) {
-      if (contratoAtualizado.dataVencimento !== dataVencimento) setDataVencimento(contratoAtualizado.dataVencimento)
-      if (contratoAtualizado.valorMensal != null && String(contratoAtualizado.valorMensal) !== valorMensal) {
-        setValorMensal(String(contratoAtualizado.valorMensal))
-      }
-      if (contratoAtualizado.valorTotal != null && String(contratoAtualizado.valorTotal) !== valorTotal) {
-        setValorTotal(String(contratoAtualizado.valorTotal))
-      }
+      setAditamentos(contratoAtualizado.aditamentos || [])
+      if (contratoAtualizado.dataVencimento) setDataVencimento(contratoAtualizado.dataVencimento)
+      if (contratoAtualizado.valorTotal != null) setValorTotal(String(contratoAtualizado.valorTotal))
+    } else {
+      setAditamentos([...aditamentos, novo].sort((a, b) => a.data.localeCompare(b.data)))
     }
     setAdicionandoAditamento(false)
     onAtualizarLista()
   }
 
   const jaEncerrado = status === 'encerrado'
+  const totalItens = somarValoresItens(itensAtuais)
 
   return (
     <div style={{
@@ -203,7 +153,7 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
       padding: 16, overflowY: 'auto',
     }}>
       <form onSubmit={submit} style={{
-        background: '#fff', borderRadius: 12, width: '100%', maxWidth: 680,
+        background: '#fff', borderRadius: 12, width: '100%', maxWidth: 780,
         maxHeight: '92vh', overflowY: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif",
       }}>
         <div style={{
@@ -211,7 +161,7 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
           position: 'sticky', top: 0, background: '#fff', zIndex: 1,
         }}>
           <h2 style={{ margin: 0, fontSize: 18, color: '#2D3A6B' }}>
-            {contrato ? 'Editar contrato' : 'Novo contrato'}
+            {contrato ? 'Editar contrato' : 'Novo contrato manual'}
           </h2>
           {contrato?.dataEncerramento && (
             <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
@@ -222,56 +172,41 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
         <div style={{ padding: 22, display: 'grid', gap: 14 }}>
 
-          {extraindo && (
-            <div style={{
-              padding: '10px 14px', background: '#eff6ff', border: '1px solid #bfdbfe',
-              borderRadius: 8, color: '#1d4ed8', fontSize: 13,
-              display: 'flex', alignItems: 'center', gap: 10,
-            }}>
-              <span style={{
-                width: 14, height: 14, border: '2px solid #bfdbfe',
-                borderTopColor: '#1d4ed8', borderRadius: '50%',
-                animation: 'girar 0.8s linear infinite', display: 'inline-block',
-              }} />
-              Analisando contrato com IA...
-              <style>{`@keyframes girar { to { transform: rotate(360deg); } }`}</style>
-            </div>
-          )}
-
-          {mensagemIA && !extraindo && (
-            <div style={{
-              padding: '10px 14px', background: '#fef3c7', border: '1px solid #fde68a',
-              borderRadius: 8, color: '#92400e', fontSize: 13,
-            }}>{mensagemIA}</div>
-          )}
-
-          <Campo label="Cliente *" comIA={camposIA.has('cliente')}>
-            <input value={cliente}
-              onChange={e => { setCliente(e.target.value); marcarEdicaoManual('cliente') }}
-              style={inputStyle} required />
+          <Campo label="Contratante *">
+            <input value={contratante} onChange={e => setContratante(e.target.value)} style={inputStyle}
+              placeholder="Ex.: Prefeitura Municipal de Aguaí" />
           </Campo>
 
           <div style={grid2}>
-            <Campo label="Número do contrato" comIA={camposIA.has('numero')}>
-              <input value={numero}
-                onChange={e => { setNumero(e.target.value); marcarEdicaoManual('numero') }}
-                style={inputStyle} />
+            <Campo label="Número do contrato">
+              <input value={numero} onChange={e => setNumero(e.target.value)} style={inputStyle} />
             </Campo>
-            <Campo label="Cidade" comIA={camposIA.has('cidade')}>
-              <input value={cidade}
-                onChange={e => { setCidade(e.target.value); marcarEdicaoManual('cidade') }}
-                style={inputStyle} placeholder="Ex.: Itapira" />
+            <Campo label="CNPJ">
+              <input value={cnpjContratante} onChange={e => setCnpjContratante(e.target.value)} style={inputStyle} />
             </Campo>
           </div>
 
           <div style={grid2}>
-            <Campo label="Tipo de serviço" comIA={camposIA.has('tipoServico')}>
-              <select value={tipoServico}
-                onChange={e => { setTipoServico(e.target.value as TipoServicoContrato); marcarEdicaoManual('tipoServico') }}
-                style={inputStyle}>
+            <Campo label="Processo administrativo">
+              <input value={processoAdministrativo} onChange={e => setProcessoAdministrativo(e.target.value)} style={inputStyle} />
+            </Campo>
+            <Campo label="Modalidade de licitação">
+              <input value={modalidadeLicitacao} onChange={e => setModalidadeLicitacao(e.target.value)} style={inputStyle} />
+            </Campo>
+          </div>
+
+          <div style={grid2}>
+            <Campo label="Cidade">
+              <input value={cidade} onChange={e => setCidade(e.target.value)} style={inputStyle} />
+            </Campo>
+            <Campo label="Tipo de serviço">
+              <select value={tipoServico} onChange={e => setTipoServico(e.target.value as TipoServicoContrato)} style={inputStyle}>
                 {TIPOS_SERVICO.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </Campo>
+          </div>
+
+          <div style={grid2}>
             <Campo label="Situação">
               <select value={status} onChange={e => setStatus(e.target.value as StatusContrato)} style={inputStyle}>
                 <option value="vigente">Vigente</option>
@@ -279,73 +214,78 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                 <option value="encerrado">Encerrado</option>
               </select>
             </Campo>
-          </div>
-
-          <div style={grid2}>
-            <Campo label="Data de início" comIA={camposIA.has('dataInicio')}>
-              <input type="date" value={dataInicio}
-                onChange={e => { setDataInicio(e.target.value); marcarEdicaoManual('dataInicio') }}
-                style={inputStyle} />
-            </Campo>
-            <Campo label="Data de vencimento *" comIA={camposIA.has('dataVencimento')}>
-              <input type="date" value={dataVencimento}
-                onChange={e => { setDataVencimento(e.target.value); marcarEdicaoManual('dataVencimento') }}
-                style={inputStyle} required />
+            <Campo label="Valor total original (R$)">
+              <input value={valorTotal} onChange={e => setValorTotal(e.target.value)} style={inputStyle} placeholder="1700111.70" />
             </Campo>
           </div>
 
           <div style={grid2}>
-            <Campo label="Valor mensal (R$)" comIA={camposIA.has('valorMensal')}>
-              <input value={valorMensal}
-                onChange={e => { setValorMensal(e.target.value); marcarEdicaoManual('valorMensal') }}
-                style={inputStyle} placeholder="45000.00" />
+            <Campo label="Data de início">
+              <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={inputStyle} />
             </Campo>
-            <Campo label="Valor total (R$)" comIA={camposIA.has('valorTotal')}>
-              <input value={valorTotal}
-                onChange={e => { setValorTotal(e.target.value); marcarEdicaoManual('valorTotal') }}
-                style={inputStyle} placeholder="540000.00" />
+            <Campo label="Data de vencimento *">
+              <input type="date" value={dataVencimento} onChange={e => setDataVencimento(e.target.value)} style={inputStyle} required />
             </Campo>
           </div>
 
-          <Campo label="Objeto do contrato" comIA={camposIA.has('objeto')}>
-            <textarea value={objeto}
-              onChange={e => { setObjeto(e.target.value); marcarEdicaoManual('objeto') }}
-              style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+          <Campo label="Objeto do contrato">
+            <textarea value={objeto} onChange={e => setObjeto(e.target.value)}
+              style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
+          </Campo>
+
+          <Campo label="Cláusula de reajuste">
+            <input value={clausulaReajuste} onChange={e => setClausulaReajuste(e.target.value)} style={inputStyle}
+              placeholder="ex.: IPCA/IBGE acumulado 12 meses" />
           </Campo>
 
           <Campo label="Observações">
             <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)}
-              style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+              style={{ ...inputStyle, minHeight: 44, resize: 'vertical' }} />
           </Campo>
 
-          <Campo label="Arquivo do contrato (PDF, até 10 MB)">
-            {arquivoUrl ? (
-              <div style={{
-                padding: 12, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8,
-                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-              }}>
-                <span style={{ fontSize: 20 }}>📄</span>
-                <div style={{ flex: 1, minWidth: 160 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#0c4a6e' }}>{arquivoNome || 'contrato.pdf'}</div>
-                  {arquivoSize > 0 && (
-                    <div style={{ fontSize: 11, color: '#0369a1' }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>
-                  )}
-                </div>
-                <button type="button" onClick={visualizarArquivo} style={linkStyle}>Ver</button>
-                <button type="button" onClick={removerArquivo} style={linkDangerStyle}>Remover</button>
+          {arquivoUrl && (
+            <div style={{
+              padding: 12, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8,
+              display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            }}>
+              <span style={{ fontSize: 20 }}>📄</span>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#0c4a6e' }}>{arquivoNome || 'contrato.pdf'}</div>
+                {arquivoSize > 0 && (
+                  <div style={{ fontSize: 11, color: '#0369a1' }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>
+                )}
               </div>
-            ) : (
-              <>
-                <input ref={fileRef} type="file" accept="application/pdf,.pdf"
-                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadArquivo(f) }}
-                  disabled={enviandoArquivo || extraindo}
-                  style={{ fontSize: 13, fontFamily: 'inherit' }} />
-                {enviandoArquivo && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Enviando arquivo...</div>}
-              </>
-            )}
-            {erroUpload && <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{erroUpload}</div>}
-          </Campo>
+              <button type="button" onClick={visualizarArquivo} style={linkStyle}>Abrir PDF</button>
+            </div>
+          )}
 
+          {/* ITENS VIGENTES */}
+          {itensAtuais.length > 0 && (
+            <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{
+                padding: '10px 14px', background: '#f1f5f9',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
+                borderBottom: '1px solid #e5e7eb',
+              }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                    ITENS VIGENTES ({itensAtuais.length})
+                  </div>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    {aditamentos.length > 0
+                      ? 'Estado após o último aditamento. Para editar, faça um novo aditamento ou altere os aditamentos existentes.'
+                      : 'Itens do contrato original.'}
+                  </div>
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>
+                  {fmtReal(totalItens)}
+                </div>
+              </div>
+              <TabelaItens itens={itensAtuais} />
+            </div>
+          )}
+
+          {/* HISTÓRICO DE ADITAMENTOS */}
           {contrato?.id && (
             <div style={{
               marginTop: 8, paddingTop: 18, borderTop: '1px solid #e5e7eb',
@@ -373,38 +313,61 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
               {aditamentos.length > 0 && (
                 <div style={{ display: 'grid', gap: 8 }}>
-                  {aditamentos.map(ad => (
-                    <div key={ad.id} style={{
-                      padding: 12, background: '#f8fafc', border: '1px solid #e2e8f0',
-                      borderRadius: 8, display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap',
-                    }}>
-                      <div style={{ fontSize: 20 }}>📎</div>
-                      <div style={{ flex: 1, minWidth: 180 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
-                          Aditamento de {fmtData(ad.data)}
+                  {aditamentos.map(ad => {
+                    const cor = corTipoAditamento(ad.tipo)
+                    const aberto = aditExpandidos.has(ad.id)
+                    return (
+                      <div key={ad.id} style={{
+                        background: '#fafbff', border: '1px solid #e0e7ff',
+                        borderLeft: `4px solid ${cor}`, borderRadius: 8, overflow: 'hidden',
+                      }}>
+                        <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <div style={{ flex: 1, minWidth: 200 }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: 10, fontWeight: 700, color: '#fff',
+                                background: cor, padding: '2px 7px', borderRadius: 4, letterSpacing: 0.3,
+                              }}>{ad.numero}º TA · {rotuloTipoAditamento(ad.tipo)}</span>
+                              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{fmtData(ad.data)}</span>
+                              {ad.percentualReajuste != null && (
+                                <span style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>
+                                  {ad.percentualReajuste.toFixed(2).replace('.', ',')}% {ad.indiceReajuste || ''}
+                                </span>
+                              )}
+                            </div>
+                            {ad.observacoes && (
+                              <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>{ad.observacoes}</div>
+                            )}
+                            {ad.novoValorTotal != null && (
+                              <div style={{ fontSize: 12, color: '#047857', fontWeight: 600, marginTop: 4 }}>
+                                Valor: {fmtReal(ad.novoValorTotal)}
+                                {ad.novaDataVencimento && <> • Vencimento: {fmtData(ad.novaDataVencimento)}</>}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0 && (
+                              <button type="button" onClick={() => toggleExpandirAd(ad.id)} style={miniBtn('#64748b')}>
+                                {aberto ? '▲ Ocultar' : `▼ Ver ${ad.itensResultantes.length} itens`}
+                              </button>
+                            )}
+                            <button type="button" onClick={() => excluirAditamento(ad)} style={miniBtn('#b91c1c')}>Excluir</button>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>
-                          {ad.novaDataVencimento && <>Novo vencimento: <strong>{fmtData(ad.novaDataVencimento)}</strong><br /></>}
-                          {ad.novoValorMensal != null && <>Novo valor mensal: <strong>{fmtReal(ad.novoValorMensal)}</strong><br /></>}
-                          {ad.novoValorTotal != null && <>Novo valor total: <strong>{fmtReal(ad.novoValorTotal)}</strong><br /></>}
-                          {ad.observacoes && <span style={{ color: '#64748b' }}>{ad.observacoes}</span>}
-                        </div>
+                        {aberto && Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0 && (
+                          <div style={{ borderTop: '1px solid #e0e7ff', background: '#fff' }}>
+                            <TabelaItens itens={ad.itensResultantes} />
+                          </div>
+                        )}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <a href={ad.arquivoUrl} target="_blank" rel="noreferrer"
-                          onClick={e => { e.preventDefault(); abrirAditamentoPDF(contrato.id, ad, token) }}
-                          style={linkStyle}>Ver</a>
-                        <button type="button" onClick={() => excluirAditamento(ad)} style={linkDangerStyle}>Excluir</button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
 
               {adicionandoAditamento && (
                 <NovoAditamento
-                  contratoId={contrato.id}
-                  token={token}
+                  contratoId={contrato.id} token={token}
                   onCancelar={() => setAdicionandoAditamento(false)}
                   onAdicionado={aditamentoAdicionado}
                 />
@@ -430,7 +393,6 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
               }}>🔒 Encerrar este contrato</button>
             </div>
           )}
-
         </div>
 
         <div style={{
@@ -443,12 +405,11 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
             border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit',
           }}>Cancelar</button>
-          <button type="submit" disabled={salvando || enviandoArquivo || extraindo} style={{
+          <button type="submit" disabled={salvando} style={{
             padding: '10px 20px',
-            background: salvando || enviandoArquivo || extraindo ? '#94a3b8' : '#2D3A6B',
+            background: salvando ? '#94a3b8' : '#2D3A6B',
             color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
-            cursor: salvando || enviandoArquivo || extraindo ? 'not-allowed' : 'pointer',
-            fontFamily: 'inherit',
+            cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
           }}>
             {salvando ? 'Salvando...' : 'Salvar'}
           </button>
@@ -458,27 +419,7 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
   )
 }
 
-const abrirAditamentoPDF = async (contratoId: string, ad: Aditamento, token: string) => {
-  try {
-    const r = await fetch(`/api/contratos/${contratoId}/download`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!r.ok) {
-      window.open(ad.arquivoUrl, '_blank')
-      return
-    }
-    // Se o contrato principal tem download autenticado, o PDF do aditamento usa a URL privada
-    // diretamente via uma rota dedicada seria melhor, mas por simplicidade abrimos em aba nova com token via fetch
-    await abrirPDFUrl(ad.arquivoUrl, ad.arquivoNome, token)
-  } catch {
-    window.open(ad.arquivoUrl, '_blank')
-  }
-}
-
-const abrirPDFUrl = async (_url: string, arquivoNome: string, _token: string) => {
-  // Fallback: se não houver rota autenticada específica, abre numa nova aba
-  alert('Para visualizar o PDF do aditamento, será adicionada uma rota de download específica. Por enquanto, o arquivo está salvo no armazenamento privado. — ' + arquivoNome)
-}
+// ==== Subcomponente: novo aditamento avulso ====
 
 interface NovoAditamentoProps {
   contratoId: string
@@ -489,10 +430,13 @@ interface NovoAditamentoProps {
 
 function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAditamentoProps) {
   const [data, setData] = useState('')
+  const [tipo, setTipo] = useState<TipoAditamento>('misto')
   const [novaDataVencimento, setNovaDataVencimento] = useState('')
-  const [novoValorMensal, setNovoValorMensal] = useState('')
   const [novoValorTotal, setNovoValorTotal] = useState('')
+  const [percentualReajuste, setPercentualReajuste] = useState('')
+  const [indiceReajuste, setIndiceReajuste] = useState('IPCA')
   const [observacoes, setObservacoes] = useState('')
+  const [itensResultantes, setItensResultantes] = useState<ItemContrato[]>([])
   const [arquivoUrl, setArquivoUrl] = useState('')
   const [arquivoNome, setArquivoNome] = useState('')
   const [arquivoSize, setArquivoSize] = useState(0)
@@ -501,26 +445,15 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
   const [mensagemIA, setMensagemIA] = useState('')
   const [erro, setErro] = useState('')
   const [aplicarVencimento, setAplicarVencimento] = useState(true)
-  const [aplicarValorMensal, setAplicarValorMensal] = useState(true)
-  const [aplicarValorTotal, setAplicarValorTotal] = useState(true)
+  const [aplicarValor, setAplicarValor] = useState(true)
   const [salvando, setSalvando] = useState(false)
-
-  const aplicarDadosIA = (d: DadosAditamentoIA) => {
-    if (d.data) setData(d.data)
-    if (d.novaDataVencimento) setNovaDataVencimento(d.novaDataVencimento)
-    if (d.novoValorMensal != null) setNovoValorMensal(String(d.novoValorMensal))
-    if (d.novoValorTotal != null) setNovoValorTotal(String(d.novoValorTotal))
-    if (d.observacoes) setObservacoes(d.observacoes)
-  }
 
   const uploadEExtrair = async (file: File) => {
     setErro(''); setMensagemIA('')
     setEnviando(true); setExtraindo(true)
-
     const fdUp = new FormData(); fdUp.append('file', file)
     const fdEx = new FormData(); fdEx.append('file', file)
     const auth = { Authorization: `Bearer ${token}` }
-
     const pUp = fetch('/api/contratos/upload', { method: 'POST', headers: auth, body: fdUp })
     const pEx = fetch('/api/contratos/extrair-aditamento', { method: 'POST', headers: auth, body: fdEx })
 
@@ -538,8 +471,18 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
       const rEx = await pEx
       const dEx = await rEx.json()
       if (rEx.ok && dEx.dados) {
-        aplicarDadosIA(dEx.dados)
-        const n = Object.values(dEx.dados).filter(v => v != null).length
+        const d = dEx.dados
+        if (d.data) setData(d.data)
+        if (d.tipo) setTipo(d.tipo)
+        if (d.novaDataVencimento) setNovaDataVencimento(d.novaDataVencimento)
+        if (d.novoValorTotal != null) setNovoValorTotal(String(d.novoValorTotal))
+        if (d.percentualReajuste != null) setPercentualReajuste(String(d.percentualReajuste))
+        if (d.indiceReajuste) setIndiceReajuste(d.indiceReajuste)
+        if (d.observacoes) setObservacoes(d.observacoes)
+        if (Array.isArray(d.itensResultantes)) {
+          setItensResultantes(d.itensResultantes.map((it: any) => ({ ...it, id: uid() })))
+        }
+        const n = Object.values(d).filter(v => v != null).length
         if (n > 0) setMensagemIA(`✨ IA identificou ${n} ${n === 1 ? 'campo' : 'campos'} — revise.`)
       }
     } catch { /* bônus */ }
@@ -555,15 +498,16 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          data,
+          data, tipo,
           novaDataVencimento: novaDataVencimento || undefined,
-          novoValorMensal: novoValorMensal ? Number(novoValorMensal.replace(',', '.')) : undefined,
           novoValorTotal: novoValorTotal ? Number(novoValorTotal.replace(',', '.')) : undefined,
+          percentualReajuste: percentualReajuste ? Number(percentualReajuste.replace(',', '.')) : undefined,
+          indiceReajuste: indiceReajuste || undefined,
           observacoes: observacoes.trim() || undefined,
           arquivoUrl, arquivoNome, arquivoSize,
+          itensResultantes,
           aplicarVencimento: aplicarVencimento && !!novaDataVencimento,
-          aplicarValorMensal: aplicarValorMensal && !!novoValorMensal,
-          aplicarValorTotal: aplicarValorTotal && !!novoValorTotal,
+          aplicarValorTotal: aplicarValor && !!novoValorTotal,
         }),
       })
       const dados = await r.json()
@@ -588,11 +532,7 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
             disabled={enviando || extraindo}
             style={{ fontSize: 13, fontFamily: 'inherit' }} />
           {enviando && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Enviando...</div>}
-          {extraindo && (
-            <div style={{ fontSize: 12, color: '#1d4ed8', marginTop: 6 }}>
-              🔍 Analisando aditamento com IA...
-            </div>
-          )}
+          {extraindo && <div style={{ fontSize: 12, color: '#1d4ed8', marginTop: 6 }}>🔍 Analisando aditamento com IA...</div>}
           {erro && <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{erro}</div>}
         </div>
       ) : (
@@ -607,64 +547,75 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
           </div>
           <button type="button" onClick={() => {
             setArquivoUrl(''); setArquivoNome(''); setArquivoSize(0); setMensagemIA('')
-          }} style={linkDangerStyle}>Trocar</button>
+          }} style={miniBtn('#b91c1c')}>Trocar</button>
         </div>
       )}
 
       {mensagemIA && (
-        <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: 8, borderRadius: 6 }}>
-          {mensagemIA}
-        </div>
+        <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: 8, borderRadius: 6 }}>{mensagemIA}</div>
       )}
 
       <div style={grid2}>
         <Campo label="Data do aditamento *">
           <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputStyle} />
         </Campo>
-        <Campo label="Nova data de vencimento">
-          <input type="date" value={novaDataVencimento} onChange={e => setNovaDataVencimento(e.target.value)} style={inputStyle} />
+        <Campo label="Tipo">
+          <select value={tipo} onChange={e => setTipo(e.target.value as TipoAditamento)} style={inputStyle}>
+            <option value="reajuste">Reajuste</option>
+            <option value="acrescimo">Acréscimo</option>
+            <option value="supressao">Supressão</option>
+            <option value="prorrogacao">Prorrogação</option>
+            <option value="misto">Misto</option>
+          </select>
         </Campo>
       </div>
 
       <div style={grid2}>
-        <Campo label="Novo valor mensal (R$)">
-          <input value={novoValorMensal} onChange={e => setNovoValorMensal(e.target.value)}
-            style={inputStyle} placeholder="48000.00" />
+        <Campo label="Nova data de vencimento">
+          <input type="date" value={novaDataVencimento} onChange={e => setNovaDataVencimento(e.target.value)} style={inputStyle} />
         </Campo>
         <Campo label="Novo valor total (R$)">
-          <input value={novoValorTotal} onChange={e => setNovoValorTotal(e.target.value)}
-            style={inputStyle} placeholder="576000.00" />
+          <input value={novoValorTotal} onChange={e => setNovoValorTotal(e.target.value)} style={inputStyle} />
         </Campo>
       </div>
 
-      <Campo label="Observações (o que mudou)">
+      <div style={grid2}>
+        <Campo label="% Reajuste">
+          <input value={percentualReajuste} onChange={e => setPercentualReajuste(e.target.value)} style={inputStyle} placeholder="4.56" />
+        </Campo>
+        <Campo label="Índice">
+          <input value={indiceReajuste} onChange={e => setIndiceReajuste(e.target.value)} style={inputStyle} />
+        </Campo>
+      </div>
+
+      <Campo label="Observações">
         <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)}
-          style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
+          style={{ ...inputStyle, minHeight: 44, resize: 'vertical' }} />
       </Campo>
 
-      {(novaDataVencimento || novoValorMensal || novoValorTotal) && (
-        <div style={{
-          padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6,
-          display: 'grid', gap: 4,
-        }}>
+      {itensResultantes.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: 6, overflow: 'hidden' }}>
+          <div style={{ padding: '8px 12px', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#166534', letterSpacing: 0.3 }}>
+            ITENS RESULTANTES · {itensResultantes.length}
+          </div>
+          <TabelaItens itens={itensResultantes} />
+        </div>
+      )}
+
+      {(novaDataVencimento || novoValorTotal) && (
+        <div style={{ padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, display: 'grid', gap: 4 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
             Aplicar ao contrato principal:
           </div>
           {novaDataVencimento && (
             <label style={checkboxStyle}>
               <input type="checkbox" checked={aplicarVencimento} onChange={e => setAplicarVencimento(e.target.checked)} />
-              Atualizar data de vencimento para <strong>{fmtData(novaDataVencimento)}</strong>
-            </label>
-          )}
-          {novoValorMensal && (
-            <label style={checkboxStyle}>
-              <input type="checkbox" checked={aplicarValorMensal} onChange={e => setAplicarValorMensal(e.target.checked)} />
-              Atualizar valor mensal para <strong>{fmtReal(Number(novoValorMensal.replace(',', '.')))}</strong>
+              Atualizar vencimento para <strong>{fmtData(novaDataVencimento)}</strong>
             </label>
           )}
           {novoValorTotal && (
             <label style={checkboxStyle}>
-              <input type="checkbox" checked={aplicarValorTotal} onChange={e => setAplicarValorTotal(e.target.checked)} />
+              <input type="checkbox" checked={aplicarValor} onChange={e => setAplicarValor(e.target.checked)} />
               Atualizar valor total para <strong>{fmtReal(Number(novoValorTotal.replace(',', '.')))}</strong>
             </label>
           )}
@@ -689,33 +640,52 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
   )
 }
 
-const Campo = ({ label, children, comIA }: { label: string; children: React.ReactNode; comIA?: boolean }) => (
+// ==== Componentes auxiliares ====
+
+const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
+  <div style={{ overflowX: 'auto' }}>
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+      <thead>
+        <tr style={{ background: '#fafafa', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+          <th style={thStyle}>#</th>
+          <th style={thStyle}>Descrição</th>
+          <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
+          <th style={thStyle}>Unid</th>
+          <th style={{ ...thStyle, textAlign: 'right' }}>V. Unit.</th>
+          <th style={{ ...thStyle, textAlign: 'right' }}>V. Total</th>
+        </tr>
+      </thead>
+      <tbody>
+        {itens.map((it, idx) => (
+          <tr key={it.id || idx} style={{ borderTop: '1px solid #f1f5f9' }}>
+            <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
+            <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
+            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+            <td style={tdStyle}>{it.unidade || '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+)
+
+const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: 'block' }}>
-    <div style={{
-      fontSize: 12, color: '#374151', fontWeight: 600, marginBottom: 6,
-      display: 'flex', gap: 6, alignItems: 'center',
-    }}>
-      {label}
-      {comIA && (
-        <span style={{
-          fontSize: 10, fontWeight: 700, color: '#b45309',
-          background: '#fef3c7', border: '1px solid #fde68a',
-          padding: '1px 6px', borderRadius: 4, letterSpacing: 0.3,
-        }}>✨ IA</span>
-      )}
-    </div>
+    <div style={{ fontSize: 11, color: '#374151', fontWeight: 600, marginBottom: 4 }}>{label}</div>
     {children}
   </label>
 )
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '10px 12px', border: '1px solid #e5e7eb',
-  borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
+  width: '100%', padding: '9px 11px', border: '1px solid #e5e7eb',
+  borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none',
   boxSizing: 'border-box', background: '#fff',
 }
 
 const grid2: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12,
+  display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10,
 }
 
 const linkStyle: React.CSSProperties = {
@@ -724,13 +694,21 @@ const linkStyle: React.CSSProperties = {
   fontFamily: 'inherit', padding: 0, textDecoration: 'underline',
 }
 
-const linkDangerStyle: React.CSSProperties = {
-  fontSize: 12, color: '#b91c1c', fontWeight: 600,
-  background: 'transparent', border: 'none', cursor: 'pointer',
-  fontFamily: 'inherit', padding: 0,
-}
+const miniBtn = (cor: string): React.CSSProperties => ({
+  padding: '5px 10px', background: 'transparent', color: cor,
+  border: `1px solid ${cor}40`, borderRadius: 5, fontSize: 11, fontWeight: 600,
+  cursor: 'pointer', fontFamily: 'inherit',
+})
 
 const checkboxStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   fontSize: 12, color: '#374151', cursor: 'pointer',
+}
+
+const thStyle: React.CSSProperties = {
+  padding: '7px 10px', textAlign: 'left', fontWeight: 600,
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '7px 10px', color: '#334155',
 }
