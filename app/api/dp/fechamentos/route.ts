@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { redis } from '@/lib/redis'
 
-// Fechamentos são registros de folha importados, identificados por mesAno + tipo
-// Armazena metadados: { mesAno, tipo: 'antecipacao'|'folha', arquivo, totalGeral, totalPorCidade, dataImport }
-
 const KEY_FECHAMENTOS = 'dp:fechamentos'
 
 export interface Fechamento {
   id: string
-  mesAno: string           // "2026-04"
+  mesAno: string
   tipo: 'antecipacao' | 'folha'
-  arquivo: string          // nome do arquivo original
+  arquivo: string
   totalGeral: number
   totalPorCidade: Record<string, number>
+  valorPorColaborador: Record<string, number>   // ← CAMPO ADICIONADO
   totalColaboradores: number
-  dataImport: string       // ISO
+  dataImport: string
 }
 
 export async function GET(req: NextRequest) {
@@ -31,7 +29,19 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const fechamento: Fechamento = await req.json()
+    const body = await req.json()
+    // Usar spread explícito para garantir que valorPorColaborador é preservado
+    const fechamento: Fechamento = {
+      id:                   body.id,
+      mesAno:               body.mesAno,
+      tipo:                 body.tipo,
+      arquivo:              body.arquivo,
+      totalGeral:           body.totalGeral,
+      totalPorCidade:       body.totalPorCidade       ?? {},
+      valorPorColaborador:  body.valorPorColaborador  ?? {},   // ← PERSISTIDO
+      totalColaboradores:   body.totalColaboradores   ?? 0,
+      dataImport:           body.dataImport,
+    }
     const lista = await redis.get<Fechamento[]>(KEY_FECHAMENTOS) || []
     const idx = lista.findIndex(f => f.id === fechamento.id)
     if (idx >= 0) lista[idx] = fechamento
