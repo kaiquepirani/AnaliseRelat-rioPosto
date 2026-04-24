@@ -66,23 +66,25 @@ function ModalHistorico({
 }) {
   const nomeKey = colaborador.nome.trim().toUpperCase()
 
-  const historico: HistoricoItem[] = useMemo(() => {
+  const historico = useMemo((): HistoricoItem[] => {
     const mesesSet = Array.from(new Set(fechamentos.map(f => f.mesAno))).sort().reverse()
-    return mesesSet.map(mesAno => {
-      const fAntecip = fechamentos.find(f => f.mesAno === mesAno && f.tipo === 'antecipacao')
-      const fFolha   = fechamentos.find(f => f.mesAno === mesAno && f.tipo === 'folha')
+    const resultado: HistoricoItem[] = []
+    for (const mes of mesesSet) {
+      const fAntecip = fechamentos.find(f => f.mesAno === mes && f.tipo === 'antecipacao')
+      const fFolha   = fechamentos.find(f => f.mesAno === mes && f.tipo === 'folha')
       const antecipacao = fAntecip?.valorPorColaborador?.[nomeKey] ?? null
       const folha       = fFolha?.valorPorColaborador?.[nomeKey] ?? null
-      if (antecipacao === null && folha === null) return null
-      return {
-        mesAno,
+      if (antecipacao === null && folha === null) continue
+      resultado.push({
+        mesAno: mes,
         antecipacao,
         folha,
         total: (antecipacao ?? 0) + (folha ?? 0),
         arquivoAntecip: fAntecip?.arquivo,
         arquivoFolha: fFolha?.arquivo,
-      }
-    }).filter((h): h is HistoricoItem => h !== null)
+      })
+    }
+    return resultado
   }, [fechamentos, nomeKey])
 
   const totalGeral   = historico.reduce((s, h) => s + h.total, 0)
