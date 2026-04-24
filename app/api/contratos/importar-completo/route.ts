@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requisicaoAutenticada } from '@/lib/contratos-auth'
-import { get } from '@vercel/blob'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -27,7 +26,7 @@ Retorne APENAS um objeto JSON puro, sem markdown, sem crases, sem explicações:
 }
 
 REGRAS:
-- Foco APENAS na primeira tabela de valores (do contrato nativo), mesmo que haja tabelas de aditamentos depois
+- Foco APENAS na primeira tabela de valores (do contrato nativo)
 - Se não encontrar algum campo, retorne null
 - Valores decimais (ponto), sem R$, sem milhar
 - Datas YYYY-MM-DD
@@ -36,9 +35,9 @@ REGRAS:
 
 Responda APENAS o JSON.`
 
-const PROMPT_ADITAMENTOS = `Extraia APENAS os TERMOS DE ADITAMENTO e APOSTILAMENTOS deste PDF (ignore o contrato original se houver).
+const PROMPT_ADITAMENTOS = `Extraia APENAS os TERMOS DE ADITAMENTO e APOSTILAMENTOS deste PDF (ignore o contrato original).
 
-Cada aditamento ou apostilamento é um evento cronológico que alterou o contrato (reajuste, acréscimo, supressão, prorrogação).
+Cada aditamento é um evento cronológico que alterou o contrato.
 
 Retorne APENAS um JSON puro (sem markdown), em ordem cronológica (mais antigo primeiro):
 
@@ -60,11 +59,10 @@ Retorne APENAS um JSON puro (sem markdown), em ordem cronológica (mais antigo p
 
 REGRAS:
 - Se o PDF não tem aditamentos/apostilamentos, retorne {"aditamentos": []}
-- itensResultantes: lista COMPLETA de itens após o aditamento (inclui os que não mudaram)
-- Se um aditamento não tem tabela de itens, retorne itensResultantes: []
-- Apostilamentos também contam como aditamentos do tipo "reajuste"
-- Se um aditamento NÃO alterou valores (ex: só prorrogou o prazo), use tipo "prorrogacao"
-- Se o aditamento diz "valores já corrigidos por apostilamento anterior" e mostra uma tabela, use esses valores como itensResultantes e tipo "reajuste"
+- itensResultantes: lista COMPLETA de itens após o aditamento
+- Apostilamentos contam como aditamentos do tipo "reajuste"
+- Aditamento que só prorroga o prazo: tipo "prorrogacao"
+- Se valores "já corrigidos por apostilamento" e há tabela: use esses valores e tipo "reajuste"
 - Valores decimais (ponto), sem R$, sem milhar
 - NÃO invente dados
 
@@ -131,7 +129,7 @@ const chamarIA = async (apiKey: string, base64: string, prompt: string, maxToken
   })
   if (!resp.ok) {
     const detalhe = await resp.text()
-    throw new Error(`IA falhou: ${detalhe.slice(0, 300)}`)
+    throw new Error(`IA: ${detalhe.slice(0, 300)}`)
   }
   const data = await resp.json()
   const blocos = Array.isArray(data.content) ? data.content : []
@@ -140,7 +138,7 @@ const chamarIA = async (apiKey: string, base64: string, prompt: string, maxToken
   try {
     return JSON.parse(limparTexto(textoBloco.text))
   } catch {
-    throw new Error(`IA retornou JSON inválido: ${textoBloco.text.slice(0, 200)}`)
+    throw new Error(`JSON inválido: ${textoBloco.text.slice(0, 200)}`)
   }
 }
 
@@ -164,20 +162,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: 'blobUrl ausente' }, { status: 400 })
   }
 
+  // Baixa o PDF diretamente da URL pública do Blob
   let base64: string
   try {
-    const result = await get(blobUrl, { access: 'private' })
-    if (!result || !result.stream) {
-      return NextResponse.json({ erro: 'Arquivo não encontrado no Blob' }, { status: 404 })
+    const resp = await fetch(blobUrl)
+    if (!resp.ok) {
+      return NextResponse.json({ erro: 'Falha ao baixar PDF do Blob', status: resp.status }, { status: 500 })
     }
-    const chunks: Buffer[] = []
-    const reader = result.stream.getReader()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      chunks.push(Buffer.from(value))
-    }
-    base64 = Buffer.concat(chunks).toString('base64')
+    const buf = Buffer.from(await resp.arrayBuffer())
+    base64 = buf.toString('base64')
   } catch (e: any) {
     return NextResponse.json(
       { erro: 'Falha ao ler arquivo', detalhe: String(e?.message || e).slice(0, 300) },
@@ -185,7 +178,6 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Dispara as 2 chamadas à IA em paralelo (mais rápido)
   try {
     const [resContrato, resAditamentos] = await Promise.all([
       chamarIA(apiKey, base64, PROMPT_CONTRATO, 6000).catch(e => ({ __erro: e.message })),
@@ -194,7 +186,7 @@ export async function POST(req: NextRequest) {
 
     if ((resContrato as any)?.__erro && (resAditamentos as any)?.__erro) {
       return NextResponse.json({
-        erro: 'IA falhou nas duas análises',
+        erro: 'IA falhou',
         detalhe: `Contrato: ${(resContrato as any).__erro}. Aditamentos: ${(resAditamentos as any).__erro}`,
       }, { status: 500 })
     }
@@ -242,8 +234,6 @@ export async function POST(req: NextRequest) {
       contemAditamentos: aditamentos.length > 0,
       contrato,
       aditamentos,
-      avisoContrato: (resContrato as any)?.__erro || undefined,
-      avisoAditamentos: (resAditamentos as any)?.__erro || undefined,
     })
   } catch (e: any) {
     return NextResponse.json(
