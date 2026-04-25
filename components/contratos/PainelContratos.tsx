@@ -9,6 +9,7 @@ import {
 } from '@/lib/contratos-types'
 import FormularioContrato from './FormularioContrato'
 import PreviaImportacao from './PreviaImportacao'
+import ResumoContratos from './ResumoContratos'
 
 interface Props {
   token: string
@@ -42,9 +43,11 @@ const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
   return 'VIGENTE'
 }
 
+type Aba = 'resumo' | 'contratos'
 type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
+  const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [contratos, setContratos] = useState<Contrato[]>([])
   const [carregando, setCarregando] = useState(true)
   const [filtroSituacao, setFiltroSituacao] = useState<FiltroSituacao>('ativos')
@@ -265,98 +268,123 @@ export default function PainelContratos({ token, onLogout }: Props) {
         </div>
       </header>
 
+      {/* ABAS */}
+      <div style={{
+        background: '#fff', borderBottom: '1px solid #e5e7eb',
+        padding: '0 24px', display: 'flex', gap: 4,
+        position: 'sticky', top: 0, zIndex: 10,
+      }}>
+        <BotaoAba ativo={abaAtiva === 'resumo'} onClick={() => setAbaAtiva('resumo')}
+          icone="📊" label="Resumo" />
+        <BotaoAba ativo={abaAtiva === 'contratos'} onClick={() => setAbaAtiva('contratos')}
+          icone="📋" label="Contratos" />
+      </div>
+
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
-        {kpis.vencendo > 0 && (
-          <AlertaTopo cor="#f59e0b" bg="#fffbeb" borda="#fde68a" textoCor="#92400e"
-            emoji="⚠️"
-            titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
-            sub="Revise e providencie a renovação antes do vencimento." />
-        )}
-        {kpis.vencidos > 0 && (
-          <AlertaTopo cor="#dc2626" bg="#fef2f2" borda="#fecaca" textoCor="#991b1b"
-            emoji="🚨"
-            titulo={`${kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}`}
-            sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
-        )}
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 14, marginBottom: 20,
-        }}>
-          <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B" />
-          <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b" />
-          <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626" />
-          <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
-        </div>
-
-        <div style={{
-          background: '#fff', padding: 14, borderRadius: 12,
-          display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
-          marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-        }}>
-          <input
-            placeholder="Buscar por contratante, número, cidade..."
-            value={busca} onChange={e => setBusca(e.target.value)}
-            style={{
-              flex: '1 1 220px', padding: '10px 12px', border: '1px solid #e5e7eb',
-              borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
-            }}
-          />
-          <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
-            <option value="ativos">Ativos (padrão)</option>
-            <option value="todos">Todos</option>
-            <option value="vigente">Vigentes</option>
-            <option value="vencendo">Vencendo</option>
-            <option value="vencido">Vencidos</option>
-            <option value="em_renovacao">Em renovação</option>
-            <option value="encerrado">Encerrados</option>
-          </select>
-          <select value={filtroCidade} onChange={e => setFiltroCidade(e.target.value)} style={selectStyle}>
-            <option value="">Todas as cidades</option>
-            {cidades.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-
-          <input ref={inputImportRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) importarPDF(f) }} />
-          <button onClick={() => inputImportRef.current?.click()} disabled={importando} style={{
-            padding: '10px 16px',
-            background: importando ? '#94a3b8' : '#7c3aed', color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
-            cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-          }}>
-            {importando ? '✨ Analisando PDF...' : '✨ Importar PDF (IA)'}
-          </button>
-          <button onClick={abrirNovo} style={{
-            padding: '10px 16px', background: '#2D3A6B', color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'inherit',
-          }}>+ Novo manual</button>
-        </div>
 
         {carregando ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#64748b' }}>Carregando...</div>
-        ) : filtrados.length === 0 ? (
-          <div style={{
-            padding: 40, textAlign: 'center', color: '#64748b',
-            background: '#fff', borderRadius: 12,
-          }}>
-            {contratos.length === 0
-              ? 'Nenhum contrato cadastrado. Clique em "✨ Importar PDF (IA)" para começar.'
-              : 'Nenhum contrato encontrado com esses filtros.'}
+          <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
+            Carregando...
           </div>
+        ) : abaAtiva === 'resumo' ? (
+          <ResumoContratos contratos={contratos} />
         ) : (
-          <div style={{ display: 'grid', gap: 14 }}>
-            {filtrados.map(c => (
-              <CardContrato
-                key={c.id} contrato={c} token={token}
-                expandido={expandidos.has(c.id)}
-                onToggle={() => toggleExpandido(c.id)}
-                onEditar={() => abrirEdicao(c)}
-                onExcluir={() => excluir(c)}
+          <>
+            {/* AVISOS NO TOPO DA ABA CONTRATOS */}
+            {kpis.vencendo > 0 && (
+              <AlertaTopo cor="#f59e0b" bg="#fffbeb" borda="#fde68a" textoCor="#92400e"
+                emoji="⚠️"
+                titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
+                sub="Revise e providencie a renovação antes do vencimento." />
+            )}
+            {kpis.vencidos > 0 && (
+              <AlertaTopo cor="#dc2626" bg="#fef2f2" borda="#fecaca" textoCor="#991b1b"
+                emoji="🚨"
+                titulo={`${kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}`}
+                sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
+            )}
+
+            {/* KPIs RÁPIDOS */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gap: 14, marginBottom: 20,
+            }}>
+              <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B" />
+              <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b" />
+              <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626" />
+              <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
+            </div>
+
+            {/* FILTROS E AÇÕES */}
+            <div style={{
+              background: '#fff', padding: 14, borderRadius: 12,
+              display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
+              marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            }}>
+              <input
+                placeholder="Buscar por contratante, número, cidade..."
+                value={busca} onChange={e => setBusca(e.target.value)}
+                style={{
+                  flex: '1 1 220px', padding: '10px 12px', border: '1px solid #e5e7eb',
+                  borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                }}
               />
-            ))}
-          </div>
+              <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
+                <option value="ativos">Ativos (padrão)</option>
+                <option value="todos">Todos</option>
+                <option value="vigente">Vigentes</option>
+                <option value="vencendo">Vencendo</option>
+                <option value="vencido">Vencidos</option>
+                <option value="em_renovacao">Em renovação</option>
+                <option value="encerrado">Encerrados</option>
+              </select>
+              <select value={filtroCidade} onChange={e => setFiltroCidade(e.target.value)} style={selectStyle}>
+                <option value="">Todas as cidades</option>
+                {cidades.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+
+              <input ref={inputImportRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+                onChange={e => { const f = e.target.files?.[0]; if (f) importarPDF(f) }} />
+              <button onClick={() => inputImportRef.current?.click()} disabled={importando} style={{
+                padding: '10px 16px',
+                background: importando ? '#94a3b8' : '#7c3aed', color: '#fff',
+                border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+              }}>
+                {importando ? '✨ Analisando PDF...' : '✨ Importar PDF (IA)'}
+              </button>
+              <button onClick={abrirNovo} style={{
+                padding: '10px 16px', background: '#2D3A6B', color: '#fff',
+                border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>+ Novo manual</button>
+            </div>
+
+            {/* LISTA DE CONTRATOS */}
+            {filtrados.length === 0 ? (
+              <div style={{
+                padding: 40, textAlign: 'center', color: '#64748b',
+                background: '#fff', borderRadius: 12,
+              }}>
+                {contratos.length === 0
+                  ? 'Nenhum contrato cadastrado. Clique em "✨ Importar PDF (IA)" para começar.'
+                  : 'Nenhum contrato encontrado com esses filtros.'}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 14 }}>
+                {filtrados.map(c => (
+                  <CardContrato
+                    key={c.id} contrato={c} token={token}
+                    expandido={expandidos.has(c.id)}
+                    onToggle={() => toggleExpandido(c.id)}
+                    onEditar={() => abrirEdicao(c)}
+                    onExcluir={() => excluir(c)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
         )}
       </main>
 
@@ -378,6 +406,25 @@ export default function PainelContratos({ token, onLogout }: Props) {
     </div>
   )
 }
+
+const BotaoAba = ({ ativo, onClick, icone, label }: {
+  ativo: boolean; onClick: () => void; icone: string; label: string
+}) => (
+  <button onClick={onClick} style={{
+    padding: '14px 20px',
+    background: 'transparent',
+    color: ativo ? '#2D3A6B' : '#64748b',
+    border: 'none',
+    borderBottom: `3px solid ${ativo ? '#2D3A6B' : 'transparent'}`,
+    fontSize: 14, fontWeight: 600,
+    cursor: 'pointer', fontFamily: 'inherit',
+    display: 'flex', alignItems: 'center', gap: 8,
+    transition: 'all 0.2s',
+  }}>
+    <span style={{ fontSize: 16 }}>{icone}</span>
+    {label}
+  </button>
+)
 
 const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExcluir }: {
   contrato: ContratoComAlerta
