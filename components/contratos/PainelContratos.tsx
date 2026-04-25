@@ -31,6 +31,7 @@ const fmtData = (iso: string | undefined) => {
 const corSituacao = (s: ContratoComAlerta['situacao']) => {
   if (s === 'vencido')       return { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' }
   if (s === 'vencendo')      return { bg: '#fffbeb', border: '#fde68a', text: '#b45309' }
+  if (s === 'vencendo_60')   return { bg: '#fefce8', border: '#fde047', text: '#854d0e' }
   if (s === 'em_renovacao')  return { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' }
   if (s === 'encerrado')     return { bg: '#f3f4f6', border: '#e5e7eb', text: '#4b5563' }
   return { bg: '#ecfdf5', border: '#a7f3d0', text: '#047857' }
@@ -39,13 +40,14 @@ const corSituacao = (s: ContratoComAlerta['situacao']) => {
 const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
   if (s === 'vencido')       return 'VENCIDO'
   if (s === 'vencendo')      return 'VENCENDO'
+  if (s === 'vencendo_60')   return 'A VENCER'
   if (s === 'em_renovacao')  return 'EM RENOVAÇÃO'
   if (s === 'encerrado')     return 'ENCERRADO'
   return 'VIGENTE'
 }
 
 type Aba = 'resumo' | 'contratos' | 'faturamento'
-type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
+type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencendo_60' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
@@ -113,11 +115,20 @@ export default function PainelContratos({ token, onLogout }: Props) {
   }, [contratosComAlerta, filtroSituacao, filtroCidade, busca])
 
   const kpis = useMemo(() => {
-    const vigentes = contratosComAlerta.filter(c => c.situacao === 'vigente' || c.situacao === 'vencendo')
+    const vigentes = contratosComAlerta.filter(c =>
+      c.situacao === 'vigente' || c.situacao === 'vencendo' || c.situacao === 'vencendo_60',
+    )
     const vencendo = contratosComAlerta.filter(c => c.situacao === 'vencendo')
+    const vencendo60 = contratosComAlerta.filter(c => c.situacao === 'vencendo_60')
     const vencidos = contratosComAlerta.filter(c => c.situacao === 'vencido')
     const valorTotal = vigentes.reduce((acc, c) => acc + valorTotalAtual(c), 0)
-    return { vigentes: vigentes.length, vencendo: vencendo.length, vencidos: vencidos.length, valorTotal }
+    return {
+      vigentes: vigentes.length,
+      vencendo: vencendo.length,
+      vencendo60: vencendo60.length,
+      vencidos: vencidos.length,
+      valorTotal,
+    }
   }, [contratosComAlerta])
 
   const abrirNovo = () => { setEmEdicao(null); setFormAberto(true) }
@@ -349,6 +360,12 @@ export default function PainelContratos({ token, onLogout }: Props) {
                 titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
                 sub="Revise e providencie a renovação antes do vencimento." />
             )}
+            {kpis.vencendo60 > 0 && (
+              <AlertaTopo cor="#eab308" bg="#fefce8" borda="#fde047" textoCor="#854d0e"
+                emoji="📅"
+                titulo={`${kpis.vencendo60 === 1 ? '1 contrato vence' : `${kpis.vencendo60} contratos vencem`} entre 31 e 60 dias`}
+                sub="Comece a planejar a renovação ou nova licitação com antecedência." />
+            )}
             {kpis.vencidos > 0 && (
               <AlertaTopo cor="#dc2626" bg="#fef2f2" borda="#fecaca" textoCor="#991b1b"
                 emoji="🚨"
@@ -358,11 +375,12 @@ export default function PainelContratos({ token, onLogout }: Props) {
 
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
               gap: 14, marginBottom: 20,
             }}>
               <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B" />
               <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b" />
+              <KPI titulo="Vencendo em 60 dias" valor={String(kpis.vencendo60)} cor="#eab308" />
               <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626" />
               <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
             </div>
@@ -384,7 +402,8 @@ export default function PainelContratos({ token, onLogout }: Props) {
                 <option value="ativos">Ativos (padrão)</option>
                 <option value="todos">Todos</option>
                 <option value="vigente">Vigentes</option>
-                <option value="vencendo">Vencendo</option>
+                <option value="vencendo">Vencendo (30d)</option>
+                <option value="vencendo_60">A vencer (31-60d)</option>
                 <option value="vencido">Vencidos</option>
                 <option value="em_renovacao">Em renovação</option>
                 <option value="encerrado">Encerrados</option>
