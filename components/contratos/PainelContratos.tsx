@@ -10,6 +10,7 @@ import {
 import FormularioContrato from './FormularioContrato'
 import PreviaImportacao from './PreviaImportacao'
 import ResumoContratos from './ResumoContratos'
+import FaturamentoPainel from './FaturamentoPainel'
 
 interface Props {
   token: string
@@ -43,7 +44,7 @@ const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
   return 'VIGENTE'
 }
 
-type Aba = 'resumo' | 'contratos'
+type Aba = 'resumo' | 'contratos' | 'faturamento'
 type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
@@ -273,16 +274,21 @@ export default function PainelContratos({ token, onLogout }: Props) {
         background: '#fff', borderBottom: '1px solid #e5e7eb',
         padding: '0 24px', display: 'flex', gap: 4,
         position: 'sticky', top: 0, zIndex: 10,
+        overflowX: 'auto',
       }}>
         <BotaoAba ativo={abaAtiva === 'resumo'} onClick={() => setAbaAtiva('resumo')}
           icone="📊" label="Resumo" />
         <BotaoAba ativo={abaAtiva === 'contratos'} onClick={() => setAbaAtiva('contratos')}
           icone="📋" label="Contratos" />
+        <BotaoAba ativo={abaAtiva === 'faturamento'} onClick={() => setAbaAtiva('faturamento')}
+          icone="💵" label="Faturamento" />
       </div>
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
 
-        {carregando ? (
+        {abaAtiva === 'faturamento' ? (
+          <FaturamentoPainel token={token} onLogout={onLogout} />
+        ) : carregando ? (
           <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
             Carregando...
           </div>
@@ -420,6 +426,7 @@ const BotaoAba = ({ ativo, onClick, icone, label }: {
     cursor: 'pointer', fontFamily: 'inherit',
     display: 'flex', alignItems: 'center', gap: 8,
     transition: 'all 0.2s',
+    whiteSpace: 'nowrap',
   }}>
     <span style={{ fontSize: 16 }}>{icone}</span>
     {label}
