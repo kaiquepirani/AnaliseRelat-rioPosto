@@ -162,12 +162,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ erro: 'blobUrl ausente' }, { status: 400 })
   }
 
-  // Baixa o PDF diretamente da URL pública do Blob
+  // Baixa o PDF do Blob — funciona para Public (fetch direto) E Private (com token)
   let base64: string
   try {
-    const resp = await fetch(blobUrl)
+    const blobToken = process.env.BLOB_READ_WRITE_TOKEN
+    const headers: Record<string, string> = {}
+    if (blobToken) {
+      headers['Authorization'] = `Bearer ${blobToken}`
+    }
+    const resp = await fetch(blobUrl, { headers })
     if (!resp.ok) {
-      return NextResponse.json({ erro: 'Falha ao baixar PDF do Blob', status: resp.status }, { status: 500 })
+      return NextResponse.json({
+        erro: 'Falha ao baixar PDF do Blob',
+        status: resp.status,
+        detalhe: `HTTP ${resp.status} ao buscar ${blobUrl.slice(0, 100)}`,
+      }, { status: 500 })
     }
     const buf = Buffer.from(await resp.arrayBuffer())
     base64 = buf.toString('base64')
