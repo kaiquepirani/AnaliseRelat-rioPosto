@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import {
-  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer, LabelList,
 } from 'recharts'
 import type { FaturamentoCompleto, FaturamentoAno, FaturamentoMensal } from '@/lib/faturamento-types'
@@ -22,12 +22,27 @@ const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1).replace('.', '
 
 const PALETA_ANOS = ['#94a3b8', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626']
 
+// Paleta extensa pra 27+ cidades (cores distintas e legíveis)
+const PALETA_CIDADES = [
+  '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
+  '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
+  '#eab308', '#f43f5e', '#8b5cf6', '#06b6d4', '#22c55e', '#f97316',
+  '#a855f7', '#0ea5e9', '#65a30d', '#e11d48', '#3b82f6', '#d946ef',
+  '#16a34a', '#fb923c', '#9333ea', '#0284c7', '#ca8a04',
+]
+
+const corCidade = (cidade: string, todasCidades: string[]): string => {
+  const idx = todasCidades.indexOf(cidade)
+  return PALETA_CIDADES[idx % PALETA_CIDADES.length]
+}
+
 export default function FaturamentoPainel({ token, onLogout }: Props) {
   const [dados, setDados] = useState<FaturamentoCompleto | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [importando, setImportando] = useState(false)
   const [anoSelecionado, setAnoSelecionado] = useState<number | null>(null)
-  const [cidadeComparacao, setCidadeComparacao] = useState<string | null>(null)
+  const [modoFiltro, setModoFiltro] = useState<'todos' | 'top10' | 'custom'>('todos')
+  const [cidadesAtivas, setCidadesAtivas] = useState<Set<string>>(new Set())
   const inputFileRef = useRef<HTMLInputElement>(null)
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
@@ -112,7 +127,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     )
   }
 
-  // ==== Cálculos ====
+  // ==== Cálculos básicos ====
   const anos = dados.anos
   const anoAtual = anoSelecionado || anos[anos.length - 1]
   const anoAtualData = dados.porAno[anoAtual]
@@ -138,14 +153,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return calcularCrescimento(acumAnterior, acumAtual)
   })()
 
-  const dadosLinhaAnos = NOMES_MESES.map((mes, i) => {
-    const obj: any = { mes }
-    for (const ano of anos) {
-      obj[String(ano)] = dados.porAno[ano].totalPorMes[i] || 0
-    }
-    return obj
-  })
-
   const dadosBarrasMes = NOMES_MESES.map((mes, i) => ({
     mes,
     valor: anoAtualData.totalPorMes[i] || 0,
@@ -153,33 +160,58 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
 
   const top10Cidades = anoAtualData.cidades.slice(0, 10)
 
-  // ==== Comparativo por contrato ====
+  // ==== Lista global de cidades (todos os anos, ordenada alfabeticamente) ====
   const todasCidadesSet = new Set<string>()
   for (const ano of anos) {
-    for (const c of dados.porAno[ano].cidades) {
-      todasCidadesSet.add(c.cidade)
-    }
+    for (const c of dados.porAno[ano].cidades) todasCidadesSet.add(c.cidade)
   }
-  const todasCidades = Array.from(todasCidadesSet).sort()
-  const cidadeAtualComp = cidadeComparacao || (anoAtualData.cidades[0]?.cidade ?? '')
-  const dadosComparativo = NOMES_MESES.map((mes, i) => {
+  const todasCidadesGlobal = Array.from(todasCidadesSet).sort()
+
+  // ==== Cidades disponíveis no ano atual (ordenadas por total desc) ====
+  const cidadesDoAno = anoAtualData.cidades
+
+  // ==== Cidades selecionadas pra renderizar no gráfico ====
+  let cidadesParaGrafico: string[] = []
+  if (modoFiltro === 'todos') {
+    cidadesParaGrafico = cidadesDoAno.map(c => c.cidade)
+  } else if (modoFiltro === 'top10') {
+    cidadesParaGrafico = top10Cidades.map(c => c.cidade)
+  } else {
+    // custom: usa o set
+    cidadesParaGrafico = cidadesDoAno
+      .filter(c => cidadesAtivas.has(c.cidade))
+      .map(c => c.cidade)
+  }
+
+  // ==== Monta dados pra barras empilhadas ====
+  // Cada item = { mes: 'Jan', cidade1: valor, cidade2: valor, ... }
+  const dadosEmpilhado = NOMES_MESES.map((mes, i) => {
     const obj: any = { mes }
-    for (const ano of anos) {
-      const cid = dados.porAno[ano].cidades.find(c => c.cidade === cidadeAtualComp)
-      obj[String(ano)] = cid?.meses[i] ?? null
+    if (modoFiltro === 'todos') {
+      // Modo "Todos": uma única série com soma total
+      obj['__total__'] = anoAtualData.totalPorMes[i] || 0
+    } else {
+      for (const cidade of cidadesParaGrafico) {
+        const cid = anoAtualData.cidades.find(c => c.cidade === cidade)
+        obj[cidade] = cid?.meses[i] ?? 0
+      }
     }
     return obj
   })
-  const totaisPorAnoComp = anos.map(ano => {
-    const cid = dados.porAno[ano].cidades.find(c => c.cidade === cidadeAtualComp)
-    return { ano, total: cid?.total ?? 0 }
-  })
-  const anosComDadoComp = totaisPorAnoComp.filter(t => t.total > 0)
+
+  // ==== Toggle de uma cidade no modo custom ====
+  const toggleCidade = (cidade: string) => {
+    const novo = new Set(cidadesAtivas)
+    if (novo.has(cidade)) novo.delete(cidade)
+    else novo.add(cidade)
+    setCidadesAtivas(novo)
+    setModoFiltro('custom')
+  }
 
   return (
     <div style={{ display: 'grid', gap: 16, width: '100%', minWidth: 0 }}>
 
-      {/* === Cabeçalho com seletor de ano e botão de importar === */}
+      {/* === Cabeçalho === */}
       <div style={{
         background: '#fff', padding: 14, borderRadius: 12,
         boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
@@ -240,31 +272,95 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
           sub={`em ${anoAtual}`} cor="#4AABDB" icone="🏙️" />
       </div>
 
-      {/* === Gráfico: Comparação Anual (barras agrupadas por mês) === */}
-      <Secao titulo="📊 Faturamento Mensal — Comparação por Ano"
-        sub="Cada mês mostra os anos lado a lado">
-        <div style={{ width: '100%', height: 360 }}>
+      {/* === Gráfico: Barras empilhadas estilo combustível === */}
+      <Secao titulo={`📊 Evolução Mensal por Contrato — ${anoAtual}`}
+        sub='Selecione um contrato para ver isolado, ou "Todos" para ver o total geral'>
+
+        {/* Chips de filtro */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          <button onClick={() => { setModoFiltro('todos'); setCidadesAtivas(new Set()) }}
+            style={chipStyle(modoFiltro === 'todos', '#2D3A6B')}>
+            Todos
+          </button>
+          <button onClick={() => { setModoFiltro('top10'); setCidadesAtivas(new Set()) }}
+            style={chipStyle(modoFiltro === 'top10', '#4AABDB')}>
+            Top 10
+          </button>
+          {cidadesDoAno.map(c => {
+            const ativo = modoFiltro === 'custom' && cidadesAtivas.has(c.cidade)
+            const cor = corCidade(c.cidade, todasCidadesGlobal)
+            return (
+              <button key={c.cidade} onClick={() => toggleCidade(c.cidade)}
+                title={`${c.cidade} — ${fmtReal(c.total)}`}
+                style={chipStyle(ativo, cor)}>
+                {c.cidade}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Gráfico */}
+        <div style={{ width: '100%', height: 380 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dadosLinhaAnos} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+            <BarChart data={dadosEmpilhado} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
               <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
-              <Tooltip formatter={(v: any) => fmtReal(Number(v))}
-                contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ fontWeight: 600 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {anos.map((ano, idx) => (
-                <Bar key={ano} dataKey={String(ano)}
-                  fill={PALETA_ANOS[idx % PALETA_ANOS.length]}
-                  radius={[3, 3, 0, 0]}
-                  opacity={ano === anoAtual ? 1 : 0.7} />
-              ))}
+              <Tooltip
+                formatter={(v: any, name: any) => [fmtReal(Number(v)), name === '__total__' ? 'Total' : name]}
+                contentStyle={{ borderRadius: 8, fontSize: 12, maxWidth: 320 }}
+                labelStyle={{ fontWeight: 600 }}
+                itemSorter={(item: any) => -Number(item.value)}
+              />
+              {modoFiltro === 'todos' ? (
+                <Bar dataKey="__total__" fill="#2D3A6B" radius={[6, 6, 0, 0]} name="Total">
+                  <LabelList dataKey="__total__" position="top" formatter={fmtRealK}
+                    style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
+                </Bar>
+              ) : (
+                cidadesParaGrafico.map(cidade => (
+                  <Bar key={cidade} dataKey={cidade} stackId="a"
+                    fill={corCidade(cidade, todasCidadesGlobal)}
+                    name={cidade} />
+                ))
+              )}
             </BarChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Legenda customizada quando NÃO está em modo "todos" */}
+        {modoFiltro !== 'todos' && cidadesParaGrafico.length > 0 && (
+          <div style={{
+            marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8,
+            paddingTop: 10, borderTop: '1px solid #f1f5f9',
+          }}>
+            {cidadesParaGrafico.map(cidade => (
+              <div key={cidade} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                fontSize: 11, color: '#475569',
+              }}>
+                <span style={{
+                  width: 10, height: 10, borderRadius: 2,
+                  background: corCidade(cidade, todasCidadesGlobal), flexShrink: 0,
+                }} />
+                {cidade}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {modoFiltro === 'custom' && cidadesAtivas.size === 0 && (
+          <div style={{
+            marginTop: 14, padding: 16, textAlign: 'center',
+            color: '#94a3b8', fontSize: 12,
+            background: '#f8fafc', borderRadius: 6, border: '1px dashed #e2e8f0',
+          }}>
+            Nenhum contrato selecionado. Clique nos chips acima para escolher quais visualizar.
+          </div>
+        )}
       </Secao>
 
-      {/* === Gráfico: Barras do ano selecionado === */}
+      {/* === Gráfico: Barras simples do ano selecionado === */}
       <Secao titulo={`📊 Faturamento Mensal ${anoAtual}`}
         sub="Detalhamento mês a mês do ano selecionado">
         <div style={{ width: '100%', height: 280 }}>
@@ -282,99 +378,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </Secao>
-
-      {/* === Gráfico: Comparativo de uma cidade entre anos === */}
-      <Secao titulo="🔍 Comparativo por Contrato"
-        sub="Selecione uma cidade e veja sua evolução em todos os anos">
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={{
-            fontSize: 12, color: '#64748b', fontWeight: 600,
-            display: 'block', marginBottom: 6,
-          }}>
-            Cidade / Contrato:
-          </label>
-          <select value={cidadeAtualComp}
-            onChange={e => setCidadeComparacao(e.target.value)}
-            style={{
-              width: '100%', maxWidth: 400,
-              padding: '10px 12px', border: '1px solid #e5e7eb',
-              borderRadius: 8, fontSize: 14, background: '#fff',
-              fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
-              fontWeight: 600,
-            }}>
-            {todasCidades.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </div>
-
-        <div style={{ width: '100%', height: 320 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={dadosComparativo} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
-              <Tooltip formatter={(v: any) => v != null ? fmtReal(Number(v)) : '—'}
-                contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                labelStyle={{ fontWeight: 600 }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {anos.map((ano, idx) => (
-                <Line key={ano} type="monotone" dataKey={String(ano)}
-                  stroke={PALETA_ANOS[idx % PALETA_ANOS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 6 }}
-                  connectNulls={false} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Cards de totais por ano */}
-        <div style={{
-          marginTop: 16,
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-          gap: 8,
-        }}>
-          {totaisPorAnoComp.map((t, idx) => {
-            const tAnterior = idx > 0 ? totaisPorAnoComp[idx - 1] : null
-            const cresc = tAnterior && tAnterior.total > 0
-              ? ((t.total - tAnterior.total) / tAnterior.total) * 100
-              : null
-            return (
-              <div key={t.ano} style={{
-                padding: 10,
-                background: t.total > 0 ? '#f8fafc' : '#fafafa',
-                border: `1px solid ${t.total > 0 ? '#e2e8f0' : '#f1f5f9'}`,
-                borderRadius: 8,
-                borderTop: `3px solid ${PALETA_ANOS[idx % PALETA_ANOS.length]}`,
-                opacity: t.total > 0 ? 1 : 0.5,
-              }}>
-                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{t.ano}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginTop: 4 }}>
-                  {t.total > 0 ? fmtRealK(t.total) : '—'}
-                </div>
-                {cresc !== null && t.total > 0 && (
-                  <div style={{
-                    fontSize: 10, fontWeight: 600, marginTop: 2,
-                    color: cresc >= 0 ? '#047857' : '#dc2626',
-                  }}>
-                    {fmtPct(cresc)} vs {anos[idx - 1]}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-
-        {anosComDadoComp.length === 0 && (
-          <div style={{ marginTop: 14, padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
-            Sem dados para esta cidade nos anos disponíveis.
-          </div>
-        )}
       </Secao>
 
       {/* === Tabela: Detalhamento por Cidade === */}
@@ -518,6 +521,22 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     </div>
   )
 }
+
+// ===== Estilos & componentes auxiliares =====
+
+const chipStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
+  padding: '5px 11px',
+  background: ativo ? cor : '#fff',
+  color: ativo ? '#fff' : '#334155',
+  border: `1.5px solid ${ativo ? cor : '#e2e8f0'}`,
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+  transition: 'all 0.15s',
+})
 
 const KPI = ({ titulo, valor, sub, cor, icone }: {
   titulo: string; valor: string; sub: string; cor: string; icone: string
