@@ -384,7 +384,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
                   : 'Nenhum contrato encontrado com esses filtros.'}
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: 14 }}>
+              <div style={{ display: 'grid', gap: 6 }}>
                 {filtrados.map(c => (
                   <CardContrato
                     key={c.id} contrato={c} token={token}
