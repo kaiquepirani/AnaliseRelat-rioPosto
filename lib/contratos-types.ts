@@ -61,7 +61,7 @@ export interface Contrato {
 
 export interface ContratoComAlerta extends Contrato {
   diasRestantes: number
-  situacao: 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
+  situacao: 'vigente' | 'vencendo' | 'vencendo_60' | 'vencido' | 'encerrado' | 'em_renovacao'
 }
 
 export const TIPOS_SERVICO: TipoServicoContrato[] = [
@@ -72,6 +72,7 @@ export const TIPOS_SERVICO: TipoServicoContrato[] = [
 ]
 
 export const DIAS_ALERTA_VENCIMENTO = 30
+export const DIAS_ALERTA_VENCIMENTO_60 = 60
 
 export const calcularSituacao = (contrato: Contrato): ContratoComAlerta => {
   const hoje = new Date()
@@ -84,6 +85,7 @@ export const calcularSituacao = (contrato: Contrato): ContratoComAlerta => {
   else if (contrato.status === 'em_renovacao') situacao = 'em_renovacao'
   else if (diasRestantes < 0) situacao = 'vencido'
   else if (diasRestantes <= DIAS_ALERTA_VENCIMENTO) situacao = 'vencendo'
+  else if (diasRestantes <= DIAS_ALERTA_VENCIMENTO_60) situacao = 'vencendo_60'
   else situacao = 'vigente'
 
   return { ...contrato, diasRestantes, situacao }
