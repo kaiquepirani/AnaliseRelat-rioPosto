@@ -454,156 +454,193 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
     : null
   const itens = itensVigentes(contrato)
   const totalAtual = valorTotalAtual(contrato)
+  const objetoCurto = (contrato.objeto || '').length > 90
+    ? (contrato.objeto || '').slice(0, 90) + '…'
+    : (contrato.objeto || '')
 
   return (
     <div style={{
-      background: '#fff', borderRadius: 12, padding: 18,
+      background: '#fff', borderRadius: 8,
       borderLeft: `4px solid ${cor.text}`,
-      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-      opacity: contrato.situacao === 'encerrado' ? 0.7 : 1,
+      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+      opacity: contrato.situacao === 'encerrado' ? 0.65 : 1,
+      overflow: 'hidden',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: 0.3,
-              background: cor.bg, color: cor.text, border: `1px solid ${cor.border}`,
-              padding: '3px 8px', borderRadius: 4,
-            }}>{rotuloSituacao(contrato.situacao)}</span>
+      {/* ===== Linha compacta ===== */}
+      <div onClick={onToggle} style={{
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '10px 14px', cursor: 'pointer',
+        flexWrap: 'wrap',
+      }}>
+        {/* Situação badge */}
+        <span style={{
+          fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+          background: cor.bg, color: cor.text, border: `1px solid ${cor.border}`,
+          padding: '2px 6px', borderRadius: 3, flexShrink: 0,
+        }}>{rotuloSituacao(contrato.situacao)}</span>
+
+        {/* Bloco principal: cidade + contratante + objeto */}
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+              {contrato.cidade || '—'}
+            </span>
+            <span style={{ fontSize: 12, color: '#475569' }}>
+              {contrato.contratante || contrato.cliente}
+            </span>
             {contrato.numero && (
-              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>Nº {contrato.numero}</span>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>· Nº {contrato.numero}</span>
             )}
-            <span style={{
-              fontSize: 11, fontWeight: 600, color: '#7c3aed',
-              background: '#f5f3ff', border: '1px solid #ddd6fe',
-              padding: '2px 8px', borderRadius: 4,
-            }}>📋 {rotuloAditamentoAtual(contrato)}</span>
           </div>
-
-          <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b', marginTop: 8 }}>
-            {contrato.contratante || contrato.cliente}
-          </div>
-          {contrato.contratante && contrato.contratante !== contrato.cliente && (
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 1 }}>{contrato.cliente}</div>
-          )}
-          <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
-            {contrato.tipoServico}{contrato.cidade ? ` • ${contrato.cidade}` : ''}
-            {contrato.cnpjContratante && <> • CNPJ {contrato.cnpjContratante}</>}
-          </div>
-
-          {ultimoAd && (
-            <div style={{ fontSize: 12, color: corTipoAditamento(ultimoAd.tipo), marginTop: 6, fontWeight: 600 }}>
-              Último: {ultimoAd.numero}º TA ({rotuloTipoAditamento(ultimoAd.tipo)})
-              {ultimoAd.percentualReajuste != null && ` • ${ultimoAd.percentualReajuste.toFixed(2).replace('.', ',')}% ${ultimoAd.indiceReajuste || ''}`}
-              {' '}em {fmtData(ultimoAd.data)}
+          {objetoCurto && (
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
+              {objetoCurto}
             </div>
           )}
         </div>
 
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 12, color: '#64748b' }}>
-            {contrato.situacao === 'encerrado' ? 'Encerrado em' : 'Vencimento'}
-          </div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: cor.text }}>
+        {/* Vencimento + dias */}
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: cor.text }}>
             {fmtData(contrato.situacao === 'encerrado' && contrato.dataEncerramento ? contrato.dataEncerramento : contrato.dataVencimento)}
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+          <div style={{ fontSize: 10, color: '#64748b' }}>
             {contrato.situacao === 'vencido'
-              ? `Venceu há ${Math.abs(contrato.diasRestantes)} dia${Math.abs(contrato.diasRestantes) === 1 ? '' : 's'}`
-              : contrato.situacao === 'encerrado' || contrato.situacao === 'em_renovacao'
-              ? ''
-              : `Faltam ${contrato.diasRestantes} dia${contrato.diasRestantes === 1 ? '' : 's'}`}
+              ? `Venceu há ${Math.abs(contrato.diasRestantes)}d`
+              : contrato.situacao === 'encerrado'
+              ? 'Encerrado'
+              : contrato.situacao === 'em_renovacao'
+              ? 'Em renovação'
+              : `Faltam ${contrato.diasRestantes}d`}
           </div>
         </div>
+
+        {/* Indicador de expansão */}
+        <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
+          {expandido ? '▲' : '▼'}
+        </span>
       </div>
 
-      {contrato.objeto && (
-        <div style={{
-          marginTop: 14, fontSize: 13, color: '#475569',
-          background: '#f8fafc', padding: 10, borderRadius: 6,
-        }}>
-          <strong>Objeto:</strong> {contrato.objeto}
-        </div>
-      )}
+      {/* ===== Detalhes expandidos ===== */}
+      {expandido && (
+        <div style={{ padding: '12px 14px', borderTop: '1px solid #f1f5f9', background: '#fafbfd' }}>
 
-      <div style={{
-        marginTop: 12, display: 'flex', alignItems: 'center',
-        justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-        padding: '10px 14px', background: '#f0fdf4',
-        border: '1px solid #bbf7d0', borderRadius: 8,
-      }}>
-        <div>
-          <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, letterSpacing: 0.3 }}>VALOR TOTAL ATUAL</div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</div>
-        </div>
-        {contrato.valorTotalOriginal != null && contrato.valorTotalOriginal !== totalAtual && (
-          <div style={{ textAlign: 'right', fontSize: 12, color: '#64748b' }}>
-            <div>Valor original: {fmtReal(contrato.valorTotalOriginal)}</div>
-            <div style={{ color: '#047857', fontWeight: 600 }}>
-              +{fmtReal(totalAtual - contrato.valorTotalOriginal)} ({(((totalAtual / contrato.valorTotalOriginal) - 1) * 100).toFixed(2).replace('.', ',')}%)
+          {/* Linha de metadados */}
+          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            <span>{contrato.tipoServico}</span>
+            {contrato.cnpjContratante && <span>· CNPJ {contrato.cnpjContratante}</span>}
+            <span style={{
+              fontSize: 10, fontWeight: 600, color: '#7c3aed',
+              background: '#f5f3ff', border: '1px solid #ddd6fe',
+              padding: '1px 6px', borderRadius: 3,
+            }}>{rotuloAditamentoAtual(contrato)}</span>
+            {ultimoAd && (
+              <span style={{ color: corTipoAditamento(ultimoAd.tipo), fontWeight: 600 }}>
+                · {ultimoAd.numero}º TA ({rotuloTipoAditamento(ultimoAd.tipo)})
+                {ultimoAd.percentualReajuste != null && ` ${ultimoAd.percentualReajuste.toFixed(2).replace('.', ',')}% ${ultimoAd.indiceReajuste || ''}`}
+              </span>
+            )}
+          </div>
+
+          {/* Objeto completo */}
+          {contrato.objeto && (
+            <div style={{
+              fontSize: 12, color: '#475569',
+              background: '#fff', padding: 10, borderRadius: 6,
+              border: '1px solid #e5e7eb', marginBottom: 10,
+            }}>
+              <strong>Objeto:</strong> {contrato.objeto}
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-        {contrato.arquivoUrl && (
-          <a href={contrato.arquivoUrl} target="_blank" rel="noreferrer" style={{
-            ...acaoStyle('#4AABDB'),
-            display: 'inline-flex', alignItems: 'center',
-          }}>
-            📄 Abrir PDF
-          </a>
-        )}
-        <button onClick={onToggle} style={acaoStyle(expandido ? '#64748b' : '#047857')}>
-          {expandido ? '▲ Ocultar itens' : `🔍 Verificar ${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`}
-        </button>
-        <button onClick={onEditar} style={acaoStyle('#2D3A6B')}>Editar</button>
-        <button onClick={onExcluir} style={{
-          ...acaoStyle('#dc2626'),
-          background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
-        }}>Excluir</button>
-      </div>
-
-      {expandido && itens.length > 0 && (
-        <div style={{ marginTop: 16, background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+          {/* Valor total */}
           <div style={{
-            padding: '10px 14px', background: '#f1f5f9',
-            fontSize: 12, fontWeight: 700, color: '#334155',
-            borderBottom: '1px solid #e5e7eb',
+            display: 'flex', alignItems: 'center',
+            justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+            padding: '8px 12px', background: '#f0fdf4',
+            border: '1px solid #bbf7d0', borderRadius: 6, marginBottom: 10,
           }}>
-            ITENS / ROTAS VIGENTES ({itens.length})
+            <div>
+              <div style={{ fontSize: 10, color: '#166534', fontWeight: 600, letterSpacing: 0.3 }}>VALOR TOTAL ATUAL</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</div>
+            </div>
+            {contrato.valorTotalOriginal != null && contrato.valorTotalOriginal !== totalAtual && (
+              <div style={{ textAlign: 'right', fontSize: 11, color: '#64748b' }}>
+                <div>Valor original: {fmtReal(contrato.valorTotalOriginal)}</div>
+                <div style={{ color: '#047857', fontWeight: 600 }}>
+                  +{fmtReal(totalAtual - contrato.valorTotalOriginal)} ({(((totalAtual / contrato.valorTotalOriginal) - 1) * 100).toFixed(2).replace('.', ',')}%)
+                </div>
+              </div>
+            )}
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3 }}>
-                  <th style={thStyle}>#</th>
-                  <th style={thStyle}>Descrição</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
-                  <th style={thStyle}>Unidade</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Valor Unit.</th>
-                  <th style={{ ...thStyle, textAlign: 'right' }}>Valor Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {itens.map((it, idx) => (
-                  <tr key={it.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                    <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
-                    <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
-                    <td style={tdStyle}>{it.unidade || '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
-                    <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
-                  </tr>
-                ))}
-                <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: '#047857' }} colSpan={5}>TOTAL GERAL</td>
-                  <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</td>
-                </tr>
-              </tbody>
-            </table>
+
+          {/* Botões de ação */}
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {contrato.arquivoUrl && (
+              <a href={contrato.arquivoUrl} target="_blank" rel="noreferrer" style={{
+                ...acaoStyle('#4AABDB'),
+                display: 'inline-flex', alignItems: 'center',
+              }}>
+                📄 PDF
+              </a>
+            )}
+            {itens.length > 0 && (
+              <button onClick={(e) => { e.stopPropagation() }} style={{
+                ...acaoStyle('#047857'),
+                cursor: 'default',
+              }}>
+                {itens.length} {itens.length === 1 ? 'item' : 'itens'}
+              </button>
+            )}
+            <button onClick={(e) => { e.stopPropagation(); onEditar() }} style={acaoStyle('#2D3A6B')}>Editar</button>
+            <button onClick={(e) => { e.stopPropagation(); onExcluir() }} style={{
+              ...acaoStyle('#dc2626'),
+              background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+            }}>Excluir</button>
           </div>
+
+          {/* Tabela de itens */}
+          {itens.length > 0 && (
+            <div style={{ marginTop: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
+              <div style={{
+                padding: '8px 12px', background: '#f1f5f9',
+                fontSize: 11, fontWeight: 700, color: '#334155',
+                borderBottom: '1px solid #e5e7eb',
+              }}>
+                ITENS / ROTAS VIGENTES ({itens.length})
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                      <th style={thStyle}>#</th>
+                      <th style={thStyle}>Descrição</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
+                      <th style={thStyle}>Unidade</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Valor Unit.</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>Valor Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itens.map((it, idx) => (
+                      <tr key={it.id} style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+                        <td style={tdStyle}>{it.unidade || '—'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
+                      <td style={{ ...tdStyle, fontWeight: 700, color: '#047857' }} colSpan={5}>TOTAL GERAL</td>
+                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
