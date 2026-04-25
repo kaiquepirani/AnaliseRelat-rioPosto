@@ -88,9 +88,9 @@ export default function PainelContratos({ token, onLogout }: Props) {
     return Array.from(set).sort()
   }, [contratos])
 
-  const filtrados = useMemo(() => {
+ const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
-    return contratosComAlerta.filter(c => {
+    const lista = contratosComAlerta.filter(c => {
       if (filtroSituacao === 'ativos') {
         if (c.situacao === 'encerrado') return false
       } else if (filtroSituacao !== 'todos') {
@@ -102,6 +102,12 @@ export default function PainelContratos({ token, onLogout }: Props) {
         if (alvo.indexOf(termo) === -1) return false
       }
       return true
+    })
+    return lista.sort((a, b) => {
+      const cidadeA = (a.cidade || '').toLowerCase()
+      const cidadeB = (b.cidade || '').toLowerCase()
+      if (cidadeA !== cidadeB) return cidadeA.localeCompare(cidadeB, 'pt-BR')
+      return (a.contratante || a.cliente || '').localeCompare(b.contratante || b.cliente || '', 'pt-BR')
     })
   }, [contratosComAlerta, filtroSituacao, filtroCidade, busca])
 
