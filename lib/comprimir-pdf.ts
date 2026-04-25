@@ -102,10 +102,15 @@ export const comprimirPdf = async (
     canvas.height = 0
   }
 
-  // Serializa o novo PDF
+// Serializa o novo PDF
   const bytesNovoPdf = await novoPdf.save()
+  // Cria uma cópia em ArrayBuffer puro pra contornar conflito de tipos do TS
+  const arrayBufferLimpo = bytesNovoPdf.buffer.slice(
+    bytesNovoPdf.byteOffset,
+    bytesNovoPdf.byteOffset + bytesNovoPdf.byteLength,
+  ) as ArrayBuffer
   const arquivoComprimido = new File(
-    [bytesNovoPdf],
+    [arrayBufferLimpo],
     file.name.replace(/\.pdf$/i, '_comprimido.pdf'),
     { type: 'application/pdf' },
   )
