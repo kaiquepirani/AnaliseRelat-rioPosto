@@ -222,13 +222,13 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
           sub={`em ${anoAtual}`} cor="#4AABDB" icone="🏙️" />
       </div>
 
-      {/* === Gráfico: Comparação Anual === */}
-      <Secao titulo="📈 Evolução Mensal — Comparação por Ano"
-        sub="Faturamento total por mês, todos os anos sobrepostos">
-        <div style={{ width: '100%', height: 320 }}>
+     {/* === Gráfico: Comparação Anual (barras agrupadas por mês) === */}
+      <Secao titulo="📊 Faturamento Mensal — Comparação por Ano"
+        sub="Cada mês mostra os anos lado a lado">
+        <div style={{ width: '100%', height: 360 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={dadosLinhaAnos} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <BarChart data={dadosLinhaAnos} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
               <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
               <Tooltip formatter={(v: any) => fmtReal(Number(v))}
@@ -236,13 +236,12 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
                 labelStyle={{ fontWeight: 600 }} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               {anos.map((ano, idx) => (
-                <Line key={ano} type="monotone" dataKey={String(ano)}
-                  stroke={PALETA_ANOS[idx % PALETA_ANOS.length]}
-                  strokeWidth={ano === anoAtual ? 3 : 2}
-                  dot={{ r: ano === anoAtual ? 4 : 3 }}
-                  activeDot={{ r: 6 }} />
+                <Bar key={ano} dataKey={String(ano)}
+                  fill={PALETA_ANOS[idx % PALETA_ANOS.length]}
+                  radius={[3, 3, 0, 0]}
+                  opacity={ano === anoAtual ? 1 : 0.7} />
               ))}
-            </LineChart>
+            </BarChart>
           </ResponsiveContainer>
         </div>
       </Secao>
