@@ -27,6 +27,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [importando, setImportando] = useState(false)
   const [anoSelecionado, setAnoSelecionado] = useState<number | null>(null)
+  const [cidadeComparacao, setCidadeComparacao] = useState<string | null>(null)
   const inputFileRef = useRef<HTMLInputElement>(null)
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
@@ -38,7 +39,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
       if (r.status === 401) { onLogout(); return }
       const data: FaturamentoCompleto = await r.json()
       setDados(data)
-      // Seleciona o ano mais recente automaticamente
       if (data.anos.length > 0 && anoSelecionado === null) {
         setAnoSelecionado(data.anos[data.anos.length - 1])
       }
@@ -119,7 +119,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   const anoAnterior = anos.indexOf(anoAtual) > 0 ? anos[anos.indexOf(anoAtual) - 1] : null
   const anoAnteriorData = anoAnterior ? dados.porAno[anoAnterior] : null
 
-  // Mês atual com dado (último mês não-zero)
   const ultimoMesComDado = (() => {
     if (!anoAtualData) return -1
     for (let i = 11; i >= 0; i--) {
@@ -128,7 +127,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return -1
   })()
 
-  // Crescimento ano vs ano (comparando até o mês atual do ano corrente)
   const crescimentoAnoAno = (() => {
     if (!anoAnteriorData || ultimoMesComDado < 0) return 0
     let acumAtual = 0
@@ -140,7 +138,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return calcularCrescimento(acumAnterior, acumAtual)
   })()
 
-  // Dados pro gráfico de linha (5 anos comparados, mês a mês)
   const dadosLinhaAnos = NOMES_MESES.map((mes, i) => {
     const obj: any = { mes }
     for (const ano of anos) {
@@ -149,14 +146,35 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return obj
   })
 
-  // Dados pro gráfico de barras do ano selecionado
   const dadosBarrasMes = NOMES_MESES.map((mes, i) => ({
     mes,
     valor: anoAtualData.totalPorMes[i] || 0,
   }))
 
-  // Top 10 cidades do ano selecionado
   const top10Cidades = anoAtualData.cidades.slice(0, 10)
+
+  // ==== Comparativo por contrato ====
+  const todasCidadesSet = new Set<string>()
+  for (const ano of anos) {
+    for (const c of dados.porAno[ano].cidades) {
+      todasCidadesSet.add(c.cidade)
+    }
+  }
+  const todasCidades = Array.from(todasCidadesSet).sort()
+  const cidadeAtualComp = cidadeComparacao || (anoAtualData.cidades[0]?.cidade ?? '')
+  const dadosComparativo = NOMES_MESES.map((mes, i) => {
+    const obj: any = { mes }
+    for (const ano of anos) {
+      const cid = dados.porAno[ano].cidades.find(c => c.cidade === cidadeAtualComp)
+      obj[String(ano)] = cid?.meses[i] ?? null
+    }
+    return obj
+  })
+  const totaisPorAnoComp = anos.map(ano => {
+    const cid = dados.porAno[ano].cidades.find(c => c.cidade === cidadeAtualComp)
+    return { ano, total: cid?.total ?? 0 }
+  })
+  const anosComDadoComp = totaisPorAnoComp.filter(t => t.total > 0)
 
   return (
     <div style={{ display: 'grid', gap: 16, width: '100%', minWidth: 0 }}>
@@ -222,7 +240,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
           sub={`em ${anoAtual}`} cor="#4AABDB" icone="🏙️" />
       </div>
 
-     {/* === Gráfico: Comparação Anual (barras agrupadas por mês) === */}
+      {/* === Gráfico: Comparação Anual (barras agrupadas por mês) === */}
       <Secao titulo="📊 Faturamento Mensal — Comparação por Ano"
         sub="Cada mês mostra os anos lado a lado">
         <div style={{ width: '100%', height: 360 }}>
@@ -264,6 +282,99 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
             </BarChart>
           </ResponsiveContainer>
         </div>
+      </Secao>
+
+      {/* === Gráfico: Comparativo de uma cidade entre anos === */}
+      <Secao titulo="🔍 Comparativo por Contrato"
+        sub="Selecione uma cidade e veja sua evolução em todos os anos">
+
+        <div style={{ marginBottom: 14 }}>
+          <label style={{
+            fontSize: 12, color: '#64748b', fontWeight: 600,
+            display: 'block', marginBottom: 6,
+          }}>
+            Cidade / Contrato:
+          </label>
+          <select value={cidadeAtualComp}
+            onChange={e => setCidadeComparacao(e.target.value)}
+            style={{
+              width: '100%', maxWidth: 400,
+              padding: '10px 12px', border: '1px solid #e5e7eb',
+              borderRadius: 8, fontSize: 14, background: '#fff',
+              fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+              fontWeight: 600,
+            }}>
+            {todasCidades.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ width: '100%', height: 320 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dadosComparativo} margin={{ top: 10, right: 20, left: 10, bottom: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+              <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
+              <Tooltip formatter={(v: any) => v != null ? fmtReal(Number(v)) : '—'}
+                contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                labelStyle={{ fontWeight: 600 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              {anos.map((ano, idx) => (
+                <Line key={ano} type="monotone" dataKey={String(ano)}
+                  stroke={PALETA_ANOS[idx % PALETA_ANOS.length]}
+                  strokeWidth={2}
+                  dot={{ r: 3 }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Cards de totais por ano */}
+        <div style={{
+          marginTop: 16,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+          gap: 8,
+        }}>
+          {totaisPorAnoComp.map((t, idx) => {
+            const tAnterior = idx > 0 ? totaisPorAnoComp[idx - 1] : null
+            const cresc = tAnterior && tAnterior.total > 0
+              ? ((t.total - tAnterior.total) / tAnterior.total) * 100
+              : null
+            return (
+              <div key={t.ano} style={{
+                padding: 10,
+                background: t.total > 0 ? '#f8fafc' : '#fafafa',
+                border: `1px solid ${t.total > 0 ? '#e2e8f0' : '#f1f5f9'}`,
+                borderRadius: 8,
+                borderTop: `3px solid ${PALETA_ANOS[idx % PALETA_ANOS.length]}`,
+                opacity: t.total > 0 ? 1 : 0.5,
+              }}>
+                <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>{t.ano}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b', marginTop: 4 }}>
+                  {t.total > 0 ? fmtRealK(t.total) : '—'}
+                </div>
+                {cresc !== null && t.total > 0 && (
+                  <div style={{
+                    fontSize: 10, fontWeight: 600, marginTop: 2,
+                    color: cresc >= 0 ? '#047857' : '#dc2626',
+                  }}>
+                    {fmtPct(cresc)} vs {anos[idx - 1]}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {anosComDadoComp.length === 0 && (
+          <div style={{ marginTop: 14, padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 12 }}>
+            Sem dados para esta cidade nos anos disponíveis.
+          </div>
+        )}
       </Secao>
 
       {/* === Tabela: Detalhamento por Cidade === */}
@@ -365,7 +476,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
       <Secao titulo="📅 Resumo de Todos os Anos"
         sub="Visão consolidada de cada ano">
         <div style={{ display: 'grid', gap: 8 }}>
-          {anos.slice().reverse().map((ano, idx) => {
+          {anos.slice().reverse().map((ano) => {
             const dadoAno = dados.porAno[ano]
             const anoAnt = anos[anos.indexOf(ano) - 1]
             const dadoAnoAnt = anoAnt ? dados.porAno[anoAnt] : null
