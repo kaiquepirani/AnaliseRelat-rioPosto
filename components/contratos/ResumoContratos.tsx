@@ -38,7 +38,6 @@ const fmtMesAno = (iso: string) => {
 const PALETA = ['#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#ea580c']
 
 export default function ResumoContratos({ contratos }: Props) {
-  // Filtra: apenas vigentes e vencendo (status financeiro ativo)
   const ativos: ContratoComAlerta[] = useMemo(() => {
     return contratos
       .map(calcularSituacao)
@@ -47,7 +46,6 @@ export default function ResumoContratos({ contratos }: Props) {
 
   const totalContratos = ativos.length
 
-  // ==== KPIs principais ====
   const { faturamentoAnual, faturamentoMensal, totalRotas, quilometragemAnual } = useMemo(() => {
     let fat = 0
     let rotas = 0
@@ -70,7 +68,6 @@ export default function ResumoContratos({ contratos }: Props) {
     }
   }, [ativos])
 
-  // ==== Timeline de vencimentos (próximos 18 meses) ====
   const timeline = useMemo(() => {
     const hoje = new Date()
     hoje.setHours(0, 0, 0, 0)
@@ -94,7 +91,6 @@ export default function ResumoContratos({ contratos }: Props) {
     return meses
   }, [ativos])
 
-  // ==== Faturamento por contratante (Pizza) ====
   const porContratante = useMemo(() => {
     const mapa: Record<string, number> = {}
     for (const c of ativos) {
@@ -104,7 +100,6 @@ export default function ResumoContratos({ contratos }: Props) {
     const entradas = Object.entries(mapa)
       .map(([nome, valor]) => ({ nome, valor }))
       .sort((a, b) => b.valor - a.valor)
-    // Top 5 + outros
     if (entradas.length > 6) {
       const top5 = entradas.slice(0, 5)
       const outrosValor = entradas.slice(5).reduce((acc, e) => acc + e.valor, 0)
@@ -113,7 +108,6 @@ export default function ResumoContratos({ contratos }: Props) {
     return entradas
   }, [ativos])
 
-  // ==== Faturamento por cidade (Barras) ====
   const porCidade = useMemo(() => {
     const mapa: Record<string, number> = {}
     for (const c of ativos) {
@@ -125,7 +119,6 @@ export default function ResumoContratos({ contratos }: Props) {
       .sort((a, b) => b.valor - a.valor)
   }, [ativos])
 
-  // ==== Operacional: rotas/km/valor médio por cidade ====
   const operacional = useMemo(() => {
     type Op = { cidade: string; rotas: number; km: number; faturamento: number; valorMedioKm: number }
     const mapa: Record<string, Op> = {}
@@ -150,7 +143,6 @@ export default function ResumoContratos({ contratos }: Props) {
     return lista.sort((a, b) => b.faturamento - a.faturamento)
   }, [ativos])
 
-  // ==== Histórico de reajustes ====
   const reajustes = useMemo(() => {
     type R = { data: string; percentual: number; indice: string; contratante: string; numero: string }
     const lista: R[] = []
@@ -186,13 +178,13 @@ export default function ResumoContratos({ contratos }: Props) {
   }
 
   return (
-    <div style={{ display: 'grid', gap: 18 }}>
+    <div style={{ display: 'grid', gap: 16, width: '100%', minWidth: 0 }}>
 
       {/* ==== KPIs Principais ==== */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-        gap: 14,
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: 12,
       }}>
         <KPIGrande titulo="Faturamento Anual" valor={fmtReal(faturamentoAnual)}
           sub={`${totalContratos} ${totalContratos === 1 ? 'contrato ativo' : 'contratos ativos'}`}
@@ -207,7 +199,12 @@ export default function ResumoContratos({ contratos }: Props) {
 
       {/* ==== Timeline de Vencimentos ==== */}
       <Secao titulo="📅 Timeline de Vencimentos" sub="Próximos 18 meses">
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 8 }}>
+        <div style={{
+          display: 'flex', gap: 6,
+          overflowX: 'auto', overflowY: 'hidden',
+          paddingBottom: 8,
+          width: '100%',
+        }}>
           {timeline.map(m => {
             const total = m.contratos.length
             const valor = m.contratos.reduce((acc, c) => acc + valorTotalAtual(c), 0)
@@ -216,18 +213,20 @@ export default function ResumoContratos({ contratos }: Props) {
             const corTexto = total === 0 ? '#94a3b8' : total >= 3 ? '#b91c1c' : total >= 2 ? '#b45309' : '#047857'
             return (
               <div key={m.mesAno} style={{
-                minWidth: 90, background: corFundo, border: `1px solid ${corBorda}`,
-                borderRadius: 8, padding: 10, textAlign: 'center',
+                flex: '0 0 auto',
+                width: 78,
+                background: corFundo, border: `1px solid ${corBorda}`,
+                borderRadius: 8, padding: 8, textAlign: 'center',
               }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>{m.label}</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: corTexto, marginTop: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b' }}>{m.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: corTexto, marginTop: 2 }}>
                   {total === 0 ? '—' : total}
                 </div>
-                <div style={{ fontSize: 10, color: corTexto, fontWeight: 600 }}>
-                  {total === 0 ? 'sem vencimentos' : total === 1 ? 'contrato' : 'contratos'}
+                <div style={{ fontSize: 9, color: corTexto, fontWeight: 600 }}>
+                  {total === 0 ? 'sem' : total === 1 ? 'contrato' : 'contratos'}
                 </div>
                 {valor > 0 && (
-                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 9, color: '#64748b', marginTop: 2, fontWeight: 600 }}>
                     {fmtRealCompacto(valor)}
                   </div>
                 )}
@@ -235,7 +234,6 @@ export default function ResumoContratos({ contratos }: Props) {
             )
           })}
         </div>
-        {/* Lista detalhada dos vencimentos */}
         {timeline.some(m => m.contratos.length > 0) && (
           <div style={{ marginTop: 12, fontSize: 12, color: '#64748b' }}>
             <strong style={{ color: '#334155' }}>Vencimentos detalhados:</strong>
@@ -257,26 +255,28 @@ export default function ResumoContratos({ contratos }: Props) {
       {/* ==== Gráficos lado a lado ==== */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
         gap: 14,
       }}>
         <Secao titulo="🥧 Distribuição por Contratante" sub="% do faturamento total">
           {porContratante.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={porContratante} dataKey="valor" nameKey="nome"
-                  cx="50%" cy="50%" outerRadius={90} innerRadius={45}
-                  label={(entry) => fmtPct((entry.valor / faturamentoAnual) * 100)}
-                  labelLine={false}>
-                  {porContratante.map((_, idx) => (
-                    <Cell key={idx} fill={PALETA[idx % PALETA.length]} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value: any, name: any) => [fmtReal(Number(value)), name]}
-                  contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            <div style={{ width: '100%', height: 240 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={porContratante} dataKey="valor" nameKey="nome"
+                    cx="50%" cy="50%" outerRadius={80} innerRadius={40}
+                    label={(entry: any) => fmtPct((entry.valor / faturamentoAnual) * 100)}
+                    labelLine={false}>
+                    {porContratante.map((_, idx) => (
+                      <Cell key={idx} fill={PALETA[idx % PALETA.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value: any, name: any) => [fmtReal(Number(value)), name]}
+                    contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
           ) : <Vazio texto="Sem dados" />}
           {porContratante.length > 0 && (
             <div style={{ marginTop: 10, display: 'grid', gap: 4 }}>
@@ -301,19 +301,21 @@ export default function ResumoContratos({ contratos }: Props) {
 
         <Secao titulo="🏙️ Faturamento por Cidade" sub="Valor anual contratado">
           {porCidade.length > 0 ? (
-            <ResponsiveContainer width="100%" height={Math.max(220, porCidade.length * 38)}>
-              <BarChart data={porCidade} layout="vertical" margin={{ top: 8, right: 50, left: 10, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                <XAxis type="number" tickFormatter={fmtRealCompacto} tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="cidade" tick={{ fontSize: 12 }} width={100} />
-                <Tooltip formatter={(v: any) => fmtReal(Number(v))}
-                  contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="valor" fill="#2D3A6B" radius={[0, 4, 4, 0]}>
-                  <LabelList dataKey="valor" position="right" formatter={fmtRealCompacto}
-                    style={{ fontSize: 11, fill: '#334155', fontWeight: 600 }} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div style={{ width: '100%', height: Math.max(220, porCidade.length * 38) }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={porCidade} layout="vertical" margin={{ top: 8, right: 60, left: 10, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" tickFormatter={fmtRealCompacto} tick={{ fontSize: 10 }} />
+                  <YAxis type="category" dataKey="cidade" tick={{ fontSize: 11 }} width={90} />
+                  <Tooltip formatter={(v: any) => fmtReal(Number(v))}
+                    contentStyle={{ borderRadius: 8, fontSize: 12 }} />
+                  <Bar dataKey="valor" fill="#2D3A6B" radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey="valor" position="right" formatter={fmtRealCompacto}
+                      style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           ) : <Vazio texto="Sem dados" />}
         </Secao>
       </div>
@@ -321,7 +323,7 @@ export default function ResumoContratos({ contratos }: Props) {
       {/* ==== Operacional ==== */}
       <Secao titulo="🚌 Operacional por Cidade" sub="Rotas, quilometragem e valor médio do km">
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 500 }}>
             <thead>
               <tr style={{
                 background: '#f8fafc', color: '#64748b',
@@ -330,7 +332,7 @@ export default function ResumoContratos({ contratos }: Props) {
                 <th style={thStyle}>Cidade</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Rotas</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Km/ano</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>R$/km médio</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>R$/km</th>
                 <th style={{ ...thStyle, textAlign: 'right' }}>Faturamento</th>
               </tr>
             </thead>
@@ -378,7 +380,7 @@ export default function ResumoContratos({ contratos }: Props) {
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                   <span style={{
-                    fontSize: 14, fontWeight: 700, color: '#fff',
+                    fontSize: 13, fontWeight: 700, color: '#fff',
                     background: '#0369a1', padding: '4px 10px', borderRadius: 4,
                   }}>
                     {r.percentual.toFixed(2).replace('.', ',')}% {r.indice}
@@ -404,30 +406,30 @@ export default function ResumoContratos({ contratos }: Props) {
   )
 }
 
-// ===== Componentes auxiliares =====
-
 const KPIGrande = ({ titulo, valor, sub, cor, icone }: {
   titulo: string; valor: string; sub: string; cor: string; icone: string
 }) => (
   <div style={{
-    background: '#fff', padding: 18, borderRadius: 12,
+    background: '#fff', padding: 16, borderRadius: 12,
     borderTop: `4px solid ${cor}`, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    minWidth: 0,
   }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
+      <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4 }}>
         {titulo}
       </div>
-      <span style={{ fontSize: 22 }}>{icone}</span>
+      <span style={{ fontSize: 20 }}>{icone}</span>
     </div>
-    <div style={{ fontSize: 24, fontWeight: 700, color: cor, marginTop: 8 }}>{valor}</div>
+    <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 8, wordBreak: 'break-word' }}>{valor}</div>
     <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{sub}</div>
   </div>
 )
 
 const Secao = ({ titulo, sub, children }: { titulo: string; sub?: string; children: React.ReactNode }) => (
   <div style={{
-    background: '#fff', borderRadius: 12, padding: 18,
+    background: '#fff', borderRadius: 12, padding: 16,
     boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    width: '100%', minWidth: 0, boxSizing: 'border-box',
   }}>
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>{titulo}</div>
