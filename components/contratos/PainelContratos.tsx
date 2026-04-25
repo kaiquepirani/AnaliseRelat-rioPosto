@@ -1,108 +1,82 @@
-const importarPDF = async (file: File) => {
-    setImportando(true)
+'use client'
+import Image from 'next/image'
+import Link from 'next/link'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import type { Contrato, ContratoComAlerta, ItemContrato } from '@/lib/contratos-types'
+import {
+  calcularSituacao, itensVigentes, valorTotalAtual,
+  rotuloAditamentoAtual, rotuloTipoAditamento, corTipoAditamento,
+} from '@/lib/contratos-types'
+import FormularioContrato from './FormularioContrato'
+import PreviaImportacao from './PreviaImportacao'
+import ResumoContratos from './ResumoContratos'
+import FaturamentoPainel from './FaturamentoPainel'
+
+interface Props {
+  token: string
+  onLogout: () => void
+}
+
+const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
+const fmtNum = (n: number) => n.toLocaleString('pt-BR')
+
+const fmtData = (iso: string | undefined) => {
+  if (!iso) return '—'
+  const p = iso.split('-')
+  if (p.length !== 3) return iso
+  return `${p[2]}/${p[1]}/${p[0]}`
+}
+
+const corSituacao = (s: ContratoComAlerta['situacao']) => {
+  if (s === 'vencido')       return { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' }
+  if (s === 'vencendo')      return { bg: '#fffbeb', border: '#fde68a', text: '#b45309' }
+  if (s === 'em_renovacao')  return { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' }
+  if (s === 'encerrado')     return { bg: '#f3f4f6', border: '#e5e7eb', text: '#4b5563' }
+  return { bg: '#ecfdf5', border: '#a7f3d0', text: '#047857' }
+}
+
+const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
+  if (s === 'vencido')       return 'VENCIDO'
+  if (s === 'vencendo')      return 'VENCENDO'
+  if (s === 'em_renovacao')  return 'EM RENOVAÇÃO'
+  if (s === 'encerrado')     return 'ENCERRADO'
+  return 'VIGENTE'
+}
+
+type Aba = 'resumo' | 'contratos' | 'faturamento'
+type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencido' | 'encerrado' | 'em_renovacao'
+
+export default function PainelContratos({ token, onLogout }: Props) {
+  const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
+  const [contratos, setContratos] = useState<Contrato[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [filtroSituacao, setFiltroSituacao] = useState<FiltroSituacao>('ativos')
+  const [filtroCidade, setFiltroCidade] = useState<string>('')
+  const [busca, setBusca] = useState('')
+  const [formAberto, setFormAberto] = useState(false)
+  const [emEdicao, setEmEdicao] = useState<Contrato | null>(null)
+  const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
+  const [importando, setImportando] = useState(false)
+  const [statusImport, setStatusImport] = useState<string>('')
+  const [previaDados, setPreviaDados] = useState<any>(null)
+  const inputImportRef = useRef<HTMLInputElement>(null)
+
+  const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
+
+  const carregar = useCallback(async () => {
+    setCarregando(true)
     try {
-      const tamanhoMB = (file.size / 1024 / 1024).toFixed(2)
-      if (file.size > 50 * 1024 * 1024) {
-        alert(`Arquivo muito grande (${tamanhoMB} MB). O limite é 50 MB.`)
-        return
-      }
-
-      // Compressão automática se o arquivo for maior que ~3.5 MB
-      let arquivoFinal = file
-      const LIMITE_VERCEL = 3.8 * 1024 * 1024
-
-      if (file.size > LIMITE_VERCEL) {
-        try {
-          const { comprimirAteCaber, formatarTamanho } = await import('@/lib/comprimir-pdf')
-
-          // Avisa que está comprimindo
-          setImportando(true)
-          // (visualmente o botão já mostra "Analisando PDF..." mas vamos colocar mais info via console)
-          console.log(`PDF de ${formatarTamanho(file.size)} excede limite. Comprimindo...`)
-
-          const resultado = await comprimirAteCaber(file)
-
-          if (!resultado.cabeNoLimite) {
-            alert(
-              `Não foi possível comprimir o PDF o suficiente.\n\n` +
-              `Original: ${formatarTamanho(resultado.tamanhoOriginal)}\n` +
-              `Após compressão: ${formatarTamanho(resultado.tamanhoFinal)}\n` +
-              `Limite: 4 MB\n\n` +
-              `Sugestões:\n` +
-              `• Use ilovepdf.com/pt/comprimir_pdf com "Compressão extrema"\n` +
-              `• Cadastre manualmente pelo botão "+ Novo manual"`,
-            )
-            return
-          }
-
-          arquivoFinal = resultado.arquivoComprimido
-          console.log(`Comprimido: ${formatarTamanho(resultado.tamanhoOriginal)} → ${formatarTamanho(resultado.tamanhoFinal)} (-${(resultado.reducao * 100).toFixed(0)}%)`)
-        } catch (errComp: any) {
-          alert(
-            `Falha ao comprimir o PDF.\n\n` +
-            `Detalhe: ${errComp?.message || 'erro desconhecido'}\n\n` +
-            `Tente comprimir manualmente em ilovepdf.com antes de importar.`,
-          )
-          return
-        }
-      }
-
-      // Upload para o Blob
-      const fdUp = new FormData()
-      fdUp.append('file', arquivoFinal)
-      const rUp = await fetch('/api/contratos/upload', {
-        method: 'POST', headers, body: fdUp,
-      })
-      if (!rUp.ok) {
-        const dUp = await rUp.json().catch(() => ({}))
-        alert(dUp.erro || `Falha ao enviar o PDF (status ${rUp.status})`)
-        return
-      }
-      const upData = await rUp.json()
-
-      // Chama a IA
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 70000)
-
-      let r: Response
-      try {
-        r = await fetch('/api/contratos/importar-completo', {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ blobUrl: upData.url }),
-          signal: controller.signal,
-        })
-      } finally {
-        clearTimeout(timeoutId)
-      }
-
-      if (!r.ok) {
-        let mensagem = 'Erro ao analisar PDF'
-        try {
-          const data = await r.json()
-          mensagem = data.erro || mensagem
-          if (data.detalhe) mensagem += `\n\nDetalhe: ${data.detalhe}`
-        } catch {
-          mensagem = `Erro ${r.status} ao analisar PDF`
-        }
-        alert(mensagem)
-        return
-      }
-
+      const r = await fetch('/api/contratos', { headers })
+      if (r.status === 401) { onLogout(); return }
       const data = await r.json()
-      setPreviaDados({
-        ...data,
-        file: arquivoFinal,
-        uploadedBlob: upData,
-      })
-    } catch (err: any) {
-      if (err?.name === 'AbortError') {
-        alert('A análise demorou mais de 70 segundos e foi cancelada.\n\nTente:\n• Cadastrar manualmente pelo botão "+ Novo manual"')
-      } else {
-        alert(`Erro inesperado.\n\nDetalhe: ${err?.message || 'desconhecido'}`)
-      }
+      setContratos(Array.isArray(data) ? data : [])
     } finally {
-      setImportando(false)
-      if (inputImportRef.current) inputImportRef.current.value = ''
+      setCarregando(false)
     }
-  }
+  }, [headers, onLogout])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const contratosComAlerta: ContratoComAlerta[] = useMemo(
+    () => contratos.map(
