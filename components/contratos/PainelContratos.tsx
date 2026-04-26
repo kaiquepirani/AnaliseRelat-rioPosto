@@ -47,7 +47,7 @@ const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
 }
 
 type Aba = 'resumo' | 'contratos' | 'faturamento'
-type FiltroSituacao = 'ativos' | 'todos' | 'vigente' | 'vencendo' | 'vencendo_60' | 'vencido' | 'encerrado' | 'em_renovacao'
+type FiltroSituacao = 'ativos' | 'todos' | 'vigentes_todos' | 'vigente' | 'vencendo' | 'vencendo_60' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
@@ -96,6 +96,8 @@ export default function PainelContratos({ token, onLogout }: Props) {
     const lista = contratosComAlerta.filter(c => {
       if (filtroSituacao === 'ativos') {
         if (c.situacao === 'encerrado') return false
+      } else if (filtroSituacao === 'vigentes_todos') {
+        if (c.situacao !== 'vigente' && c.situacao !== 'vencendo' && c.situacao !== 'vencendo_60') return false
       } else if (filtroSituacao !== 'todos') {
         if (c.situacao !== filtroSituacao) return false
       }
@@ -130,6 +132,11 @@ export default function PainelContratos({ token, onLogout }: Props) {
       valorTotal,
     }
   }, [contratosComAlerta])
+
+  // toggle: se já está com o filtro alvo, volta pra 'ativos' (default)
+  const aplicarFiltroCard = (alvo: FiltroSituacao) => {
+    setFiltroSituacao(prev => prev === alvo ? 'ativos' : alvo)
+  }
 
   const abrirNovo = () => { setEmEdicao(null); setFormAberto(true) }
   const abrirEdicao = (c: Contrato) => { setEmEdicao(c); setFormAberto(true) }
@@ -378,10 +385,18 @@ export default function PainelContratos({ token, onLogout }: Props) {
               gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
               gap: 14, marginBottom: 20,
             }}>
-              <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B" />
-              <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b" />
-              <KPI titulo="Vencendo em 60 dias" valor={String(kpis.vencendo60)} cor="#eab308" />
-              <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626" />
+              <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B"
+                onClick={() => aplicarFiltroCard('vigentes_todos')}
+                ativo={filtroSituacao === 'vigentes_todos'} />
+              <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b"
+                onClick={() => aplicarFiltroCard('vencendo')}
+                ativo={filtroSituacao === 'vencendo'} />
+              <KPI titulo="Vencendo em 60 dias" valor={String(kpis.vencendo60)} cor="#eab308"
+                onClick={() => aplicarFiltroCard('vencendo_60')}
+                ativo={filtroSituacao === 'vencendo_60'} />
+              <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626"
+                onClick={() => aplicarFiltroCard('vencido')}
+                ativo={filtroSituacao === 'vencido'} />
               <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
             </div>
 
@@ -401,7 +416,8 @@ export default function PainelContratos({ token, onLogout }: Props) {
               <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
                 <option value="ativos">Ativos (padrão)</option>
                 <option value="todos">Todos</option>
-                <option value="vigente">Vigentes</option>
+                <option value="vigentes_todos">Vigentes (todos)</option>
+                <option value="vigente">Vigentes (sem alerta)</option>
                 <option value="vencendo">Vencendo (30d)</option>
                 <option value="vencendo_60">A vencer (31-60d)</option>
                 <option value="vencido">Vencidos</option>
@@ -709,17 +725,81 @@ const AlertaTopo = ({ cor, bg, borda, textoCor, emoji, titulo, sub }: {
   </div>
 )
 
-const KPI = ({ titulo, valor, cor }: { titulo: string; valor: string; cor: string }) => (
-  <div style={{
-    background: '#fff', padding: 16, borderRadius: 12,
-    borderTop: `3px solid ${cor}`, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-  }}>
-    <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
-      {titulo}
+const KPI = ({ titulo, valor, cor, onClick, ativo }: {
+  titulo: string
+  valor: string
+  cor: string
+  onClick?: () => void
+  ativo?: boolean
+}) => {
+  const clicavel = !!onClick
+  return (
+    <div
+      onClick={onClick}
+      role={clicavel ? 'button' : undefined}
+      tabIndex={clicavel ? 0 : undefined}
+      onKeyDown={clicavel ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick && onClick()
+        }
+      } : undefined}
+      onMouseEnter={(e) => {
+        if (clicavel && !ativo) {
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
+          e.currentTarget.style.transform = 'translateY(-1px)'
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (clicavel && !ativo) {
+          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+          e.currentTarget.style.transform = 'translateY(0)'
+        }
+      }}
+      style={{
+        background: ativo ? '#fafbfd' : '#fff',
+        padding: 16,
+        borderRadius: 12,
+        borderTop: `${ativo ? 4 : 3}px solid ${cor}`,
+        boxShadow: ativo
+          ? `0 0 0 2px ${cor}, 0 4px 12px rgba(0,0,0,0.08)`
+          : '0 1px 3px rgba(0,0,0,0.05)',
+        cursor: clicavel ? 'pointer' : 'default',
+        transition: 'all 0.15s',
+        userSelect: 'none',
+        outline: 'none',
+        position: 'relative',
+      }}
+    >
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
+      }}>
+        <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {titulo}
+        </div>
+        {ativo && (
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+            background: cor, color: '#fff',
+            padding: '2px 6px', borderRadius: 3,
+            whiteSpace: 'nowrap',
+          }}>● FILTRADO</span>
+        )}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 6 }}>{valor}</div>
+      {clicavel && !ativo && (
+        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+          clique para filtrar
+        </div>
+      )}
+      {ativo && (
+        <div style={{ fontSize: 10, color: cor, marginTop: 4, fontWeight: 600 }}>
+          clique novamente para limpar
+        </div>
+      )}
     </div>
-    <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 6 }}>{valor}</div>
-  </div>
-)
+  )
+}
 
 const headerBtn: React.CSSProperties = {
   background: 'rgba(255,255,255,0.12)', color: '#fff', padding: '8px 14px',
