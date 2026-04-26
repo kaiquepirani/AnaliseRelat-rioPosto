@@ -1,0 +1,445 @@
+// ──────────────────────────────────────────────────────────────────────
+// Gestão Operacional — Tipos, mapeamento de bases e consolidador
+// ──────────────────────────────────────────────────────────────────────
+
+export const ANO_GESTAO = 2026
+export const MULTIPLICADOR_ENCARGOS = 1.7
+
+// Cada Base Operacional é uma unidade de negócio que liga 3 fontes:
+// - folhaCidades: cidades EXATAS como cadastradas no DP (ver dp-types.ts)
+// - postos: nomes EXATOS dos postos como aparecem nos extratos
+// - faturamentoLinhas: nomes EXATOS das linhas como aparecem na planilha de faturamento
+// O matching é tolerante (case-insensitive, sem acentos, contains-match)
+export interface BaseOperacional {
+  id: string
+  nome: string
+  folhaCidades: string[]
+  postos: string[]
+  faturamentoLinhas: string[]
+  observacao?: string
+}
+
+// Mapeamento pré-populado pelo Kaique (abr/2026)
+// Pode ser editado depois via /api/gestao/bases (a criar)
+export const BASES_PADRAO: BaseOperacional[] = [
+  {
+    id: 'aguas-lindoia',
+    nome: 'Águas de Lindóia',
+    folhaCidades: ['Águas de Lindóia (Folha)', 'Águas de Lindóia (Diárias)'],
+    postos: ['Tanque Águas', 'Posto Portal', 'Posto Shell Queijo Bom'],
+    faturamentoLinhas: ['Águas Saúde', 'Águas Escolar', 'Monte Sião Saúde', 'Lindóia Saúde'],
+  },
+  {
+    id: 'lindoia',
+    nome: 'Lindóia',
+    folhaCidades: [],
+    postos: ['São Benedito'],
+    faturamentoLinhas: ['Lindoia Escolar'],
+    observacao: 'Folha não considerada no momento',
+  },
+  {
+    id: 'itapira-saude',
+    nome: 'Itapira Saúde',
+    folhaCidades: ['Itapira (Saúde)'],
+    postos: ['Skina dos Italianos'],
+    faturamentoLinhas: ['Itapira Saude', 'Itapira Promoção', 'Itapira Esporte'],
+  },
+  {
+    id: 'itapira-educacao',
+    nome: 'Itapira Educação',
+    folhaCidades: ['Itapira (Escolar)'],
+    postos: ['Itapirense'],
+    faturamentoLinhas: ['Itapira Educação'],
+  },
+  {
+    id: 'mogi-mirim',
+    nome: 'Mogi Mirim',
+    folhaCidades: [],
+    postos: ['RVM Max', 'Posto Vitoria'],
+    faturamentoLinhas: ['Mogi Saude', 'DRS S.J.B.V.'],
+    observacao: 'Folha não considerada no momento',
+  },
+  {
+    id: 'pinhal',
+    nome: 'Pinhal',
+    folhaCidades: ['Pinhal'],
+    postos: ['Cooperativa dos Cafeicultores', 'Posto São Cristovão'],
+    faturamentoLinhas: ['Pinhal Educação', 'Pinhal Saude', 'S. A. Jardim'],
+  },
+  {
+    id: 'aguai',
+    nome: 'Aguaí',
+    folhaCidades: ['Aguaí'],
+    postos: ['Posto JL'],
+    faturamentoLinhas: ['Aguai facul', 'Aguai Escolar Urbano', 'Aguai Escolar Rural'],
+  },
+  {
+    id: 'mococa',
+    nome: 'Mococa',
+    folhaCidades: ['Mococa'],
+    postos: ['Posto Mocafor'],
+    faturamentoLinhas: ['Mococa Saude', 'Mococa Educação'],
+  },
+  {
+    id: 'porto-ferreira',
+    nome: 'Porto Ferreira',
+    folhaCidades: ['Porto Ferreira'],
+    postos: [],
+    faturamentoLinhas: ['Porto Ferreira Monitoras', 'Porto Ferreira Vans', 'Porto Ferreira Onibus'],
+    observacao: 'Posto a confirmar e cadastrar',
+  },
+  {
+    id: 'casa-branca',
+    nome: 'Casa Branca',
+    folhaCidades: ['Casa Branca'],
+    postos: ['Jose Militão de Melo Filho'],
+    faturamentoLinhas: [],
+    observacao: 'Faturamento recebido em outra conta — margem não reflete realidade',
+  },
+  {
+    id: 'morungaba',
+    nome: 'Morungaba',
+    folhaCidades: ['Morungaba'],
+    postos: ['Irmaos Miguel'],
+    faturamentoLinhas: ['Morungaba'],
+  },
+  {
+    id: 'rio-claro',
+    nome: 'Rio Claro',
+    folhaCidades: ['Rio Claro'],
+    postos: ['Cobrão', 'Abastece Rio Claro'],
+    faturamentoLinhas: ['Rio Claro'],
+    observacao: 'Posto Abastece Rio Claro ainda não lançado',
+  },
+  {
+    id: 'ubatuba',
+    nome: 'Ubatuba',
+    folhaCidades: ['Ubatuba'],
+    postos: ['Praia de São Francisco'],
+    faturamentoLinhas: ['Ubatuba Saude', 'Ubatuba Educação', 'Ubatuba Faculdade', 'Ubatuba Esporte'],
+  },
+]
+
+// ──────────────────────────────────────────────────────────────────────
+// Helpers de matching
+// ──────────────────────────────────────────────────────────────────────
+
+export const normalizar = (s: string): string => {
+  if (!s) return ''
+  return s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// Match: alvo e algum item da lista são iguais OU um contém o outro (após normalizar)
+// Tolera variações tipo "Posto Portal" vs "Auto Posto Portal LTDA" vs "POSTO PORTAL"
+export const matchTolerante = (alvo: string, lista: string[]): boolean => {
+  if (!alvo || !lista || lista.length === 0) return false
+  const alvoN = normalizar(alvo)
+  if (!alvoN) return false
+  for (let i = 0; i < lista.length; i++) {
+    const itemN = normalizar(lista[i])
+    if (!itemN) continue
+    if (alvoN === itemN || alvoN.indexOf(itemN) >= 0 || itemN.indexOf(alvoN) >= 0) {
+      return true
+    }
+  }
+  return false
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Tipos de saída do consolidador
+// ──────────────────────────────────────────────────────────────────────
+
+export interface ValorMensal {
+  receita: number
+  combustivel: number
+  folhaLiquida: number  // sem encargos — multiplique por 1.7 no UI quando o toggle estiver ligado
+}
+
+export interface ConsolidadoBase {
+  baseId: string
+  baseNome: string
+  observacao?: string
+  meses: ValorMensal[]  // 12 elementos (índice 0=Jan, 11=Dez)
+  totalReceita: number
+  totalCombustivel: number
+  totalFolhaLiquida: number
+  // status do mapeamento
+  temFolhaMapeada: boolean
+  temPostoMapeado: boolean
+  temFaturamentoMapeado: boolean
+  // sinaliza que existem nomes mapeados que NÃO foram encontrados nos dados
+  // (útil pra detectar typo no mapeamento ou dados faltantes)
+  postosMapeadosNaoEncontrados: string[]
+  folhaCidadesMapeadasNaoEncontradas: string[]
+  faturamentoLinhasMapeadasNaoEncontradas: string[]
+}
+
+export interface ConsolidadoCompleto {
+  ano: number
+  bases: ConsolidadoBase[]
+  totaisGerais: {
+    totalReceita: number
+    totalCombustivel: number
+    totalFolhaLiquida: number
+  }
+  totaisPorMes: ValorMensal[]
+  // itens encontrados nas fontes que NÃO foram atribuídos a nenhuma base
+  // (sinaliza que precisa atualizar o mapeamento)
+  postosOrfaos: string[]
+  folhaCidadesOrfas: string[]
+  faturamentoLinhasOrfas: string[]
+  // metadados
+  ultimaAtualizacao: string
+  fontes: {
+    qtdExtratos: number
+    qtdPagamentos: number
+    qtdLinhasFaturamento: number
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Consolidador — junta as 3 fontes em ConsolidadoCompleto
+// ──────────────────────────────────────────────────────────────────────
+
+interface InputConsolidacao {
+  ano: number
+  faturamento: any  // FaturamentoCompleto
+  extratos: any[]
+  pagamentos: any[]
+  bases: BaseOperacional[]
+}
+
+const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
+  if (!data || typeof data !== 'string') return { ano: null, mes: null }
+  // YYYY-MM-DD ou YYYY-MM
+  let m = data.match(/^(\d{4})-(\d{2})/)
+  if (m) return { ano: parseInt(m[1], 10), mes: parseInt(m[2], 10) - 1 }
+  // DD/MM/YYYY
+  m = data.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
+  // DD-MM-YYYY
+  m = data.match(/^(\d{2})-(\d{2})-(\d{4})/)
+  if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
+  // fallback Date
+  try {
+    const d = new Date(data)
+    if (!isNaN(d.getTime())) return { ano: d.getFullYear(), mes: d.getMonth() }
+  } catch {}
+  return { ano: null, mes: null }
+}
+
+const arrZeros = (): ValorMensal[] => {
+  const out: ValorMensal[] = []
+  for (let i = 0; i < 12; i++) out.push({ receita: 0, combustivel: 0, folhaLiquida: 0 })
+  return out
+}
+
+export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
+  const { ano, faturamento, extratos, pagamentos, bases } = input
+
+  // Mapa por baseId (para acumular)
+  const porBase: { [id: string]: ConsolidadoBase } = {}
+  bases.forEach(b => {
+    porBase[b.id] = {
+      baseId: b.id,
+      baseNome: b.nome,
+      observacao: b.observacao,
+      meses: arrZeros(),
+      totalReceita: 0,
+      totalCombustivel: 0,
+      totalFolhaLiquida: 0,
+      temFolhaMapeada: b.folhaCidades.length > 0,
+      temPostoMapeado: b.postos.length > 0,
+      temFaturamentoMapeado: b.faturamentoLinhas.length > 0,
+      postosMapeadosNaoEncontrados: b.postos.slice(),
+      folhaCidadesMapeadasNaoEncontradas: b.folhaCidades.slice(),
+      faturamentoLinhasMapeadasNaoEncontradas: b.faturamentoLinhas.slice(),
+    }
+  })
+
+  // Acompanha o que foi atribuído pra detectar órfãos
+  const postosUsados: { [nome: string]: true } = {}
+  const cidadesFolhaUsadas: { [cidade: string]: true } = {}
+  const linhasFatUsadas: { [linha: string]: true } = {}
+
+  // Helper: marca um item mapeado como encontrado (remove da lista de "não encontrados")
+  const marcarEncontrado = (lista: string[], alvo: string) => {
+    const alvoN = normalizar(alvo)
+    for (let i = lista.length - 1; i >= 0; i--) {
+      const itN = normalizar(lista[i])
+      if (alvoN === itN || alvoN.indexOf(itN) >= 0 || itN.indexOf(alvoN) >= 0) {
+        lista.splice(i, 1)
+      }
+    }
+  }
+
+  // ───── Faturamento ─────
+  let qtdLinhasFat = 0
+  if (faturamento && faturamento.porAno && faturamento.porAno[ano]) {
+    const dadosAno = faturamento.porAno[ano]
+    const linhas = Array.isArray(dadosAno.cidades) ? dadosAno.cidades : []
+    qtdLinhasFat = linhas.length
+    for (let i = 0; i < linhas.length; i++) {
+      const linha = linhas[i]
+      const nomeLinha = linha.cidade
+      if (!nomeLinha) continue
+
+      let baseEncontrada: BaseOperacional | null = null
+      for (let j = 0; j < bases.length; j++) {
+        if (matchTolerante(nomeLinha, bases[j].faturamentoLinhas)) {
+          baseEncontrada = bases[j]
+          break
+        }
+      }
+      if (!baseEncontrada) continue
+
+      linhasFatUsadas[nomeLinha] = true
+      marcarEncontrado(porBase[baseEncontrada.id].faturamentoLinhasMapeadasNaoEncontradas, nomeLinha)
+
+      const meses = Array.isArray(linha.meses) ? linha.meses : []
+      for (let m = 0; m < 12; m++) {
+        const v = Number(meses[m]) || 0
+        porBase[baseEncontrada.id].meses[m].receita += v
+        porBase[baseEncontrada.id].totalReceita += v
+      }
+    }
+  }
+
+  // ───── Combustível (extratos) ─────
+  for (let i = 0; i < extratos.length; i++) {
+    const ext = extratos[i]
+    const posto = ext && ext.posto ? ext.posto : null
+    const nomePosto = posto && posto.nome ? String(posto.nome) : ''
+    if (!nomePosto) continue
+
+    let baseEncontrada: BaseOperacional | null = null
+    for (let j = 0; j < bases.length; j++) {
+      if (matchTolerante(nomePosto, bases[j].postos)) {
+        baseEncontrada = bases[j]
+        break
+      }
+    }
+    if (!baseEncontrada) continue
+
+    postosUsados[nomePosto] = true
+    marcarEncontrado(porBase[baseEncontrada.id].postosMapeadosNaoEncontrados, nomePosto)
+
+    const lancs = Array.isArray(ext.lancamentos) ? ext.lancamentos : []
+    for (let k = 0; k < lancs.length; k++) {
+      const l = lancs[k]
+      const data = l && l.data ? l.data : ''
+      if (!data) continue
+      const parsed = parseAnoMes(String(data))
+      if (parsed.ano !== ano) continue
+      if (parsed.mes == null) continue
+      const v = Number(l.valor) || 0
+      porBase[baseEncontrada.id].meses[parsed.mes].combustivel += v
+      porBase[baseEncontrada.id].totalCombustivel += v
+    }
+  }
+
+  // ───── Folha (pagamentos do DP) ─────
+  let qtdPagAno = 0
+  for (let i = 0; i < pagamentos.length; i++) {
+    const p = pagamentos[i]
+    if (!p || !p.mesAno) continue
+    if (String(p.mesAno).indexOf(String(ano)) !== 0) continue
+    qtdPagAno++
+
+    const cidade = p.cidade || ''
+    if (!cidade) continue
+
+    let baseEncontrada: BaseOperacional | null = null
+    for (let j = 0; j < bases.length; j++) {
+      if (matchTolerante(cidade, bases[j].folhaCidades)) {
+        baseEncontrada = bases[j]
+        break
+      }
+    }
+    if (!baseEncontrada) continue
+
+    cidadesFolhaUsadas[cidade] = true
+    marcarEncontrado(porBase[baseEncontrada.id].folhaCidadesMapeadasNaoEncontradas, cidade)
+
+    const partes = String(p.mesAno).split('-')
+    const mesIdx = partes.length >= 2 ? parseInt(partes[1], 10) - 1 : -1
+    if (mesIdx < 0 || mesIdx > 11) continue
+
+    const v = Number(p.valor) || 0
+    porBase[baseEncontrada.id].meses[mesIdx].folhaLiquida += v
+    porBase[baseEncontrada.id].totalFolhaLiquida += v
+  }
+
+  // ───── Detectar órfãos ─────
+  const todosPostosNaFonte: { [n: string]: true } = {}
+  for (let i = 0; i < extratos.length; i++) {
+    const n = extratos[i] && extratos[i].posto && extratos[i].posto.nome
+    if (n) todosPostosNaFonte[n] = true
+  }
+  const postosOrfaos: string[] = []
+  Object.keys(todosPostosNaFonte).forEach(p => {
+    if (!postosUsados[p]) postosOrfaos.push(p)
+  })
+
+  const linhasFatTodas: { [l: string]: true } = {}
+  if (faturamento && faturamento.porAno && faturamento.porAno[ano]) {
+    const linhas = Array.isArray(faturamento.porAno[ano].cidades) ? faturamento.porAno[ano].cidades : []
+    for (let i = 0; i < linhas.length; i++) {
+      if (linhas[i].cidade) linhasFatTodas[linhas[i].cidade] = true
+    }
+  }
+  const faturamentoLinhasOrfas: string[] = []
+  Object.keys(linhasFatTodas).forEach(l => {
+    if (!linhasFatUsadas[l]) faturamentoLinhasOrfas.push(l)
+  })
+
+  const cidadesFolhaTodas: { [c: string]: true } = {}
+  for (let i = 0; i < pagamentos.length; i++) {
+    const p = pagamentos[i]
+    if (p && p.cidade && p.mesAno && String(p.mesAno).indexOf(String(ano)) === 0) {
+      cidadesFolhaTodas[p.cidade] = true
+    }
+  }
+  const folhaCidadesOrfas: string[] = []
+  Object.keys(cidadesFolhaTodas).forEach(c => {
+    if (!cidadesFolhaUsadas[c]) folhaCidadesOrfas.push(c)
+  })
+
+  // ───── Totais ─────
+  const totaisPorMes = arrZeros()
+  let totalReceita = 0, totalCombustivel = 0, totalFolhaLiquida = 0
+  bases.forEach(b => {
+    const cons = porBase[b.id]
+    for (let m = 0; m < 12; m++) {
+      totaisPorMes[m].receita += cons.meses[m].receita
+      totaisPorMes[m].combustivel += cons.meses[m].combustivel
+      totaisPorMes[m].folhaLiquida += cons.meses[m].folhaLiquida
+    }
+    totalReceita += cons.totalReceita
+    totalCombustivel += cons.totalCombustivel
+    totalFolhaLiquida += cons.totalFolhaLiquida
+  })
+
+  const basesArr = bases.map(b => porBase[b.id])
+
+  return {
+    ano,
+    bases: basesArr,
+    totaisGerais: { totalReceita, totalCombustivel, totalFolhaLiquida },
+    totaisPorMes,
+    postosOrfaos,
+    folhaCidadesOrfas,
+    faturamentoLinhasOrfas,
+    ultimaAtualizacao: new Date().toISOString(),
+    fontes: {
+      qtdExtratos: extratos.length,
+      qtdPagamentos: qtdPagAno,
+      qtdLinhasFaturamento: qtdLinhasFat,
+    },
+  }
+}
