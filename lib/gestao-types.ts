@@ -322,16 +322,31 @@ interface InputConsolidacao {
 
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
   if (!data || typeof data !== 'string') return { ano: null, mes: null }
-  let m = data.match(/^(\d{4})-(\d{2})/)
+
+  // 1. AAAA-MM (ISO)
+  let m = data.match(/^(\d{4})-(\d{1,2})/)
   if (m) return { ano: parseInt(m[1], 10), mes: parseInt(m[2], 10) - 1 }
-  m = data.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-  if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
-  m = data.match(/^(\d{2})-(\d{2})-(\d{4})/)
-  if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
-  try {
-    const d = new Date(data)
-    if (!isNaN(d.getTime())) return { ano: d.getFullYear(), mes: d.getMonth() }
-  } catch {}
+
+  // 2. DD/MM/AAAA ou DD/MM/AA (BR com barra) — aceita ano de 2 ou 4 dígitos
+  m = data.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+  if (m) {
+    let ano = parseInt(m[3], 10)
+    if (ano < 100) ano += ano < 50 ? 2000 : 1900
+    return { ano, mes: parseInt(m[2], 10) - 1 }
+  }
+
+  // 3. DD-MM-AAAA ou DD-MM-AA (BR com hífen)
+  m = data.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})/)
+  if (m) {
+    let ano = parseInt(m[3], 10)
+    if (ano < 100) ano += ano < 50 ? 2000 : 1900
+    return { ano, mes: parseInt(m[2], 10) - 1 }
+  }
+
+  // SEM fallback pra new Date(string): o JS interpreta DD/MM/AA (que falhou
+  // nas regex acima) como MM/DD/YY (formato americano), espalhando
+  // lançamentos por meses errados. Datas em formatos estranhos são
+  // descartadas com segurança.
   return { ano: null, mes: null }
 }
 
