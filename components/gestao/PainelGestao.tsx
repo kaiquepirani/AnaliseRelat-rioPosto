@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   BarChart, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList, Legend, Cell, ReferenceLine,
+  Tooltip, ResponsiveContainer, LabelList, Legend, ReferenceLine,
 } from 'recharts'
 import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
@@ -260,40 +260,73 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }).sort((a, b) => b.margem - a.margem)
   }, [consolidado, fator])
 
-  // Ranking de margem % respeitando o filtro de bases (Todos/Top5/custom).
-  // Inclui a média ponderada (Σmargem ÷ Σreceita) como referência pra
-  // colorir cada barra: verde se acima da média, vermelho se abaixo,
-  // âmbar se está perto (±2 pontos percentuais).
+  // Ranking de margem % POR MÊS, comparando bases lado a lado.
+  //
+  // Regra apples-to-apples: só considera meses onde TODA base selecionada
+  // tem receita > 0 E combustível > 0. Isso evita inflar margens em meses
+  // onde a planilha de orçamento já tem receita projetada mas combustível
+  // ainda não foi importado.
+  //
+  // Bases que não tenham nenhum mês válido ficam fora do gráfico (mas a
+  // gente as lista pro usuário saber).
   const dadosRankingMargem = useMemo(() => {
     if (basesParaSomar.length === 0) {
-      return { itens: [], mediaPonderada: 0 }
+      return { dadosGrafico: [], mesesValidos: [] as number[], basesExcluidas: [] as string[], mediaGeralPct: 0 }
     }
-    let receitaTotal = 0
-    let margemTotal = 0
-    const itens = basesParaSomar.map(b => {
-      const folha = b.totalFolhaLiquida * fator
-      const margem = b.totalReceita - b.totalCombustivel - folha
-      const margemPct = b.totalReceita > 0 ? (margem / b.totalReceita) * 100 : null
-      receitaTotal += b.totalReceita
-      margemTotal += margem
-      return {
-        baseId: b.baseId,
-        baseNome: b.baseNome,
-        margem,
-        margemPct,
-        receita: b.totalReceita,
-      }
-    })
-    const mediaPonderada = receitaTotal > 0 ? (margemTotal / receitaTotal) * 100 : 0
 
-    // Ordena: bases com margemPct null no fim (sem dado), resto por margemPct desc
-    itens.sort((a, b) => {
-      if (a.margemPct == null && b.margemPct == null) return 0
-      if (a.margemPct == null) return 1
-      if (b.margemPct == null) return -1
-      return b.margemPct - a.margemPct
+    // Passo 1: identifica os meses onde TODAS as bases têm receita+combustível
+    const mesesValidos: number[] = []
+    for (let i = 0; i < 12; i++) {
+      const todasTemDados = basesParaSomar.every(b => {
+        const m = b.meses[i]
+        return m.receita > 0 && m.combustivel > 0
+      })
+      if (todasTemDados) mesesValidos.push(i)
+    }
+
+    if (mesesValidos.length === 0) {
+      return { dadosGrafico: [], mesesValidos: [], basesExcluidas: [] as string[], mediaGeralPct: 0 }
+    }
+
+    // Passo 2: monta uma linha por base, com colunas = um campo por mês válido
+    let receitaTotalGeral = 0
+    let margemTotalGeral = 0
+    const dadosGrafico = basesParaSomar.map(b => {
+      const linha: Record<string, any> = { baseNome: b.baseNome }
+      let receitaBase = 0
+      let margemBase = 0
+      mesesValidos.forEach(i => {
+        const m = b.meses[i]
+        const folha = m.folhaLiquida * fator
+        const margem = m.receita - m.combustivel - folha
+        const pct = m.receita > 0 ? (margem / m.receita) * 100 : null
+        linha[NOMES_MESES[i]] = pct == null ? 0 : parseFloat(pct.toFixed(1))
+        receitaBase += m.receita
+        margemBase += margem
+      })
+      const margemPctAcumulada = receitaBase > 0 ? (margemBase / receitaBase) * 100 : 0
+      linha.__margemMedia__ = margemPctAcumulada
+      receitaTotalGeral += receitaBase
+      margemTotalGeral += margemBase
+      return linha
     })
-    return { itens, mediaPonderada }
+
+    // Ordena pela margem média no período (decrescente)
+    dadosGrafico.sort((a, b) => b.__margemMedia__ - a.__margemMedia__)
+
+    const mediaGeralPct = receitaTotalGeral > 0 ? (margemTotalGeral / receitaTotalGeral) * 100 : 0
+
+    // Bases com dados parciais (têm receita ou combustível mas em meses
+    // diferentes de mesesValidos) — ficam fora do gráfico mas vamos avisar
+    const basesExcluidas = basesParaSomar
+      .filter(b => {
+        const algumDado = b.meses.some(m => m.receita > 0 || m.combustivel > 0)
+        const dentroDoGrafico = dadosGrafico.some(d => d.baseNome === b.baseNome)
+        return algumDado && !dentroDoGrafico
+      })
+      .map(b => b.baseNome)
+
+    return { dadosGrafico, mesesValidos, basesExcluidas, mediaGeralPct }
   }, [basesParaSomar, fator])
 
   const ultimoMesComDado = useMemo(() => {
@@ -567,36 +600,53 @@ export default function PainelGestao({ token, onLogout }: Props) {
             </Secao>
 
             {/* ── Ranking de Margem % por Base ────────────────────────────── */}
-            {dadosRankingMargem.itens.length > 0 && (() => {
-              const { itens, mediaPonderada } = dadosRankingMargem
-              const TOLERANCIA = 2 // ±2 p.p. da média conta como "perto da média"
-              const corDaMargem = (pct: number | null): string => {
-                if (pct == null) return '#cbd5e1'
-                const diff = pct - mediaPonderada
-                if (diff > TOLERANCIA) return '#10b981'  // verde — acima
-                if (diff < -TOLERANCIA) return '#dc2626' // vermelho — abaixo
-                return '#f59e0b'                          // âmbar — perto
+            {dadosRankingMargem.dadosGrafico.length > 0 && (() => {
+              const { dadosGrafico, mesesValidos, basesExcluidas, mediaGeralPct } = dadosRankingMargem
+
+              // Paleta gradual por mês (do mais antigo ao mais recente).
+              // Tons de azul ETCO, do claro ao escuro.
+              const PALETA_MESES = [
+                '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6',
+                '#2563eb', '#1d4ed8', '#1e40af', '#1e3a8a',
+                '#172554', '#0f1d54', '#0a1850', '#06124a',
+              ]
+              const corDoMes = (mesIdx: number, posNoArray: number): string => {
+                // Se temos poucos meses (3 por exemplo), espalha pela paleta
+                // pra ter mais contraste. Se temos 12, usa direto.
+                const totalMeses = mesesValidos.length
+                if (totalMeses <= 1) return PALETA_MESES[5]
+                const idx = Math.floor((posNoArray / (totalMeses - 1)) * (PALETA_MESES.length - 1))
+                return PALETA_MESES[idx]
               }
-              const acima = itens.filter(i => i.margemPct != null && (i.margemPct - mediaPonderada) > TOLERANCIA).length
-              const naMedia = itens.filter(i => i.margemPct != null && Math.abs(i.margemPct - mediaPonderada) <= TOLERANCIA).length
-              const abaixo = itens.filter(i => i.margemPct != null && (i.margemPct - mediaPonderada) < -TOLERANCIA).length
 
-              const subtitulo = `Média ponderada: ${fmtPctSimples(mediaPonderada)} · ${acima} acima · ${naMedia} na média · ${abaixo} abaixo`
+              // Período coberto, ex: "Jan a Mar/26"
+              const primeiroMes = NOMES_MESES[mesesValidos[0]]
+              const ultimoMes = NOMES_MESES[mesesValidos[mesesValidos.length - 1]]
+              const periodo = mesesValidos.length === 1
+                ? `${primeiroMes}/${String(ANO_GESTAO).slice(2)}`
+                : `${primeiroMes} a ${ultimoMes}/${String(ANO_GESTAO).slice(2)}`
 
-              // Altura: 40px por base, mínimo 240px
-              const alturaGrafico = Math.max(240, itens.length * 40)
+              const subtitulo =
+                `Comparando ${mesesValidos.length} ${mesesValidos.length === 1 ? 'mês' : 'meses'} ` +
+                `(${periodo}) onde todas as bases têm receita e combustível · ` +
+                `Média ponderada: ${fmtPctSimples(mediaGeralPct)}`
+
+              // Altura: ~50px por base (precisa caber as N barras agrupadas)
+              const alturaGrafico = Math.max(280, dadosGrafico.length * 50)
 
               return (
                 <Secao
-                  titulo="🏁 Ranking de Margem % por base"
+                  titulo="🏁 Margem % por base — comparativo mensal"
                   sub={subtitulo}
                 >
                   <div style={{ width: '100%', height: alturaGrafico }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
-                        data={itens}
+                        data={dadosGrafico}
                         layout="vertical"
-                        margin={{ top: 6, right: 56, left: 8, bottom: 6 }}
+                        margin={{ top: 6, right: 36, left: 8, bottom: 6 }}
+                        barCategoryGap="20%"
+                        barGap={2}
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                         <XAxis
@@ -615,62 +665,103 @@ export default function PainelGestao({ token, onLogout }: Props) {
                           width={140}
                         />
                         <Tooltip
-                          formatter={(v: any) => [
+                          formatter={(v: any, name: any) => [
                             v == null ? '—' : fmtPctSimples(Number(v)),
-                            'Margem %',
+                            String(name),
                           ]}
                           contentStyle={{ fontSize: 12, borderRadius: 8 }}
                           labelStyle={{ fontWeight: 600, color: '#1e293b' }}
                           cursor={{ fill: 'rgba(45,58,107,0.04)' }}
+                          itemSorter={(item: any) => -Number(item.value)}
                         />
                         <ReferenceLine
-                          x={mediaPonderada}
+                          x={mediaGeralPct}
                           stroke="#94a3b8"
                           strokeDasharray="4 4"
                           label={{
-                            value: `Média ${fmtPctSimples(mediaPonderada)}`,
+                            value: `Média ${fmtPctSimples(mediaGeralPct)}`,
                             position: 'top',
                             fill: '#64748b',
                             fontSize: 10,
                             fontWeight: 600,
                           }}
                         />
-                        <Bar dataKey="margemPct" radius={[0, 4, 4, 0]} barSize={22}>
-                          {itens.map((item, i) => (
-                            <Cell key={i} fill={corDaMargem(item.margemPct)} />
-                          ))}
-                          <LabelList
-                            dataKey="margemPct"
-                            position="right"
-                            formatter={(v: any) => v == null ? '—' : fmtPctSimples(Number(v))}
-                            style={{ fontSize: 11, fontWeight: 700, fill: '#334155' }}
-                          />
-                        </Bar>
+                        {mesesValidos.map((mesIdx, posNoArray) => (
+                          <Bar
+                            key={NOMES_MESES[mesIdx]}
+                            dataKey={NOMES_MESES[mesIdx]}
+                            name={NOMES_MESES[mesIdx]}
+                            fill={corDoMes(mesIdx, posNoArray)}
+                            radius={[0, 3, 3, 0]}
+                          >
+                            {posNoArray === mesesValidos.length - 1 && (
+                              <LabelList
+                                dataKey="__margemMedia__"
+                                position="right"
+                                formatter={(v: any) => v == null ? '' : fmtPctSimples(Number(v))}
+                                style={{ fontSize: 10, fontWeight: 700, fill: '#334155' }}
+                              />
+                            )}
+                          </Bar>
+                        ))}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
 
-                  {/* Legenda das cores */}
+                  {/* Legenda dos meses */}
                   <div style={{
                     marginTop: 10, paddingTop: 10, borderTop: '1px solid #f1f5f9',
-                    display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#64748b',
+                    display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#64748b',
+                    alignItems: 'center',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#10b981' }} />
-                      <span>Acima da média (&gt; +{TOLERANCIA} p.p.)</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#f59e0b' }} />
-                      <span>Próximo da média (±{TOLERANCIA} p.p.)</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#dc2626' }} />
-                      <span>Abaixo da média (&lt; −{TOLERANCIA} p.p.)</span>
-                    </div>
+                    <span style={{ fontWeight: 700, color: '#475569' }}>Meses:</span>
+                    {mesesValidos.map((mesIdx, posNoArray) => (
+                      <div key={mesIdx} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{
+                          width: 12, height: 12, borderRadius: 2,
+                          background: corDoMes(mesIdx, posNoArray),
+                        }} />
+                        <span>{NOMES_MESES[mesIdx]}/{String(ANO_GESTAO).slice(2)}</span>
+                      </div>
+                    ))}
+                    <span style={{ marginLeft: 'auto', fontSize: 10, color: '#94a3b8' }}>
+                      Número à direita: margem média no período
+                    </span>
                   </div>
+
+                  {/* Aviso sobre bases excluídas */}
+                  {basesExcluidas.length > 0 && (
+                    <div style={{
+                      marginTop: 12, padding: '10px 12px',
+                      background: '#fffbeb', border: '1px solid #fde68a',
+                      borderRadius: 6, fontSize: 11, color: '#92400e',
+                    }}>
+                      <strong>⚠️ {basesExcluidas.length} {basesExcluidas.length === 1 ? 'base ficou fora' : 'bases ficaram fora'} do comparativo:</strong>{' '}
+                      {basesExcluidas.join(', ')}.{' '}
+                      Para entrar no ranking, a base precisa ter receita E combustível em todos os meses considerados.
+                    </div>
+                  )}
                 </Secao>
               )
             })()}
+
+            {/* Mensagem quando não há meses comparáveis */}
+            {basesParaSomar.length > 0 &&
+             dadosRankingMargem.dadosGrafico.length === 0 && (
+              <Secao titulo="🏁 Margem % por base — comparativo mensal">
+                <div style={{
+                  padding: 24, textAlign: 'center',
+                  color: '#94a3b8', fontSize: 13,
+                  background: '#f8fafc', borderRadius: 6, border: '1px dashed #e2e8f0',
+                }}>
+                  Nenhum mês com dados completos (receita e combustível) em todas as bases selecionadas.
+                  <br />
+                  <span style={{ fontSize: 11 }}>
+                    Tente selecionar menos bases nos chips acima, ou importe mais extratos.
+                  </span>
+                </div>
+              </Secao>
+            )}
 
             <Secao titulo="🏢 Resultado por Base Operacional"
               sub="Ranqueado pela margem operacional absoluta">
