@@ -1,8 +1,13 @@
 'use client'
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Extrato } from '@/lib/types'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
-import { BASES_PADRAO, matchTolerante } from '@/lib/gestao-types'
+import {
+  BASES_PADRAO,
+  encontrarBaseDoPosto,
+  chaveVinculoPosto,
+  type VinculosPostos,
+} from '@/lib/gestao-types'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtL = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' L'
@@ -10,12 +15,11 @@ const fmtK = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(1)}k` : fmt(v)
 
 const NAO_MAPEADOS = 'Não mapeados'
 
-// Paleta alinhada com a /gestao operacional pra dar consistência visual
 const PALETA_BASES = [
   '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
   '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
 ]
-const COR_NAO_MAPEADOS = '#94a3b8'   // cinza neutro pra ficar visualmente óbvio que precisa categorizar
+const COR_NAO_MAPEADOS = '#94a3b8'
 
 function parsarDataBR(data: string): Date | null {
   const m = data.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
@@ -41,25 +45,42 @@ interface Props {
 
 export default function EvolucaoPorBase({ extratos, metrica }: Props) {
   const [baseSel, setBaseSel] = useState<string | null>(null)
+  const [vinculos, setVinculos] = useState<VinculosPostos>({})
+  const [modalPosto, setModalPosto] = useState<string | null>(null)   // posto sendo vinculado no modal
+  const [salvandoVinculo, setSalvandoVinculo] = useState(false)
 
-  // Mapa posto → base (usa as bases do /gestao via matchTolerante; resto vai pra "Não mapeados")
+  // Carrega vínculos manuais do Redis
+  const carregarVinculos = useCallback(async () => {
+    try {
+      const res = await fetch('/api/vinculos-postos')
+      if (res.ok) {
+        const data = await res.json()
+        setVinculos(data || {})
+      }
+    } catch {
+      // silencioso — sem vínculos é só fallback pro matching tolerante
+    }
+  }, [])
+
+  useEffect(() => { carregarVinculos() }, [carregarVinculos])
+
+  // Mapa posto → base (usa override + fallback pro matching tolerante)
   const mapaPostoBase = useMemo(() => {
     const out: Record<string, string> = {}
     extratos.forEach(e => e.postos.forEach(posto => {
       if (out[posto.nome] != null) return
-      let baseEncontrada: string | null = null
-      for (let i = 0; i < BASES_PADRAO.length; i++) {
-        if (matchTolerante(posto.nome, BASES_PADRAO[i].postos)) {
-          baseEncontrada = BASES_PADRAO[i].nome
-          break
-        }
-      }
-      out[posto.nome] = baseEncontrada || NAO_MAPEADOS
+      const base = encontrarBaseDoPosto(posto.nome, BASES_PADRAO, vinculos)
+      out[posto.nome] = base ? base.nome : NAO_MAPEADOS
     }))
     return out
-  }, [extratos])
+  }, [extratos, vinculos])
 
-  // Lista de bases que efetivamente aparecem nos dados (na ordem do BASES_PADRAO; "Não mapeados" no fim)
+  const isVinculoManual = useCallback((nomePosto: string): boolean => {
+    const chave = chaveVinculoPosto(nomePosto)
+    return chave in vinculos
+  }, [vinculos])
+
+  // Lista de bases que efetivamente aparecem nos dados
   const basesAtivas = useMemo(() => {
     const presentes: Record<string, true> = {}
     Object.keys(mapaPostoBase).forEach(p => { presentes[mapaPostoBase[p]] = true })
@@ -93,7 +114,6 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
     return mapa
   }, [extratos, mapaPostoBase])
 
-  // Dados pro gráfico
   const dadosEvolucao = useMemo(() => {
     return Object.entries(mapaBase)
       .sort(([a], [b]) => a.localeCompare(b))
@@ -116,7 +136,6 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
 
   const basesNoGrafico = baseSel ? [baseSel] : basesAtivas
 
-  // Tooltip customizado (mesmo padrão visual do gráfico irmão de postos)
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null
     const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0)
@@ -142,12 +161,53 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
 
   const dadosMensais = Object.entries(mapaBase).sort(([a], [b]) => a.localeCompare(b))
 
-  if (basesAtivas.length === 0) return null
-
-  // Lista de postos da base selecionada (pra mostrar no resumo)
+  // Postos da base selecionada
   const postosDaBaseSel = baseSel
     ? Object.keys(mapaPostoBase).filter(p => mapaPostoBase[p] === baseSel).sort()
     : []
+
+  // ── Ações de vinculação ──────────────────────────────────────────────
+  const vincularPosto = async (nomePosto: string, baseId: string) => {
+    setSalvandoVinculo(true)
+    try {
+      const res = await fetch('/api/vinculos-postos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nomePosto, baseId }),
+      })
+      if (!res.ok) throw new Error('Falha ao salvar vínculo')
+      await carregarVinculos()
+      setModalPosto(null)
+      // Após vincular, vai pra base destino pra dar feedback visual
+      const baseAlvo = BASES_PADRAO.find(b => b.id === baseId)
+      if (baseAlvo) setBaseSel(baseAlvo.nome)
+    } catch (e: any) {
+      alert('Erro ao vincular posto: ' + (e?.message || 'tente novamente'))
+    } finally {
+      setSalvandoVinculo(false)
+    }
+  }
+
+  const desvincularPosto = async (nomePosto: string) => {
+    if (!confirm(`Remover vínculo manual de "${nomePosto}"?\n\nO posto voltará ao mapeamento automático (matching tolerante com BASES_PADRAO).`)) return
+    setSalvandoVinculo(true)
+    try {
+      const res = await fetch('/api/vinculos-postos', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nomePosto }),
+      })
+      if (!res.ok) throw new Error('Falha ao remover vínculo')
+      await carregarVinculos()
+      setModalPosto(null)
+    } catch (e: any) {
+      alert('Erro ao remover vínculo: ' + (e?.message || 'tente novamente'))
+    } finally {
+      setSalvandoVinculo(false)
+    }
+  }
+
+  if (basesAtivas.length === 0) return null
 
   return (
     <div className="grafico-card">
@@ -238,20 +298,223 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
               </div>
             </div>
 
+            {/* Lista de postos desta base */}
             {postosDaBaseSel.length > 0 && (
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${isNaoMapeado ? '#fde68a' : 'rgba(0,0,0,0.05)'}`, fontSize: 11, color: 'var(--text-2)' }}>
-                <strong>Postos:</strong> {postosDaBaseSel.join(' · ')}
+              <div style={{
+                marginTop: 12, paddingTop: 10,
+                borderTop: `1px solid ${isNaoMapeado ? '#fde68a' : 'rgba(0,0,0,0.05)'}`,
+              }}>
+                <div style={{ fontSize: 11, color: 'var(--text-2)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                  Postos
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {postosDaBaseSel.map(p => {
+                    const manual = isVinculoManual(p)
+                    return (
+                      <div
+                        key={p}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 6,
+                          padding: '4px 10px', fontSize: 11,
+                          background: 'white',
+                          border: `1px solid ${manual ? '#86efac' : 'var(--border)'}`,
+                          borderRadius: 6,
+                          color: 'var(--text-2)',
+                        }}
+                      >
+                        {manual && <span title="Vínculo manual" style={{ fontSize: 10 }}>🔗</span>}
+                        <span style={{ fontWeight: 500 }}>{p}</span>
+                        <button
+                          onClick={() => setModalPosto(p)}
+                          style={{
+                            border: 'none', background: 'transparent', cursor: 'pointer',
+                            padding: '0 2px', color: '#4AABDB', fontSize: 11, fontWeight: 600,
+                            fontFamily: 'inherit',
+                          }}
+                          title={manual ? 'Alterar/remover vínculo manual' : 'Vincular a outra base'}
+                        >
+                          {manual ? 'editar' : 'vincular'}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             )}
 
             {isNaoMapeado && (
-              <div style={{ marginTop: 8, fontSize: 11, color: '#92400e', fontWeight: 600 }}>
-                ⚠️ Esses postos não estão mapeados em nenhuma base. Adicione-os em <code>lib/gestao-types.ts</code> dentro do array <code>postos</code> da base correta.
+              <div style={{ marginTop: 10, fontSize: 11, color: '#92400e', fontWeight: 600 }}>
+                ⚠️ Esses postos ainda não estão atribuídos a nenhuma base. Clique em <strong>vincular</strong> ao lado de cada um pra associá-los — o vínculo se aplica também à <strong>/gestao</strong>.
               </div>
             )}
           </div>
         )
       })()}
+
+      {/* Modal de vinculação */}
+      {modalPosto && (
+        <ModalVinculo
+          nomePosto={modalPosto}
+          baseAtualId={(() => {
+            const baseAtual = encontrarBaseDoPosto(modalPosto, BASES_PADRAO, vinculos)
+            return baseAtual ? baseAtual.id : null
+          })()}
+          temVinculoManual={isVinculoManual(modalPosto)}
+          salvando={salvandoVinculo}
+          onCancel={() => setModalPosto(null)}
+          onVincular={baseId => vincularPosto(modalPosto, baseId)}
+          onDesvincular={() => desvincularPosto(modalPosto)}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Modal de vinculação manual
+// ─────────────────────────────────────────────────────────────────────────────
+interface ModalProps {
+  nomePosto: string
+  baseAtualId: string | null
+  temVinculoManual: boolean
+  salvando: boolean
+  onCancel: () => void
+  onVincular: (baseId: string) => void
+  onDesvincular: () => void
+}
+
+function ModalVinculo({
+  nomePosto, baseAtualId, temVinculoManual, salvando,
+  onCancel, onVincular, onDesvincular,
+}: ModalProps) {
+  const [baseEscolhida, setBaseEscolhida] = useState<string | null>(baseAtualId)
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        zIndex: 1000, padding: '1rem',
+      }}
+      onClick={onCancel}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: 'white', borderRadius: 16, padding: '1.5rem',
+          maxWidth: 480, width: '100%', maxHeight: '85vh', overflowY: 'auto',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+        }}
+      >
+        <div style={{ marginBottom: '1.25rem' }}>
+          <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--navy)' }}>
+            🔗 Vincular posto a uma base
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>
+            O vínculo é salvo no servidor e se aplica automaticamente também ao painel <strong>/gestao</strong>.
+          </div>
+        </div>
+
+        <div style={{
+          padding: '0.75rem 1rem', background: '#f8fafc',
+          border: '1px solid var(--border)', borderRadius: 8, marginBottom: '1.25rem',
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>
+            Posto
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--navy)', wordBreak: 'break-word' }}>
+            {nomePosto}
+          </div>
+          {temVinculoManual && (
+            <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 600, marginTop: 6 }}>
+              🔗 Atualmente com vínculo manual
+            </div>
+          )}
+        </div>
+
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+          Vincular a:
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: '1.25rem' }}>
+          {BASES_PADRAO.map(b => (
+            <label
+              key={b.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 6,
+                border: `1.5px solid ${baseEscolhida === b.id ? 'var(--navy)' : 'var(--border)'}`,
+                background: baseEscolhida === b.id ? 'var(--sky-light)' : 'white',
+                cursor: 'pointer', transition: 'all 0.1s',
+              }}
+            >
+              <input
+                type="radio"
+                name="base"
+                checked={baseEscolhida === b.id}
+                onChange={() => setBaseEscolhida(b.id)}
+                style={{ cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--navy)', flex: 1 }}>
+                {b.nome}
+              </span>
+              {b.postos.length > 0 && (
+                <span style={{ fontSize: 10, color: 'var(--text-3)' }}>
+                  {b.postos.length} {b.postos.length === 1 ? 'posto' : 'postos'}
+                </span>
+              )}
+            </label>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <div>
+            {temVinculoManual && (
+              <button
+                onClick={onDesvincular}
+                disabled={salvando}
+                style={{
+                  padding: '0.55rem 1rem', fontSize: 12, fontWeight: 600,
+                  background: 'white', color: '#dc2626',
+                  border: '1px solid #fecaca', borderRadius: 8,
+                  cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                  opacity: salvando ? 0.6 : 1,
+                }}
+              >
+                Remover vínculo manual
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={onCancel}
+              disabled={salvando}
+              style={{
+                padding: '0.55rem 1.1rem', fontSize: 13, fontWeight: 600,
+                background: 'white', color: 'var(--text-2)',
+                border: '1px solid var(--border)', borderRadius: 8,
+                cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                opacity: salvando ? 0.6 : 1,
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => baseEscolhida && onVincular(baseEscolhida)}
+              disabled={!baseEscolhida || salvando || baseEscolhida === baseAtualId}
+              style={{
+                padding: '0.55rem 1.25rem', fontSize: 13, fontWeight: 700,
+                background: 'var(--navy)', color: 'white',
+                border: 'none', borderRadius: 8,
+                cursor: (!baseEscolhida || salvando || baseEscolhida === baseAtualId) ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit',
+                opacity: (!baseEscolhida || salvando || baseEscolhida === baseAtualId) ? 0.5 : 1,
+              }}
+            >
+              {salvando ? 'Salvando...' : 'Vincular'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
