@@ -25,13 +25,18 @@ const fmtRealK = (n: number) => {
   if (abs >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}K`
   return fmtReal(n)
 }
-const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1).replace('.', ',')}%`
 
 export default function PainelGestao({ token, onLogout }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [comEncargos, setComEncargos] = useState(true)
   const [consolidado, setConsolidado] = useState<ConsolidadoCompleto | null>(null)
+
+  // Guardamos os dados crus pra seção de diagnóstico
+  const [debugExtratos, setDebugExtratos] = useState<any[]>([])
+  const [debugFaturamento, setDebugFaturamento] = useState<any>(null)
+  const [debugPagamentos, setDebugPagamentos] = useState<any[]>([])
+  const [debugAberto, setDebugAberto] = useState(false)
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
 
@@ -50,6 +55,10 @@ export default function PainelGestao({ token, onLogout }: Props) {
       const faturamento = resFat.ok ? await resFat.json() : null
       const extratos = resExt.ok ? await resExt.json() : []
       const pagamentos = resPag.ok ? await resPag.json() : []
+
+      setDebugExtratos(Array.isArray(extratos) ? extratos : [])
+      setDebugFaturamento(faturamento)
+      setDebugPagamentos(Array.isArray(pagamentos) ? pagamentos : [])
 
       const cons = consolidar({
         ano: ANO_GESTAO,
@@ -120,6 +129,81 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }
     return -1
   }, [consolidado])
+
+  // Análise dos extratos pro diagnóstico
+  const debugInfo = useMemo(() => {
+    if (debugExtratos.length === 0) return null
+
+    const primeiroExt = debugExtratos[0]
+    const chavesDoExtrato = primeiroExt ? Object.keys(primeiroExt) : []
+
+    let primeiroPosto: any = null
+    let chavesDoPosto: string[] = []
+    if (primeiroExt) {
+      if (Array.isArray(primeiroExt.postos) && primeiroExt.postos.length > 0) {
+        primeiroPosto = primeiroExt.postos[0]
+      } else if (primeiroExt.posto) {
+        primeiroPosto = primeiroExt.posto
+      }
+      if (primeiroPosto) chavesDoPosto = Object.keys(primeiroPosto)
+    }
+
+    let primeiroLanc: any = null
+    let chavesDoLanc: string[] = []
+    if (primeiroPosto) {
+      // tenta encontrar lançamentos em vários nomes possíveis
+      const candidatosLancs = ['lancamentos', 'transacoes', 'abastecimentos', 'items', 'itens', 'rows', 'movimentos']
+      for (let i = 0; i < candidatosLancs.length; i++) {
+        const arr = primeiroPosto[candidatosLancs[i]]
+        if (Array.isArray(arr) && arr.length > 0) {
+          primeiroLanc = arr[0]
+          break
+        }
+      }
+      // fallback: procura no extrato root
+      if (!primeiroLanc) {
+        for (let i = 0; i < candidatosLancs.length; i++) {
+          const arr = primeiroExt[candidatosLancs[i]]
+          if (Array.isArray(arr) && arr.length > 0) {
+            primeiroLanc = arr[0]
+            break
+          }
+        }
+      }
+      if (primeiroLanc) chavesDoLanc = Object.keys(primeiroLanc)
+    }
+
+    // Tenta detectar os anos presentes nos lancamentos do primeiro extrato
+    const anosDetectados = new Set<string>()
+    if (primeiroPosto) {
+      const candidatosLancs = ['lancamentos', 'transacoes', 'abastecimentos', 'items', 'itens', 'rows', 'movimentos']
+      for (let i = 0; i < candidatosLancs.length; i++) {
+        const arr = primeiroPosto[candidatosLancs[i]]
+        if (Array.isArray(arr)) {
+          for (let j = 0; j < Math.min(arr.length, 50); j++) {
+            const lanc = arr[j]
+            if (lanc && lanc.data) {
+              const ms = String(lanc.data).match(/(\d{4})/)
+              if (ms) anosDetectados.add(ms[1])
+            }
+          }
+          break
+        }
+      }
+    }
+
+    return {
+      qtdExtratos: debugExtratos.length,
+      chavesDoExtrato,
+      primeiroExtPostosLength: Array.isArray(primeiroExt?.postos) ? primeiroExt.postos.length : null,
+      primeiroExtTemPostoSingular: primeiroExt?.posto != null,
+      chavesDoPosto,
+      primeiroPostoNome: primeiroPosto?.nome,
+      chavesDoLanc,
+      primeiroLanc,
+      anosDetectados: Array.from(anosDetectados).sort(),
+    }
+  }, [debugExtratos])
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f6fb', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -200,7 +284,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 cor="#047857" icone="💰" />
               <KPI titulo="Custo combustível"
                 valor={fmtReal(kpis.combustivel)}
-                sub={`${fmtPct(kpis.pctCombustivel - 100 + 100)} da receita`.replace('+', '')}
+                sub={`${kpis.pctCombustivel.toFixed(1).replace('.', ',')}% da receita`}
                 cor="#dc2626" icone="⛽" />
               <KPI titulo={`Custo folha${comEncargos ? ' (×1,7)' : ' líquida'}`}
                 valor={fmtReal(kpis.folha)}
@@ -244,6 +328,74 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 </div>
               </div>
             )}
+
+            {/* ───── Painel de diagnóstico (expansível) ───── */}
+            <div style={{
+              marginBottom: 16, background: '#fff', borderRadius: 12,
+              boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden',
+              border: '2px dashed #cbd5e1',
+            }}>
+              <button onClick={() => setDebugAberto(!debugAberto)}
+                style={{
+                  width: '100%', padding: '12px 16px', background: '#f8fafc',
+                  border: 'none', cursor: 'pointer', textAlign: 'left',
+                  fontSize: 13, fontWeight: 600, color: '#334155',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  fontFamily: 'inherit',
+                }}>
+                <span>🔍 Diagnóstico — clique para inspecionar a estrutura dos dados</span>
+                <span>{debugAberto ? '▲' : '▼'}</span>
+              </button>
+              {debugAberto && (
+                <div style={{ padding: 16, fontSize: 12, fontFamily: 'monospace', background: '#0f172a', color: '#e2e8f0' }}>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ color: '#fbbf24', fontWeight: 700, marginBottom: 4 }}>
+                      📦 EXTRATOS — total: {debugInfo?.qtdExtratos ?? 0}
+                    </div>
+                    {debugInfo && (
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+{`Chaves do primeiro extrato: ${JSON.stringify(debugInfo.chavesDoExtrato)}
+Tem array postos[]? ${debugInfo.primeiroExtPostosLength != null ? `sim, ${debugInfo.primeiroExtPostosLength} postos` : 'não'}
+Tem objeto posto (singular)? ${debugInfo.primeiroExtTemPostoSingular ? 'sim' : 'não'}
+
+Nome do primeiro posto: ${debugInfo.primeiroPostoNome || '(vazio)'}
+Chaves do primeiro posto: ${JSON.stringify(debugInfo.chavesDoPosto)}
+
+Chaves do primeiro lançamento (encontrado): ${JSON.stringify(debugInfo.chavesDoLanc)}
+
+Anos detectados nos lançamentos: ${debugInfo.anosDetectados.join(', ') || '(nenhum)'}
+
+Primeiro lançamento (objeto cru):
+${JSON.stringify(debugInfo.primeiroLanc, null, 2)}`}
+                      </pre>
+                    )}
+                  </div>
+
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ color: '#34d399', fontWeight: 700, marginBottom: 4 }}>
+                      💵 PAGAMENTOS DP — total: {debugPagamentos.length}
+                    </div>
+                    {debugPagamentos.length > 0 && (
+                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+{`Primeiro pagamento:
+${JSON.stringify(debugPagamentos[0], null, 2)}`}
+                      </pre>
+                    )}
+                  </div>
+
+                  <div>
+                    <div style={{ color: '#a78bfa', fontWeight: 700, marginBottom: 4 }}>
+                      📊 FATURAMENTO — anos disponíveis
+                    </div>
+                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
+{`Anos: ${debugFaturamento?.anos ? JSON.stringify(debugFaturamento.anos) : '(nenhum)'}
+Tem dados de ${ANO_GESTAO}? ${debugFaturamento?.porAno?.[ANO_GESTAO] ? 'sim' : 'não'}
+Linhas em ${ANO_GESTAO}: ${debugFaturamento?.porAno?.[ANO_GESTAO]?.cidades?.length ?? 0}`}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Gráfico de evolução mensal */}
             <Secao titulo={`📊 Evolução mensal — ${ANO_GESTAO}`}
