@@ -1,7 +1,10 @@
 'use client'
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Extrato } from '@/lib/types'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Legend, LabelList,
+} from 'recharts'
 import {
   BASES_PADRAO,
   encontrarBaseDoPosto,
@@ -12,12 +15,20 @@ import {
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtL = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' L'
 const fmtK = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(1)}k` : fmt(v)
+const fmtKL = (v: number) => `${(v / 1000).toFixed(1)}kL`
 
 const NAO_MAPEADOS = 'Não mapeados'
 
 const PALETA_BASES = [
   '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
   '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
+]
+
+// Paleta separada pros postos (quando uma base é expandida em postos)
+const PALETA_POSTOS = [
+  '#1e40af', '#0891b2', '#059669', '#65a30d', '#ca8a04',
+  '#dc2626', '#9333ea', '#c026d3', '#0284c7', '#16a34a',
+  '#4f46e5', '#0d9488', '#be185d', '#7c2d12', '#1e3a8a',
 ]
 const COR_NAO_MAPEADOS = '#94a3b8'
 
@@ -46,10 +57,12 @@ interface Props {
 export default function EvolucaoPorBase({ extratos, metrica }: Props) {
   const [baseSel, setBaseSel] = useState<string | null>(null)
   const [vinculos, setVinculos] = useState<VinculosPostos>({})
-  const [modalPosto, setModalPosto] = useState<string | null>(null)   // posto sendo vinculado no modal
+  const [modalPosto, setModalPosto] = useState<string | null>(null)
   const [salvandoVinculo, setSalvandoVinculo] = useState(false)
 
-  // Carrega vínculos manuais do Redis
+  // ─────────────────────────────────────────────────────────────────────
+  // Carregar vínculos manuais do Redis
+  // ─────────────────────────────────────────────────────────────────────
   const carregarVinculos = useCallback(async () => {
     try {
       const res = await fetch('/api/vinculos-postos')
@@ -64,7 +77,9 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
 
   useEffect(() => { carregarVinculos() }, [carregarVinculos])
 
-  // Mapa posto → base (usa override + fallback pro matching tolerante)
+  // ─────────────────────────────────────────────────────────────────────
+  // Mapeamento posto → base (override + matching tolerante)
+  // ─────────────────────────────────────────────────────────────────────
   const mapaPostoBase = useMemo(() => {
     const out: Record<string, string> = {}
     extratos.forEach(e => e.postos.forEach(posto => {
@@ -80,7 +95,7 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
     return chave in vinculos
   }, [vinculos])
 
-  // Lista de bases que efetivamente aparecem nos dados
+  // Bases que aparecem nos dados (em ordem do BASES_PADRAO; "Não mapeados" no fim)
   const basesAtivas = useMemo(() => {
     const presentes: Record<string, true> = {}
     Object.keys(mapaPostoBase).forEach(p => { presentes[mapaPostoBase[p]] = true })
@@ -96,61 +111,125 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
     return idx >= 0 ? PALETA_BASES[idx % PALETA_BASES.length] : COR_NAO_MAPEADOS
   }
 
-  // Mapa mensal: mes → base → totais
-  const mapaBase = useMemo(() => {
-    const mapa: Record<string, Record<string, { valor: number; litros: number }>> = {}
+  // Lista global de postos (todos os extratos), pra dar cor estável a cada um
+  const todosPostos = useMemo(() => {
+    const s: Record<string, true> = {}
+    extratos.forEach(e => e.postos.forEach(p => { s[p.nome] = true }))
+    return Object.keys(s).sort()
+  }, [extratos])
+
+  const corDoPosto = useCallback((nomePosto: string): string => {
+    const idx = todosPostos.indexOf(nomePosto)
+    return PALETA_POSTOS[idx >= 0 ? idx % PALETA_POSTOS.length : 0]
+  }, [todosPostos])
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Mapas de agregação (mês → base → totais; mês → posto → totais)
+  // ─────────────────────────────────────────────────────────────────────
+  const { mapaPorBase, mapaPorPosto } = useMemo(() => {
+    const mb: Record<string, Record<string, { valor: number; litros: number }>> = {}
+    const mp: Record<string, Record<string, { valor: number; litros: number }>> = {}
     extratos.forEach(e => e.postos.forEach(posto => {
       const base = mapaPostoBase[posto.nome] || NAO_MAPEADOS
       posto.lancamentos.forEach(l => {
         const d = parsarDataBR(l.emissao)
         if (!d) return
         const key = mesAnoKey(d)
-        if (!mapa[key]) mapa[key] = {}
-        if (!mapa[key][base]) mapa[key][base] = { valor: 0, litros: 0 }
-        mapa[key][base].valor += l.valor
-        mapa[key][base].litros += l.litros
+        if (!mb[key]) mb[key] = {}
+        if (!mb[key][base]) mb[key][base] = { valor: 0, litros: 0 }
+        mb[key][base].valor += l.valor
+        mb[key][base].litros += l.litros
+
+        if (!mp[key]) mp[key] = {}
+        if (!mp[key][posto.nome]) mp[key][posto.nome] = { valor: 0, litros: 0 }
+        mp[key][posto.nome].valor += l.valor
+        mp[key][posto.nome].litros += l.litros
       })
     }))
-    return mapa
+    return { mapaPorBase: mb, mapaPorPosto: mp }
   }, [extratos, mapaPostoBase])
 
+  // Postos da base selecionada (em ordem alfabética)
+  const postosDaBaseSel = useMemo(() => (
+    baseSel
+      ? Object.keys(mapaPostoBase).filter(p => mapaPostoBase[p] === baseSel).sort()
+      : []
+  ), [baseSel, mapaPostoBase])
+
+  // ─────────────────────────────────────────────────────────────────────
+  // Dados pro gráfico
+  // ─────────────────────────────────────────────────────────────────────
+  // Quando "Todos": empilhado por base, com __total__ no topo
+  // Quando base selecionada: empilhado por POSTO da base, com __total__ no topo
   const dadosEvolucao = useMemo(() => {
-    return Object.entries(mapaBase)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, bd]) => {
-        const entry: Record<string, any> = { label: labelMes(key), key }
-        if (baseSel) {
-          entry[baseSel] = metrica === 'valor'
-            ? parseFloat((bd[baseSel]?.valor || 0).toFixed(2))
-            : parseFloat((bd[baseSel]?.litros || 0).toFixed(1))
-        } else {
-          basesAtivas.forEach(nome => {
-            entry[nome] = metrica === 'valor'
-              ? parseFloat((bd[nome]?.valor || 0).toFixed(2))
-              : parseFloat((bd[nome]?.litros || 0).toFixed(1))
-          })
+    const mesesOrdenados = Object.keys(mapaPorBase).sort()
+    return mesesOrdenados.map(key => {
+      const entry: Record<string, any> = { label: labelMes(key), key }
+      let total = 0
+
+      if (baseSel) {
+        const dadosMesPosto = mapaPorPosto[key] || {}
+        for (let i = 0; i < postosDaBaseSel.length; i++) {
+          const nomePosto = postosDaBaseSel[i]
+          const v = dadosMesPosto[nomePosto] || { valor: 0, litros: 0 }
+          const valor = metrica === 'valor'
+            ? parseFloat(v.valor.toFixed(2))
+            : parseFloat(v.litros.toFixed(1))
+          entry[nomePosto] = valor
+          total += valor
         }
-        return entry
-      })
-  }, [mapaBase, basesAtivas, baseSel, metrica])
+      } else {
+        const dadosMesBase = mapaPorBase[key] || {}
+        for (let i = 0; i < basesAtivas.length; i++) {
+          const nome = basesAtivas[i]
+          const v = dadosMesBase[nome] || { valor: 0, litros: 0 }
+          const valor = metrica === 'valor'
+            ? parseFloat(v.valor.toFixed(2))
+            : parseFloat(v.litros.toFixed(1))
+          entry[nome] = valor
+          total += valor
+        }
+      }
+      entry.__total__ = parseFloat(total.toFixed(metrica === 'valor' ? 2 : 1))
+      return entry
+    })
+  }, [mapaPorBase, mapaPorPosto, basesAtivas, baseSel, metrica, postosDaBaseSel])
 
-  const basesNoGrafico = baseSel ? [baseSel] : basesAtivas
+  const stackKeys = baseSel ? postosDaBaseSel : basesAtivas
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Tooltip
+  // ─────────────────────────────────────────────────────────────────────
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null
     const total = payload.reduce((s: number, p: any) => s + (p.value || 0), 0)
     return (
-      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: 10, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)', maxWidth: 280 }}>
-        <div style={{ fontWeight: 700, color: '#2D3A6B', marginBottom: 8, fontSize: 13 }}>{label}</div>
-        {payload.map((p: any, i: number) => (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 2, background: p.fill, flexShrink: 0 }} />
-            <span style={{ color: '#6b7280', flex: 1 }}>{p.name}</span>
-            <span style={{ fontWeight: 600 }}>{metrica === 'valor' ? fmt(p.value) : fmtL(p.value)}</span>
-          </div>
-        ))}
+      <div style={{
+        background: 'white', border: '1px solid #e5e7eb', borderRadius: 10,
+        padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+        maxWidth: 320,
+      }}>
+        <div style={{ fontWeight: 700, color: '#2D3A6B', marginBottom: 8, fontSize: 13 }}>
+          {label}
+          {baseSel && <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 500, marginLeft: 6 }}>· {baseSel}</span>}
+        </div>
+        {payload
+          .slice()
+          .sort((a: any, b: any) => (b.value || 0) - (a.value || 0))
+          .map((p: any, i: number) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: p.fill, flexShrink: 0 }} />
+              <span style={{ color: '#6b7280', flex: 1 }}>
+                {p.name.length > 30 ? p.name.slice(0, 30) + '…' : p.name}
+              </span>
+              <span style={{ fontWeight: 600 }}>{metrica === 'valor' ? fmt(p.value) : fmtL(p.value)}</span>
+            </div>
+          ))}
         {payload.length > 1 && (
-          <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+          <div style={{
+            borderTop: '1px solid #e5e7eb', marginTop: 6, paddingTop: 6,
+            display: 'flex', justifyContent: 'space-between', fontWeight: 700,
+          }}>
             <span>Total</span>
             <span style={{ color: '#2D3A6B' }}>{metrica === 'valor' ? fmt(total) : fmtL(total)}</span>
           </div>
@@ -159,14 +238,9 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
     )
   }
 
-  const dadosMensais = Object.entries(mapaBase).sort(([a], [b]) => a.localeCompare(b))
-
-  // Postos da base selecionada
-  const postosDaBaseSel = baseSel
-    ? Object.keys(mapaPostoBase).filter(p => mapaPostoBase[p] === baseSel).sort()
-    : []
-
-  // ── Ações de vinculação ──────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────────────
+  // Ações de vinculação
+  // ─────────────────────────────────────────────────────────────────────
   const vincularPosto = async (nomePosto: string, baseId: string) => {
     setSalvandoVinculo(true)
     try {
@@ -178,7 +252,6 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
       if (!res.ok) throw new Error('Falha ao salvar vínculo')
       await carregarVinculos()
       setModalPosto(null)
-      // Após vincular, vai pra base destino pra dar feedback visual
       const baseAlvo = BASES_PADRAO.find(b => b.id === baseId)
       if (baseAlvo) setBaseSel(baseAlvo.nome)
     } catch (e: any) {
@@ -214,7 +287,10 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
       <div style={{ marginBottom: '1rem' }}>
         <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal por base operacional</div>
         <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 3 }}>
-          Postos agrupados pelas bases definidas em <strong>/gestao</strong> · &ldquo;Todos&rdquo; exibe todas empilhadas
+          {baseSel
+            ? <>Mostrando os <strong>{postosDaBaseSel.length}</strong> {postosDaBaseSel.length === 1 ? 'posto' : 'postos'} da base <strong>{baseSel}</strong> empilhados</>
+            : <>Postos agrupados pelas bases definidas em <strong>/gestao</strong> · &ldquo;Todos&rdquo; exibe todas empilhadas</>
+          }
         </div>
       </div>
 
@@ -249,28 +325,59 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
         })}
       </div>
 
-      <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={dadosEvolucao} margin={{ top: 5, right: 20, left: 10, bottom: 5 }} barCategoryGap="25%">
+      <ResponsiveContainer width="100%" height={340}>
+        <BarChart
+          data={dadosEvolucao}
+          margin={{ top: 30, right: 20, left: 10, bottom: 5 }}
+          barCategoryGap="25%"
+        >
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 12, fontWeight: 600 }} />
-          <YAxis tick={{ fontSize: 11 }} tickFormatter={v => metrica === 'valor' ? fmtK(v) : `${(v / 1000).toFixed(1)}kL`} width={60} />
-          <Tooltip content={<CustomTooltip />} />
-          {!baseSel && <Legend wrapperStyle={{ fontSize: 11 }} />}
-          {basesNoGrafico.map((nome, i) => (
-            <Bar key={nome} dataKey={nome} name={nome}
-              stackId={baseSel ? undefined : 'a'}
-              fill={corBase(nome)}
-              radius={baseSel ? [4, 4, 0, 0] : i === basesNoGrafico.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+          <YAxis
+            tick={{ fontSize: 11 }}
+            tickFormatter={v => metrica === 'valor' ? fmtK(v) : fmtKL(v)}
+            width={60}
+          />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(45,58,107,0.04)' }} />
+          {stackKeys.length > 1 && (
+            <Legend
+              wrapperStyle={{ fontSize: 11, paddingTop: 8 }}
+              formatter={n => n.length > 28 ? n.slice(0, 28) + '…' : n}
             />
-          ))}
+          )}
+          {stackKeys.map((nome, i) => {
+            const cor = baseSel ? corDoPosto(nome) : corBase(nome)
+            const isLast = i === stackKeys.length - 1
+            return (
+              <Bar
+                key={nome}
+                dataKey={nome}
+                name={nome}
+                stackId="a"
+                fill={cor}
+                radius={isLast ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+              >
+                {/* Label do TOTAL no topo da última barra empilhada de cada mês */}
+                {isLast && (
+                  <LabelList
+                    dataKey="__total__"
+                    position="top"
+                    formatter={(v: number) => metrica === 'valor' ? fmtK(v) : fmtL(v)}
+                    style={{ fontSize: 11, fill: '#1e293b', fontWeight: 700 }}
+                  />
+                )}
+              </Bar>
+            )
+          })}
         </BarChart>
       </ResponsiveContainer>
 
       {/* Box de resumo quando uma base é selecionada */}
       {baseSel && (() => {
-        const totalValor = dadosMensais.reduce((s, [, bd]) => s + (bd[baseSel]?.valor || 0), 0)
-        const totalLitros = dadosMensais.reduce((s, [, bd]) => s + (bd[baseSel]?.litros || 0), 0)
-        const mediaMensal = dadosMensais.length > 0 ? totalValor / dadosMensais.length : 0
+        const totaisPorMes = Object.entries(mapaPorBase).sort(([a], [b]) => a.localeCompare(b))
+        const totalValor = totaisPorMes.reduce((s, [, bd]) => s + (bd[baseSel]?.valor || 0), 0)
+        const totalLitros = totaisPorMes.reduce((s, [, bd]) => s + (bd[baseSel]?.litros || 0), 0)
+        const mediaMensal = totaisPorMes.length > 0 ? totalValor / totaisPorMes.length : 0
         const isNaoMapeado = baseSel === NAO_MAPEADOS
         return (
           <div style={{
@@ -298,7 +405,7 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
               </div>
             </div>
 
-            {/* Lista de postos desta base */}
+            {/* Lista de postos desta base com cor + ações */}
             {postosDaBaseSel.length > 0 && (
               <div style={{
                 marginTop: 12, paddingTop: 10,
@@ -322,6 +429,11 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
                           color: 'var(--text-2)',
                         }}
                       >
+                        {/* Bolinha colorida = mesma cor da barra empilhada */}
+                        <span style={{
+                          width: 10, height: 10, borderRadius: 2,
+                          background: corDoPosto(p), flexShrink: 0,
+                        }} />
                         {manual && <span title="Vínculo manual" style={{ fontSize: 10 }}>🔗</span>}
                         <span style={{ fontWeight: 500 }}>{p}</span>
                         <button
@@ -344,7 +456,7 @@ export default function EvolucaoPorBase({ extratos, metrica }: Props) {
 
             {isNaoMapeado && (
               <div style={{ marginTop: 10, fontSize: 11, color: '#92400e', fontWeight: 600 }}>
-                ⚠️ Esses postos ainda não estão atribuídos a nenhuma base. Clique em <strong>vincular</strong> ao lado de cada um pra associá-los — o vínculo se aplica também à <strong>/gestao</strong>.
+                ⚠️ Esses postos ainda não estão atribuídos a nenhuma base. Clique em <strong>vincular</strong> ao lado de cada um — o vínculo se aplica também à <strong>/gestao</strong>.
               </div>
             )}
           </div>
