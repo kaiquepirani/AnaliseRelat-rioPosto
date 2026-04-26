@@ -32,10 +32,9 @@ export const BASES_PADRAO: BaseOperacional[] = [
   {
     id: 'lindoia',
     nome: 'Lindóia',
-    folhaCidades: [],
+    folhaCidades: ['Lindóia'],
     postos: ['São Benedito'],
     faturamentoLinhas: ['Lindóia Escolar'],
-    observacao: 'Folha não considerada no momento',
   },
   {
     id: 'itapira-saude',
@@ -54,10 +53,9 @@ export const BASES_PADRAO: BaseOperacional[] = [
   {
     id: 'mogi-mirim',
     nome: 'Mogi Mirim',
-    folhaCidades: [],
+    folhaCidades: ['Mogi Mirim'],
     postos: ['RVM Max', 'Posto Vitoria'],
     faturamentoLinhas: ['Mogi Saúde', 'DSR S.J.B.V.'],
-    observacao: 'Folha não considerada no momento',
   },
   {
     id: 'pinhal',
@@ -127,7 +125,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
 // Itens que devem ser ignorados (não somados em nenhuma base E não aparecem no banner de órfãos)
 export const IGNORAR = {
   postos: [] as string[],
-  folhaCidades: ['Mogi Mirim'],
+  folhaCidades: [] as string[],
   faturamentoLinhas: [] as string[],
 }
 
