@@ -4,11 +4,11 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer,
+  Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts'
 import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
-  type ConsolidadoCompleto,
+  type ConsolidadoCompleto, type ConsolidadoBase,
 } from '@/lib/gestao-types'
 
 interface Props {
@@ -26,17 +26,38 @@ const fmtRealK = (n: number) => {
   return fmtReal(n)
 }
 
+// Paleta pra bases (12 cores distintas e legíveis)
+const PALETA_BASES = [
+  '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
+  '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
+]
+
+const corBase = (nomeBase: string, todasBases: string[]): string => {
+  const idx = todasBases.indexOf(nomeBase)
+  if (idx < 0) return '#94a3b8'
+  return PALETA_BASES[idx % PALETA_BASES.length]
+}
+
+type Metrica = 'Receita' | 'Combustível' | 'Folha' | 'Margem'
+type ModoFiltro = 'todos' | 'top5' | 'custom'
+
+const CORES_METRICA: { [k in Metrica]: string } = {
+  Receita: '#10b981',
+  'Combustível': '#dc2626',
+  Folha: '#7c3aed',
+  Margem: '#2D3A6B',
+}
+
 export default function PainelGestao({ token, onLogout }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [comEncargos, setComEncargos] = useState(true)
   const [consolidado, setConsolidado] = useState<ConsolidadoCompleto | null>(null)
 
-  // Guardamos os dados crus pra seção de diagnóstico
-  const [debugExtratos, setDebugExtratos] = useState<any[]>([])
-  const [debugFaturamento, setDebugFaturamento] = useState<any>(null)
-  const [debugPagamentos, setDebugPagamentos] = useState<any[]>([])
-  const [debugAberto, setDebugAberto] = useState(false)
+  // Estado do gráfico
+  const [metrica, setMetrica] = useState<Metrica>('Receita')
+  const [modoFiltro, setModoFiltro] = useState<ModoFiltro>('todos')
+  const [basesAtivas, setBasesAtivas] = useState<Set<string>>(new Set())
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
 
@@ -55,10 +76,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
       const faturamento = resFat.ok ? await resFat.json() : null
       const extratos = resExt.ok ? await resExt.json() : []
       const pagamentos = resPag.ok ? await resPag.json() : []
-
-      setDebugExtratos(Array.isArray(extratos) ? extratos : [])
-      setDebugFaturamento(faturamento)
-      setDebugPagamentos(Array.isArray(pagamentos) ? pagamentos : [])
 
       const cons = consolidar({
         ano: ANO_GESTAO,
@@ -79,6 +96,24 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
   const fator = comEncargos ? MULTIPLICADOR_ENCARGOS : 1
 
+  // Calcula valor de uma base num mês específico para a métrica selecionada
+  const valorBaseMes = (base: ConsolidadoBase, mesIdx: number, met: Metrica): number => {
+    const m = base.meses[mesIdx]
+    if (met === 'Receita') return m.receita
+    if (met === 'Combustível') return m.combustivel
+    if (met === 'Folha') return m.folhaLiquida * fator
+    // Margem
+    return m.receita - m.combustivel - (m.folhaLiquida * fator)
+  }
+
+  // Total anual da base na métrica
+  const valorBaseTotal = (base: ConsolidadoBase, met: Metrica): number => {
+    if (met === 'Receita') return base.totalReceita
+    if (met === 'Combustível') return base.totalCombustivel
+    if (met === 'Folha') return base.totalFolhaLiquida * fator
+    return base.totalReceita - base.totalCombustivel - (base.totalFolhaLiquida * fator)
+  }
+
   const kpis = useMemo(() => {
     if (!consolidado) return null
     const t = consolidado.totaisGerais
@@ -96,21 +131,56 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }
   }, [consolidado, fator])
 
+  // Lista de TODAS as bases (ordenada pelo valor da métrica selecionada, descendente)
+  const basesOrdenadas = useMemo(() => {
+    if (!consolidado) return []
+    const lista = consolidado.bases.slice()
+    lista.sort((a, b) => valorBaseTotal(b, metrica) - valorBaseTotal(a, metrica))
+    return lista
+  }, [consolidado, metrica, fator])
+
+  // Top 5 bases pela métrica
+  const top5BasesNomes = useMemo(() => {
+    return basesOrdenadas.slice(0, 5).map(b => b.baseNome)
+  }, [basesOrdenadas])
+
+  const todasBasesNomes = useMemo(() => basesOrdenadas.map(b => b.baseNome), [basesOrdenadas])
+
+  // Bases que vão pro gráfico no momento
+  const basesParaGrafico = useMemo<string[]>(() => {
+    if (modoFiltro === 'todos') return []
+    if (modoFiltro === 'top5') return top5BasesNomes
+    return basesOrdenadas.filter(b => basesAtivas.has(b.baseNome)).map(b => b.baseNome)
+  }, [modoFiltro, top5BasesNomes, basesAtivas, basesOrdenadas])
+
+  // Dados pro gráfico (12 meses)
   const dadosGrafico = useMemo(() => {
     if (!consolidado) return []
-    return consolidado.totaisPorMes.map((m, i) => {
-      const folha = m.folhaLiquida * fator
-      const margem = m.receita - m.combustivel - folha
-      return {
-        mes: NOMES_MESES[i],
-        Receita: m.receita,
-        Combustível: m.combustivel,
-        Folha: folha,
-        Margem: margem,
+    return NOMES_MESES.map((mes, i) => {
+      const obj: any = { mes }
+      if (modoFiltro === 'todos') {
+        let total = 0
+        for (const base of consolidado.bases) total += valorBaseMes(base, i, metrica)
+        obj['__total__'] = total
+      } else {
+        for (const baseNome of basesParaGrafico) {
+          const base = consolidado.bases.find(b => b.baseNome === baseNome)
+          if (base) obj[baseNome] = valorBaseMes(base, i, metrica)
+        }
       }
+      return obj
     })
-  }, [consolidado, fator])
+  }, [consolidado, metrica, modoFiltro, basesParaGrafico, fator])
 
+  const toggleBase = (baseNome: string) => {
+    const novo = new Set(basesAtivas)
+    if (novo.has(baseNome)) novo.delete(baseNome)
+    else novo.add(baseNome)
+    setBasesAtivas(novo)
+    setModoFiltro('custom')
+  }
+
+  // Tabela
   const dadosTabela = useMemo(() => {
     if (!consolidado) return []
     return consolidado.bases.map(b => {
@@ -129,81 +199,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }
     return -1
   }, [consolidado])
-
-  // Análise dos extratos pro diagnóstico
-  const debugInfo = useMemo(() => {
-    if (debugExtratos.length === 0) return null
-
-    const primeiroExt = debugExtratos[0]
-    const chavesDoExtrato = primeiroExt ? Object.keys(primeiroExt) : []
-
-    let primeiroPosto: any = null
-    let chavesDoPosto: string[] = []
-    if (primeiroExt) {
-      if (Array.isArray(primeiroExt.postos) && primeiroExt.postos.length > 0) {
-        primeiroPosto = primeiroExt.postos[0]
-      } else if (primeiroExt.posto) {
-        primeiroPosto = primeiroExt.posto
-      }
-      if (primeiroPosto) chavesDoPosto = Object.keys(primeiroPosto)
-    }
-
-    let primeiroLanc: any = null
-    let chavesDoLanc: string[] = []
-    if (primeiroPosto) {
-      // tenta encontrar lançamentos em vários nomes possíveis
-      const candidatosLancs = ['lancamentos', 'transacoes', 'abastecimentos', 'items', 'itens', 'rows', 'movimentos']
-      for (let i = 0; i < candidatosLancs.length; i++) {
-        const arr = primeiroPosto[candidatosLancs[i]]
-        if (Array.isArray(arr) && arr.length > 0) {
-          primeiroLanc = arr[0]
-          break
-        }
-      }
-      // fallback: procura no extrato root
-      if (!primeiroLanc) {
-        for (let i = 0; i < candidatosLancs.length; i++) {
-          const arr = primeiroExt[candidatosLancs[i]]
-          if (Array.isArray(arr) && arr.length > 0) {
-            primeiroLanc = arr[0]
-            break
-          }
-        }
-      }
-      if (primeiroLanc) chavesDoLanc = Object.keys(primeiroLanc)
-    }
-
-    // Tenta detectar os anos presentes nos lancamentos do primeiro extrato
-    const anosDetectados = new Set<string>()
-    if (primeiroPosto) {
-      const candidatosLancs = ['lancamentos', 'transacoes', 'abastecimentos', 'items', 'itens', 'rows', 'movimentos']
-      for (let i = 0; i < candidatosLancs.length; i++) {
-        const arr = primeiroPosto[candidatosLancs[i]]
-        if (Array.isArray(arr)) {
-          for (let j = 0; j < Math.min(arr.length, 50); j++) {
-            const lanc = arr[j]
-            if (lanc && lanc.data) {
-              const ms = String(lanc.data).match(/(\d{4})/)
-              if (ms) anosDetectados.add(ms[1])
-            }
-          }
-          break
-        }
-      }
-    }
-
-    return {
-      qtdExtratos: debugExtratos.length,
-      chavesDoExtrato,
-      primeiroExtPostosLength: Array.isArray(primeiroExt?.postos) ? primeiroExt.postos.length : null,
-      primeiroExtTemPostoSingular: primeiroExt?.posto != null,
-      chavesDoPosto,
-      primeiroPostoNome: primeiroPosto?.nome,
-      chavesDoLanc,
-      primeiroLanc,
-      anosDetectados: Array.from(anosDetectados).sort(),
-    }
-  }, [debugExtratos])
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f6fb', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -329,93 +324,108 @@ export default function PainelGestao({ token, onLogout }: Props) {
               </div>
             )}
 
-            {/* ───── Painel de diagnóstico (expansível) ───── */}
-            <div style={{
-              marginBottom: 16, background: '#fff', borderRadius: 12,
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)', overflow: 'hidden',
-              border: '2px dashed #cbd5e1',
-            }}>
-              <button onClick={() => setDebugAberto(!debugAberto)}
-                style={{
-                  width: '100%', padding: '12px 16px', background: '#f8fafc',
-                  border: 'none', cursor: 'pointer', textAlign: 'left',
-                  fontSize: 13, fontWeight: 600, color: '#334155',
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  fontFamily: 'inherit',
-                }}>
-                <span>🔍 Diagnóstico — clique para inspecionar a estrutura dos dados</span>
-                <span>{debugAberto ? '▲' : '▼'}</span>
-              </button>
-              {debugAberto && (
-                <div style={{ padding: 16, fontSize: 12, fontFamily: 'monospace', background: '#0f172a', color: '#e2e8f0' }}>
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ color: '#fbbf24', fontWeight: 700, marginBottom: 4 }}>
-                      📦 EXTRATOS — total: {debugInfo?.qtdExtratos ?? 0}
-                    </div>
-                    {debugInfo && (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
-{`Chaves do primeiro extrato: ${JSON.stringify(debugInfo.chavesDoExtrato)}
-Tem array postos[]? ${debugInfo.primeiroExtPostosLength != null ? `sim, ${debugInfo.primeiroExtPostosLength} postos` : 'não'}
-Tem objeto posto (singular)? ${debugInfo.primeiroExtTemPostoSingular ? 'sim' : 'não'}
-
-Nome do primeiro posto: ${debugInfo.primeiroPostoNome || '(vazio)'}
-Chaves do primeiro posto: ${JSON.stringify(debugInfo.chavesDoPosto)}
-
-Chaves do primeiro lançamento (encontrado): ${JSON.stringify(debugInfo.chavesDoLanc)}
-
-Anos detectados nos lançamentos: ${debugInfo.anosDetectados.join(', ') || '(nenhum)'}
-
-Primeiro lançamento (objeto cru):
-${JSON.stringify(debugInfo.primeiroLanc, null, 2)}`}
-                      </pre>
-                    )}
-                  </div>
-
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ color: '#34d399', fontWeight: 700, marginBottom: 4 }}>
-                      💵 PAGAMENTOS DP — total: {debugPagamentos.length}
-                    </div>
-                    {debugPagamentos.length > 0 && (
-                      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
-{`Primeiro pagamento:
-${JSON.stringify(debugPagamentos[0], null, 2)}`}
-                      </pre>
-                    )}
-                  </div>
-
-                  <div>
-                    <div style={{ color: '#a78bfa', fontWeight: 700, marginBottom: 4 }}>
-                      📊 FATURAMENTO — anos disponíveis
-                    </div>
-                    <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0 }}>
-{`Anos: ${debugFaturamento?.anos ? JSON.stringify(debugFaturamento.anos) : '(nenhum)'}
-Tem dados de ${ANO_GESTAO}? ${debugFaturamento?.porAno?.[ANO_GESTAO] ? 'sim' : 'não'}
-Linhas em ${ANO_GESTAO}: ${debugFaturamento?.porAno?.[ANO_GESTAO]?.cidades?.length ?? 0}`}
-                    </pre>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Gráfico de evolução mensal */}
+            {/* Gráfico de evolução mensal por bases */}
             <Secao titulo={`📊 Evolução mensal — ${ANO_GESTAO}`}
-              sub="Receita, combustível, folha e margem por mês">
-              <div style={{ width: '100%', height: 360 }}>
+              sub='Selecione a métrica e quais bases visualizar'>
+
+              {/* Toggle de métrica */}
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
+                  Métrica:
+                </span>
+                {(['Receita', 'Combustível', 'Folha', 'Margem'] as Metrica[]).map(m => (
+                  <button key={m} onClick={() => setMetrica(m)}
+                    style={chipStyle(metrica === m, CORES_METRICA[m])}>
+                    {m}
+                  </button>
+                ))}
+              </div>
+
+              {/* Chips de bases */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
+                  Bases:
+                </span>
+                <button onClick={() => { setModoFiltro('todos'); setBasesAtivas(new Set()) }}
+                  style={chipStyle(modoFiltro === 'todos', '#2D3A6B')}>
+                  Todos
+                </button>
+                <button onClick={() => { setModoFiltro('top5'); setBasesAtivas(new Set()) }}
+                  style={chipStyle(modoFiltro === 'top5', '#4AABDB')}>
+                  Top 5
+                </button>
+                {basesOrdenadas.map(b => {
+                  const ativo = modoFiltro === 'custom' && basesAtivas.has(b.baseNome)
+                  const cor = corBase(b.baseNome, todasBasesNomes)
+                  return (
+                    <button key={b.baseId} onClick={() => toggleBase(b.baseNome)}
+                      title={`${b.baseNome} — ${fmtReal(valorBaseTotal(b, metrica))}`}
+                      style={chipStyle(ativo, cor)}>
+                      {b.baseNome}
+                    </button>
+                  )
+                })}
+              </div>
+
+              {/* Gráfico */}
+              <div style={{ width: '100%', height: 380 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={dadosGrafico} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                     <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                     <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
-                    <Tooltip formatter={(v: any) => fmtReal(Number(v))}
-                      contentStyle={{ borderRadius: 8, fontSize: 12 }} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="Receita" fill="#10b981" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Combustível" fill="#dc2626" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Folha" fill="#7c3aed" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="Margem" fill="#2D3A6B" radius={[4, 4, 0, 0]} />
+                    <Tooltip
+                      formatter={(v: any, name: any) => [fmtReal(Number(v)), name === '__total__' ? `Total ${metrica}` : name]}
+                      contentStyle={{ borderRadius: 8, fontSize: 12, maxWidth: 320 }}
+                      labelStyle={{ fontWeight: 600 }}
+                      itemSorter={(item: any) => -Number(item.value)}
+                    />
+                    {modoFiltro === 'todos' ? (
+                      <Bar dataKey="__total__" fill={CORES_METRICA[metrica]} radius={[6, 6, 0, 0]} name={metrica}>
+                        <LabelList dataKey="__total__" position="top" formatter={fmtRealK}
+                          style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
+                      </Bar>
+                    ) : (
+                      basesParaGrafico.map(baseNome => (
+                        <Bar key={baseNome} dataKey={baseNome} stackId="a"
+                          fill={corBase(baseNome, todasBasesNomes)}
+                          name={baseNome} />
+                      ))
+                    )}
                   </BarChart>
                 </ResponsiveContainer>
               </div>
+
+              {/* Legenda das bases ativas */}
+              {modoFiltro !== 'todos' && basesParaGrafico.length > 0 && (
+                <div style={{
+                  marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8,
+                  paddingTop: 10, borderTop: '1px solid #f1f5f9',
+                }}>
+                  {basesParaGrafico.map(baseNome => (
+                    <div key={baseNome} style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      fontSize: 11, color: '#475569',
+                    }}>
+                      <span style={{
+                        width: 10, height: 10, borderRadius: 2,
+                        background: corBase(baseNome, todasBasesNomes), flexShrink: 0,
+                      }} />
+                      {baseNome}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {modoFiltro === 'custom' && basesAtivas.size === 0 && (
+                <div style={{
+                  marginTop: 14, padding: 16, textAlign: 'center',
+                  color: '#94a3b8', fontSize: 12,
+                  background: '#f8fafc', borderRadius: 6, border: '1px dashed #e2e8f0',
+                }}>
+                  Nenhuma base selecionada. Clique nos chips acima para escolher quais visualizar.
+                </div>
+              )}
             </Secao>
 
             {/* Tabela por base */}
@@ -445,9 +455,14 @@ Linhas em ${ANO_GESTAO}: ${debugFaturamento?.porAno?.[ANO_GESTAO]?.cidades?.leng
                       return (
                         <tr key={b.baseId} style={{ borderTop: '1px solid #f1f5f9' }}>
                           <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>
+                            <span style={{
+                              display: 'inline-block', width: 10, height: 10,
+                              borderRadius: 2, background: corBase(b.baseNome, todasBasesNomes),
+                              marginRight: 8, verticalAlign: 'middle',
+                            }} />
                             {b.baseNome}
                             {b.observacao && (
-                              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, fontWeight: 400 }}>
+                              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2, fontWeight: 400, marginLeft: 18 }}>
                                 {b.observacao}
                               </div>
                             )}
@@ -576,6 +591,20 @@ const toggleStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
   cursor: 'pointer',
   fontFamily: 'inherit',
   whiteSpace: 'nowrap',
+})
+
+const chipStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
+  padding: '5px 11px',
+  background: ativo ? cor : '#fff',
+  color: ativo ? '#fff' : '#334155',
+  border: `1.5px solid ${ativo ? cor : '#e2e8f0'}`,
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+  transition: 'all 0.15s',
 })
 
 const thStyle: React.CSSProperties = {
