@@ -20,7 +20,6 @@ export interface BaseOperacional {
 }
 
 // Mapeamento pré-populado (abr/2026)
-// Pode ser editado depois via /api/gestao/bases (a criar)
 export const BASES_PADRAO: BaseOperacional[] = [
   {
     id: 'aguas-lindoia',
@@ -29,10 +28,10 @@ export const BASES_PADRAO: BaseOperacional[] = [
     postos: ['Tanque Águas', 'Posto Portal', 'Posto Shell Queijo Bom'],
     faturamentoLinhas: [
       'Águas Saúde',
-      'Águas Escolar',
-      'Águas Educação',   // sinônimo encontrado no banner de órfãos
+      'Águas Educação',
       'Monte Sião Saúde',
       'Lindóia Saúde',
+      'Orbis Renováveis',  // contrato encerrado, mas histórico é da base de Águas
     ],
   },
   {
@@ -40,7 +39,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Lindóia',
     folhaCidades: [],
     postos: ['São Benedito'],
-    faturamentoLinhas: ['Lindoia Escolar'],
+    faturamentoLinhas: ['Lindóia Escolar'],
     observacao: 'Folha não considerada no momento',
   },
   {
@@ -48,7 +47,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Itapira Saúde',
     folhaCidades: ['Itapira (Saúde)'],
     postos: ['Skina dos Italianos'],
-    faturamentoLinhas: ['Itapira Saude', 'Itapira Promoção', 'Itapira Esporte'],
+    faturamentoLinhas: ['Itapira Saúde', 'Itapira Promoção', 'Itapira Esporte'],
   },
   {
     id: 'itapira-educacao',
@@ -62,29 +61,29 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Mogi Mirim',
     folhaCidades: [],
     postos: ['RVM Max', 'Posto Vitoria'],
-    faturamentoLinhas: ['Mogi Saude', 'DRS S.J.B.V.', 'DSR S.J.B.V.'], // ambas grafias por garantia
-    observacao: 'Folha não considerada no momento (cidade aparece nos pagamentos como órfã)',
+    faturamentoLinhas: ['Mogi Saúde', 'DSR S.J.B.V.'],
+    observacao: 'Folha não considerada no momento',
   },
   {
     id: 'pinhal',
     nome: 'Pinhal',
     folhaCidades: ['Pinhal'],
     postos: ['Cooperativa dos Cafeicultores', 'Posto São Cristovão'],
-    faturamentoLinhas: ['Pinhal Educação', 'Pinhal Saude', 'S. A. Jardim', 'S.A.JARDIM', 'SA Jardim'],
+    faturamentoLinhas: ['Pinhal Educação', 'Pinhal Saúde', 'S.A. Jardim'],
   },
   {
     id: 'aguai',
     nome: 'Aguaí',
     folhaCidades: ['Aguaí'],
     postos: ['Posto JL'],
-    faturamentoLinhas: ['Aguai facul', 'Aguai Escolar Urbano', 'Aguai Escolar Rural'],
+    faturamentoLinhas: ['Aguaí Faculdade', 'Aguaí Escolar Urbano', 'Aguaí Escolar Rural'],
   },
   {
     id: 'mococa',
     nome: 'Mococa',
     folhaCidades: ['Mococa'],
     postos: ['Posto Mocafor'],
-    faturamentoLinhas: ['Mococa Saude', 'Mococa Educação'],
+    faturamentoLinhas: ['Mococa Saúde', 'Mococa Educação'],
   },
   {
     id: 'porto-ferreira',
@@ -92,15 +91,9 @@ export const BASES_PADRAO: BaseOperacional[] = [
     folhaCidades: ['Porto Ferreira'],
     postos: [],
     faturamentoLinhas: [
-      'Porto Ferreira Monitoras',
-      'Porto Ferreira Vans',
-      'Porto Ferreira Onibus',
-      // grafias com parênteses (como aparecem nos dados reais):
       'Porto Ferreira (Monitoras)',
       'Porto Ferreira (Van)',
-      'Porto Ferreira (Vans)',
       'Porto Ferreira (Onibus)',
-      'Porto Ferreira (Ônibus)',
     ],
     observacao: 'Posto a confirmar e cadastrar',
   },
@@ -132,7 +125,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Ubatuba',
     folhaCidades: ['Ubatuba'],
     postos: ['Praia de São Francisco'],
-    faturamentoLinhas: ['Ubatuba Saude', 'Ubatuba Educação', 'Ubatuba Faculdade', 'Ubatuba Esporte'],
+    faturamentoLinhas: ['Ubatuba Saúde', 'Ubatuba Educação', 'Ubatuba Faculdade', 'Ubatuba Esporte'],
   },
 ]
 
@@ -168,12 +161,10 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
     const itemN = normalizar(lista[i])
     if (!itemN) continue
 
-    // 1) Match exato ou contains após normalizar
     if (alvoN === itemN || alvoN.indexOf(itemN) >= 0 || itemN.indexOf(alvoN) >= 0) {
       return true
     }
 
-    // 2) Sem espaços (pra siglas pontuadas tipo S.J.B.V. vs SJBV)
     const itemNS = semEspacos(itemN)
     if (alvoNS && itemNS && (alvoNS === itemNS || alvoNS.indexOf(itemNS) >= 0 || itemNS.indexOf(alvoNS) >= 0)) {
       return true
@@ -196,7 +187,7 @@ export interface ConsolidadoBase {
   baseId: string
   baseNome: string
   observacao?: string
-  meses: ValorMensal[]  // 12 elementos (Jan..Dez)
+  meses: ValorMensal[]
   totalReceita: number
   totalCombustivel: number
   totalFolhaLiquida: number
@@ -263,7 +254,7 @@ const arrZeros = (): ValorMensal[] => {
 
 // Extrai array de postos de um extrato, suportando ambos os formatos:
 // - ext.postos[]  (formato real do projeto)
-// - ext.posto     (fallback, caso a estrutura mude)
+// - ext.posto     (fallback)
 const extrairPostos = (ext: any): any[] => {
   if (!ext) return []
   if (Array.isArray(ext.postos)) return ext.postos
@@ -297,7 +288,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   const cidadesFolhaUsadas: { [cidade: string]: true } = {}
   const linhasFatUsadas: { [linha: string]: true } = {}
 
-  // remove da lista "não encontrados" o item mapeado que bateu com "alvo"
   const marcarEncontrado = (lista: string[], alvo: string) => {
     const alvoN = normalizar(alvo)
     const alvoNS = semEspacos(alvoN)
@@ -369,7 +359,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
       postosUsados[nomePosto] = true
       marcarEncontrado(porBase[baseEncontrada.id].postosMapeadosNaoEncontrados, nomePosto)
 
-      // Lançamentos ficam dentro do posto (estrutura real do projeto)
       const lancs = Array.isArray(posto.lancamentos) ? posto.lancamentos : []
       for (let l = 0; l < lancs.length; l++) {
         const lanc = lancs[l]
