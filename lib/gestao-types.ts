@@ -124,8 +124,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
   },
 ]
 
-// Itens que devem ser ignorados (não somados em nenhuma base E não aparecem como órfãos no banner)
-// Útil pra dados que existem mas a gestão decidiu não considerar por enquanto.
+// Itens que devem ser ignorados (não somados em nenhuma base E não aparecem no banner de órfãos)
 export const IGNORAR = {
   postos: [] as string[],
   folhaCidades: ['Mogi Mirim'],
@@ -136,13 +135,10 @@ export const IGNORAR = {
 // Helpers de matching
 // ──────────────────────────────────────────────────────────────────────
 
-// Stopwords PT-BR + termos empresariais comuns (não contam como tokens significativos)
 const STOPWORDS: { [w: string]: true } = (() => {
   const arr = [
-    // preposições, artigos, conjunções
     'a', 'o', 'as', 'os', 'da', 'de', 'do', 'das', 'dos', 'em', 'na', 'no', 'nas', 'nos',
     'e', 'ou', 'com', 'sem', 'para', 'por', 'sob', 'um', 'uma',
-    // termos empresariais
     'auto', 'posto', 'ltda', 'epp', 'me', 'sa', 'cia', 'co', 'eireli', 'eire',
     'comercio', 'comercial', 'industria', 'industrial',
     'distribuidora', 'distribuidor', 'distribuicao',
@@ -166,7 +162,6 @@ export const normalizar = (s: string): string => {
 
 const semEspacos = (s: string): string => s.replace(/\s+/g, '')
 
-// Tokens significativos: palavras ≥ 2 chars que não são stopwords
 const tokensSig = (s: string): string[] => {
   const norm = normalizar(s)
   if (!norm) return []
@@ -181,10 +176,6 @@ const tokensSig = (s: string): string[] => {
   return out
 }
 
-// Match por tokens: TODAS as palavras significativas do mapeamento devem aparecer no candidato
-// Ex: mapeamento "Skina dos Italianos" → tokens [skina, italianos]
-//     real      "AUTO POSTO SKINA ITALIANOS LTDA EPP" → tokens [skina, italianos]
-//     todas as do mapeamento estão no real → MATCH
 const matchPorTokens = (mapeamento: string, candidato: string): boolean => {
   const tokensMap = tokensSig(mapeamento)
   if (tokensMap.length === 0) return false
@@ -198,10 +189,6 @@ const matchPorTokens = (mapeamento: string, candidato: string): boolean => {
   return true
 }
 
-// Match tolerante em 3 níveis:
-//  1) string exata ou contains após normalizar
-//  2) sem espaços (pra siglas pontuadas)
-//  3) por tokens significativos (mais permissivo, ignora stopwords e termos empresariais)
 export const matchTolerante = (alvo: string, lista: string[]): boolean => {
   if (!alvo || !lista || lista.length === 0) return false
   const alvoN = normalizar(alvo)
@@ -213,25 +200,22 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
     const itemN = normalizar(item)
     if (!itemN) continue
 
-    // 1) exato ou contains
     if (alvoN === itemN || alvoN.indexOf(itemN) >= 0 || itemN.indexOf(alvoN) >= 0) {
       return true
     }
 
-    // 2) sem espaços
     const itemNS = semEspacos(itemN)
     if (alvoNS && itemNS && (alvoNS === itemNS || alvoNS.indexOf(itemNS) >= 0 || itemNS.indexOf(alvoNS) >= 0)) {
       return true
     }
 
-    // 3) por tokens (mais agressivo)
     if (matchPorTokens(item, alvo)) return true
   }
   return false
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Tipos de saída do consolidador
+// Tipos de saída
 // ──────────────────────────────────────────────────────────────────────
 
 export interface ValorMensal {
@@ -316,7 +300,13 @@ const extrairPostos = (ext: any): any[] => {
   return []
 }
 
-// Verifica se um nome (do dado real) bate com algum item de uma lista de "ignorar"
+// Extrai a data de um lançamento, tentando vários nomes de campo possíveis.
+// No formato real do projeto ETCO, o campo é "emissao".
+const extrairDataLanc = (lanc: any): string => {
+  if (!lanc) return ''
+  return String(lanc.emissao || lanc.data || lanc.dataEmissao || lanc.dataAbastecimento || '')
+}
+
 const ehIgnorado = (nome: string, listaIgnorar: string[]): boolean => {
   if (!nome || !listaIgnorar || listaIgnorar.length === 0) return false
   return matchTolerante(nome, listaIgnorar)
@@ -388,7 +378,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Combustível (extratos com postos[] array) ─────
+  // ───── Combustível (extratos com postos[] array, lançamentos com campo "emissao") ─────
   for (let i = 0; i < extratos.length; i++) {
     const ext = extratos[i]
     if (!ext) continue
@@ -415,9 +405,9 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
       const lancs = Array.isArray(posto.lancamentos) ? posto.lancamentos : []
       for (let l = 0; l < lancs.length; l++) {
         const lanc = lancs[l]
-        const data = lanc && lanc.data ? lanc.data : ''
+        const data = extrairDataLanc(lanc)
         if (!data) continue
-        const parsed = parseAnoMes(String(data))
+        const parsed = parseAnoMes(data)
         if (parsed.ano !== ano) continue
         if (parsed.mes == null) continue
         const v = Number(lanc.valor) || 0
@@ -459,7 +449,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     porBase[baseEncontrada.id].totalFolhaLiquida += v
   }
 
-  // ───── Detectar órfãos (excluindo os que estão na lista de IGNORAR) ─────
+  // ───── Detectar órfãos ─────
   const todosPostosNaFonte: { [n: string]: true } = {}
   for (let i = 0; i < extratos.length; i++) {
     const postosArr = extrairPostos(extratos[i])
