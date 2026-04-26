@@ -130,6 +130,55 @@ export const IGNORAR = {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Vínculos manuais de postos a bases
+// ──────────────────────────────────────────────────────────────────────
+//
+// Salvos no Redis (key 'gestao:vinculos:postos'). Quando o usuário vincula
+// um posto a uma base pelo dashboard, esse vínculo SOBRESCREVE o matching
+// tolerante padrão. Indexado pelo nome do posto NORMALIZADO (sem acento +
+// uppercase) pra ser case/acento-insensível ao comparar entre extratos.
+
+export type VinculosPostos = { [nomeNormalizado: string]: string }
+
+/** Normaliza nome de posto pra chave de vínculo (case + acento agnóstico) */
+export const chaveVinculoPosto = (nome: string): string => {
+  if (!nome) return ''
+  return nome
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Encontra a base operacional de um posto.
+ * Prioridade: vínculo manual > matching tolerante com BASES_PADRAO[].postos.
+ */
+export const encontrarBaseDoPosto = (
+  nomePosto: string,
+  bases: BaseOperacional[],
+  vinculos?: VinculosPostos,
+): BaseOperacional | null => {
+  if (!nomePosto) return null
+  // 1. Vínculo manual sobrescreve tudo
+  if (vinculos) {
+    const chave = chaveVinculoPosto(nomePosto)
+    const baseId = vinculos[chave]
+    if (baseId) {
+      for (let i = 0; i < bases.length; i++) {
+        if (bases[i].id === baseId) return bases[i]
+      }
+    }
+  }
+  // 2. Matching tolerante padrão (BASES_PADRAO[].postos)
+  for (let i = 0; i < bases.length; i++) {
+    if (matchTolerante(nomePosto, bases[i].postos)) return bases[i]
+  }
+  return null
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Helpers de matching
 // ──────────────────────────────────────────────────────────────────────
 
@@ -268,6 +317,7 @@ interface InputConsolidacao {
   extratos: any[]
   pagamentos: any[]
   bases: BaseOperacional[]
+  vinculosPostos?: VinculosPostos
 }
 
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
@@ -311,7 +361,7 @@ const ehIgnorado = (nome: string, listaIgnorar: string[]): boolean => {
 }
 
 export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
-  const { ano, faturamento, extratos, pagamentos, bases } = input
+  const { ano, faturamento, extratos, pagamentos, bases, vinculosPostos } = input
 
   const porBase: { [id: string]: ConsolidadoBase } = {}
   bases.forEach(b => {
@@ -376,7 +426,9 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Combustível (extratos com postos[] array, lançamentos com campo "emissao") ─────
+  // ───── Combustível ─────
+  // Aplica vínculos manuais (vinculosPostos) ANTES do matching tolerante padrão
+  // — vínculo manual tem prioridade absoluta.
   for (let i = 0; i < extratos.length; i++) {
     const ext = extratos[i]
     if (!ext) continue
@@ -388,13 +440,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
       const nomePosto = posto.nome ? String(posto.nome) : ''
       if (!nomePosto) continue
 
-      let baseEncontrada: BaseOperacional | null = null
-      for (let k = 0; k < bases.length; k++) {
-        if (matchTolerante(nomePosto, bases[k].postos)) {
-          baseEncontrada = bases[k]
-          break
-        }
-      }
+      const baseEncontrada = encontrarBaseDoPosto(nomePosto, bases, vinculosPostos)
       if (!baseEncontrada) continue
 
       postosUsados[nomePosto] = true
