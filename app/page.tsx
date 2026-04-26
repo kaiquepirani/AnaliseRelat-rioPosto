@@ -54,7 +54,7 @@ export default function Home() {
           align-items: center;
           gap: 3rem;
           width: 100%;
-          max-width: 1180px;
+          max-width: 1280px;
         }
 
         /* Cabeçalho */
@@ -118,7 +118,7 @@ export default function Home() {
         /* Cards dos sistemas */
         .hub-cards {
           display: grid;
-          grid-template-columns: repeat(3, 1fr);
+          grid-template-columns: repeat(4, 1fr);
           gap: 1.25rem;
           width: 100%;
         }
@@ -157,6 +157,10 @@ export default function Home() {
 
         .hub-card-contratos::before {
           background: linear-gradient(135deg, rgba(109,40,217,0.5) 0%, rgba(167,139,250,0.12) 100%);
+        }
+
+        .hub-card-gestao::before {
+          background: linear-gradient(135deg, rgba(180,83,9,0.5) 0%, rgba(251,191,36,0.12) 100%);
         }
 
         .hub-card-em-breve::before {
@@ -215,6 +219,11 @@ export default function Home() {
           border: 1px solid rgba(167,139,250,0.25);
         }
 
+        .hub-card-gestao .hub-card-icon {
+          background: rgba(251,191,36,0.15);
+          border: 1px solid rgba(251,191,36,0.25);
+        }
+
         .hub-card-em-breve .hub-card-icon {
           background: rgba(255,255,255,0.05);
           border: 1px solid rgba(255,255,255,0.08);
@@ -245,6 +254,12 @@ export default function Home() {
           background: rgba(167,139,250,0.18);
           color: #c4b5fd;
           border: 1px solid rgba(167,139,250,0.3);
+        }
+
+        .hub-card-gestao .hub-card-badge {
+          background: rgba(251,191,36,0.18);
+          color: #fbbf24;
+          border: 1px solid rgba(251,191,36,0.3);
         }
 
         .hub-card-em-breve .hub-card-badge {
@@ -331,8 +346,8 @@ export default function Home() {
           letter-spacing: 0.04em;
         }
 
-        @media (max-width: 980px) {
-          .hub-cards { grid-template-columns: 1fr 1fr; }
+        @media (max-width: 1180px) {
+          .hub-cards { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 640px) {
@@ -434,6 +449,33 @@ export default function Home() {
                   <span className="hub-card-feature">Vencimentos</span>
                   <span className="hub-card-feature">PDFs</span>
                   <span className="hub-card-feature">Alertas</span>
+                </div>
+                <div className="hub-card-arrow">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polyline points="9 18 15 12 9 6"/>
+                  </svg>
+                </div>
+              </div>
+            </Link>
+
+            {/* Gestão Operacional */}
+            <Link href="/gestao" className="hub-card hub-card-gestao">
+              <div className="hub-card-top">
+                <div className="hub-card-icon">📈</div>
+                <span className="hub-card-badge">🔒 Restrito</span>
+              </div>
+              <div className="hub-card-body">
+                <div className="hub-card-title">Gestão Operacional</div>
+                <div className="hub-card-desc">
+                  Visão consolidada de receita, custos e margem por base operacional, integrando faturamento, combustível e folha.
+                </div>
+              </div>
+              <div className="hub-card-footer">
+                <div className="hub-card-features">
+                  <span className="hub-card-feature">Receita</span>
+                  <span className="hub-card-feature">Margem</span>
+                  <span className="hub-card-feature">Por base</span>
+                  <span className="hub-card-feature">Encargos</span>
                 </div>
                 <div className="hub-card-arrow">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
