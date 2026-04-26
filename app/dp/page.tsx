@@ -6,45 +6,45 @@ import CadastroColaboradores from '@/components/dp/CadastroColaboradores'
 import ControlePagamentos from '@/components/dp/ControlePagamentos'
 import ResumoDPGeral from '@/components/dp/ResumoDPGeral'
 import { Colaborador, Cidade, Funcao } from '@/lib/dp-types'
+import { parseFolhaPagamento } from '@/lib/parser-folha'
 
 type Aba = 'resumo' | 'pagamentos' | 'colaboradores'
+type TipoFolha = 'antecipacao' | 'folha'
 
+// =============================================================================
+// MAPA DE ABAS — Nome da aba do XLSX (uppercased + trimmed) → tipo Cidade
+// =============================================================================
+// Os arquivos da folha (dia 10) e da antecipação (dia 20) usam nomes de aba
+// ligeiramente diferentes. Ambos são mapeados aqui.
 const MAPA_CIDADES: Record<string, Cidade> = {
-  'FOLHA AGUAS':        'Águas de Lindóia (Folha)',
-  'ÁGUAS (FOLHA)':      'Águas de Lindóia (Folha)',
-  'AGUAS (FOLHA)':      'Águas de Lindóia (Folha)',
-  'DIÁRIAS ÁGUAS':      'Águas de Lindóia (Diárias)',
-  'ÁGUAS (DIÁRIAS)':    'Águas de Lindóia (Diárias)',
-  'AGUAS (DIARIAS)':    'Águas de Lindóia (Diárias)',
-  'MORUNGABA':          'Morungaba',
-  'MOGI MIRIM':         'Mogi Mirim',
-  'ITAPIRA (ESCOLAR)':  'Itapira (Escolar)',
-  'ESCOLAR ITAPIRA':    'Itapira (Escolar)',
-  'ITAPIRA ESCOLAR':    'Itapira (Escolar)',
-  'ITAPIRA (SAÚDE)':    'Itapira (Saúde)',
-  'ITAPIRA (SAUDE)':    'Itapira (Saúde)',
-  'ITAPIRA SAUDE':      'Itapira (Saúde)',
-  'ITAPIRA SAÚDE':      'Itapira (Saúde)',
-  'ITAPIRA':            'Itapira (Saúde)',
-  'SAUDE ITAPIRA':      'Itapira (Saúde)',
-  'AGUAÍ':              'Aguaí',
-  'AGUAI':              'Aguaí',
-  'CASA BRANCA':        'Casa Branca',
-  'PINHAL':             'Pinhal',
-  'UBATUBA':            'Ubatuba',
-  'PORTO FERREIRA':     'Porto Ferreira',
-  'LINDÓIA':            'Lindóia',
-  'LINDOIA':            'Lindóia',
-  'MOCOCA':             'Mococa',
-  'RIO CLARO':          'Rio Claro',
+  'FOLHA AGUAS':       'Águas de Lindóia (Folha)',
+  'ÁGUAS (FOLHA)':     'Águas de Lindóia (Folha)',
+  'AGUAS (FOLHA)':     'Águas de Lindóia (Folha)',
+  'DIÁRIAS ÁGUAS':     'Águas de Lindóia (Diárias)',
+  'ÁGUAS (DIÁRIAS)':   'Águas de Lindóia (Diárias)',
+  'AGUAS (DIARIAS)':   'Águas de Lindóia (Diárias)',
+  'MORUNGABA':         'Morungaba',
+  'MOGI MIRIM':        'Mogi Mirim',
+  'ITAPIRA (ESCOLAR)': 'Itapira (Escolar)',
+  'ESCOLAR ITAPIRA':   'Itapira (Escolar)',
+  'ITAPIRA ESCOLAR':   'Itapira (Escolar)',
+  'ITAPIRA (SAÚDE)':   'Itapira (Saúde)',
+  'ITAPIRA (SAUDE)':   'Itapira (Saúde)',
+  'ITAPIRA SAUDE':     'Itapira (Saúde)',
+  'ITAPIRA SAÚDE':     'Itapira (Saúde)',
+  'ITAPIRA':           'Itapira (Saúde)',
+  'SAUDE ITAPIRA':     'Itapira (Saúde)',
+  'AGUAÍ':             'Aguaí',
+  'AGUAI':             'Aguaí',
+  'CASA BRANCA':       'Casa Branca',
+  'PINHAL':            'Pinhal',
+  'UBATUBA':           'Ubatuba',
+  'PORTO FERREIRA':    'Porto Ferreira',
+  'LINDÓIA':           'Lindóia',
+  'LINDOIA':           'Lindóia',
+  'MOCOCA':            'Mococa',
+  'RIO CLARO':         'Rio Claro',
 }
-
-// Abas que usam Formato B (CPF/CNPJ header → nome col3 → TOTAL col5)
-const ABAS_FORMATO_B = new Set([
-  'ÁGUAS (DIÁRIAS)', 'AGUAS (DIARIAS)', 'DIÁRIAS ÁGUAS',
-  'ITAPIRA (SAÚDE)', 'ITAPIRA (SAUDE)', 'ITAPIRA SAÚDE', 'ITAPIRA SAUDE', 'ITAPIRA', 'SAUDE ITAPIRA',
-  'PINHAL', 'MOCOCA', 'RIO CLARO', 'UBATUBA',
-])
 
 interface ColaboradorImportado {
   nome: string
@@ -70,13 +70,16 @@ interface ResultadoImportacao {
   totalPorCidade: Record<string, number>
   valorPorColaborador: Record<string, number>
   nomeArquivo: string
-  tipoFolha: 'antecipacao' | 'folha'
+  tipoFolha: TipoFolha
   erros: string[]
   avisos: string[]
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// =============================================================================
+// HELPERS LOCAIS — Apenas o que NÃO está no parser-folha.ts
+// =============================================================================
 
+/** Normaliza nomes de bancos a partir do texto bruto da planilha */
 function normalizarBanco(texto: string): string {
   const t = texto.toUpperCase()
   if (t.includes('NUBANK') || t.includes('NU PAGAMENTO')) return 'Nubank'
@@ -90,138 +93,54 @@ function normalizarBanco(texto: string): string {
   return texto.trim()
 }
 
-const NOMES_SKIP = [
-  'RECIBO','PERIODO','DECLARO','CNPJ 0','HORA ','TOTAL','BANCO','DESCONT',
-  'DESCONTOS','COMO M','TAIS ','ANTECIP','ETCO','PENSAO','PENSÃO',
-  'UBATUBA','MORUNGABA','AGUAÍ','AGUAI','AGUAS','ÁGUAS','MOGI','ITAPIRA',
-  'CASA BRANCA','PINHAL','MOCOCA','LINDÓIA','LINDOIA','RIO CLARO','PORTO',
-  'ESPÍRITO SANTO','ESPIRITO SANTO','SEM REG','MECANICO','MECÂNICO',
-  'AUXILIAR','ENCARREGADO','MOTORISTA SAL','CARGO','SALÁRIO R$','SALARIO R$',
-  'RECIBO DE','CPF','CNPJ','INICIO','NÃO ','_','REEMBOLSO',
-]
-
-function ehNomeValido(s: string): boolean {
-  if (!s || s.length < 4) return false
-  if (/^\d/.test(s)) return false
-  const su = s.trim().toUpperCase()
-  for (const k of NOMES_SKIP) {
-    if (su.startsWith(k)) return false
-  }
-  return true
-}
-
-// ── Formato A: nome em col1 → "TOTAL A RECEBER" col1 → valor col3 ──────────
-// Usado em: Águas Folha, Morungaba, Mogi Mirim, Itapira Escolar, Aguaí, Casa Branca, Lindóia
-function parsearFormatoA(dados: any[][]): { nome: string; valor: number }[] {
-  const result: { nome: string; valor: number }[] = []
-  for (let i = 0; i < dados.length; i++) {
-    const c1 = String(dados[i]?.[1] ?? '').trim().toUpperCase()
-    if (!c1.includes('TOTAL') || !c1.includes('RECEB')) continue
-    const v = dados[i]?.[3]
-    if (typeof v !== 'number' || v <= 0) continue
-    for (let j = i - 1; j >= Math.max(i - 30, 0); j--) {
-      const c = String(dados[j]?.[1] ?? '').trim()
-      if (ehNomeValido(c)) { result.push({ nome: c, valor: v }); break }
-    }
-  }
-  return result
-}
-
-// ── Formato B: "CPF"/"CNPJ" col1 → nome col3 → TOTAL col5 (1ª quinzena) ───
-// Usado em: Águas Diárias, Itapira Saúde, Pinhal, Mococa, Rio Claro, Ubatuba
-function parsearFormatoB(dados: any[][]): { nome: string; cpf?: string; banco?: string; valor: number }[] {
-  const result: { nome: string; cpf?: string; banco?: string; valor: number }[] = []
-  let i = 0
-  while (i < dados.length) {
-    const c1 = String(dados[i]?.[1] ?? '').trim().toUpperCase().replace(/:$/, '').trim()
-    if (c1 === 'CPF' || c1 === 'CNPJ') {
-      const nr = dados[i + 1]
-      if (nr) {
+/**
+ * Best-effort: pesca CPF/CNPJ e banco do cabeçalho `CPF | _ | NOME | _ | BANCO`
+ * (ou `CNPJ | ...`). Indexado por nome em UPPERCASE pra cruzar com o parser.
+ *
+ * O parser-folha.ts foca em extrair valor — esses campos extras são opcionais
+ * e enriquecem a prévia/cadastro automático.
+ */
+function extrairDadosCadastrais(
+  wb: XLSX.WorkBook,
+): Map<string, { cpf?: string; banco?: string }> {
+  const out = new Map<string, { cpf?: string; banco?: string }>()
+  for (const nomeAba of wb.SheetNames) {
+    const ws = wb.Sheets[nomeAba]
+    const dados: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+    for (let i = 0; i < dados.length; i++) {
+      const r = dados[i]
+      if (!r) continue
+      const c1 = String(r[1] ?? '').trim().toUpperCase().replace(/:$/, '').trim()
+      if ((c1 === 'CPF' || c1 === 'CNPJ') && dados[i + 1]) {
+        const nr = dados[i + 1]
         const cpf = String(nr[1] ?? '').trim()
         const nome = String(nr[3] ?? '').trim()
         const banco = String(nr[5] ?? '').trim()
         if (nome.length > 3) {
-          for (let j = i + 2; j < Math.min(i + 55, dados.length); j++) {
-            const c1j = String(dados[j]?.[1] ?? '').toUpperCase()
-            // Parar se entrar na 2ª quinzena
-            if (c1j.includes('QUINZENA') && /2[ªº°]/.test(c1j)) break
-            if (c1j.includes('TOTAL') && (c1j.includes('RECEB') || c1j.includes('QUINZENA'))) {
-              const v = dados[j]?.[5]
-              if (typeof v === 'number' && v > 0) {
-                result.push({ nome, cpf: cpf.length > 5 ? cpf : undefined, banco: banco || undefined, valor: v })
-                break
-              }
-            }
+          const chave = nome.toUpperCase()
+          // Primeiro recibo encontrado vence (Willian Anderson em Mococa
+          // aparece 2x — CPF e CNPJ; manter o CPF por ser o cadastro principal)
+          if (!out.has(chave)) {
+            out.set(chave, {
+              cpf: cpf.length > 5 ? cpf : undefined,
+              banco: banco || undefined,
+            })
           }
         }
       }
     }
-    i++
   }
-  return result
+  return out
 }
 
-// ── Porto Ferreira: "Funcionário:" col1 → nome col3 → "Valor líquido" col4 → valor col8
-function parsearPortoFerreira(dados: any[][]): { nome: string; valor: number }[] {
-  const result: { nome: string; valor: number }[] = []
-  for (let i = 0; i < dados.length; i++) {
-    if (String(dados[i]?.[1] ?? '').trim() !== 'Funcionário:') continue
-    const nome = String(dados[i]?.[3] ?? '').trim()
-    for (let j = i + 1; j < Math.min(i + 20, dados.length); j++) {
-      if (String(dados[j]?.[4] ?? '').includes('Valor líquido')) {
-        const v = dados[j]?.[8]
-        if (typeof v === 'number' && v > 0) { result.push({ nome, valor: v }); break }
-      }
-    }
-  }
-  return result
-}
-
-// ── Dispatcher principal ──────────────────────────────────────────────────
-function parsearAba(dados: any[][], cidade: Cidade, chaveAba: string): ColaboradorImportado[] {
-  type Extraido = { nome: string; cpf?: string; banco?: string; valor: number }
-  let extraidos: Extraido[] = []
-
-  if (chaveAba === 'PORTO FERREIRA') {
-    extraidos = parsearPortoFerreira(dados)
-  } else if (ABAS_FORMATO_B.has(chaveAba)) {
-    extraidos = parsearFormatoB(dados)
-  } else {
-    extraidos = parsearFormatoA(dados)
-  }
-
-  // Fallback: se não extraiu nenhum, registrar total da cidade como __TOTAL__
-  if (extraidos.length === 0) {
-    let total = 0
-    for (const row of dados) {
-      const c1 = String(row?.[1] ?? '').toUpperCase()
-      if (c1.includes('TOTAL') && c1.includes('RECEB')) {
-        const v5 = row?.[5]; const v3 = row?.[3]
-        if (typeof v5 === 'number' && v5 > 0) { total += v5; break }
-        if (typeof v3 === 'number' && v3 > 0) { total += v3; break }
-      }
-    }
-    if (total > 0) {
-      return [{ nome: `__TOTAL__${cidade}`, cpf: undefined, cidade, funcao: 'Motorista' as Funcao, salarioBase: total, totalReceber: total, jaExiste: true }]
-    }
-    return []
-  }
-
-  return extraidos.map(e => ({
-    nome: e.nome.trim(),
-    cpf: e.cpf,
-    cidade,
-    funcao: 'Motorista' as Funcao,
-    salarioBase: e.valor,
-    totalReceber: e.valor,
-    banco: e.banco ? normalizarBanco(e.banco) : undefined,
-    jaExiste: false,
-  }))
-}
-
-// ── Aba TOTAL GERAL DA FOLHA ──────────────────────────────────────────────
-function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, number> } {
-  const nomeAba = wb.SheetNames.find((n: string) => n.toUpperCase().includes('TOTAL GERAL'))
+/**
+ * Lê a aba "TOTAL GERAL DA FOLHA" do XLSX para mostrar na prévia o
+ * comparativo "Total a pagar (recibos)" vs "Total geral folha (oficial)".
+ */
+function extrairTotalGeral(
+  wb: XLSX.WorkBook,
+): { total: number; porCidade: Record<string, number> } {
+  const nomeAba = wb.SheetNames.find(n => n.toUpperCase().includes('TOTAL GERAL'))
   if (!nomeAba) return { total: 0, porCidade: {} }
   const ws = wb.Sheets[nomeAba]
   const dados: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
@@ -229,93 +148,154 @@ function extrairTotalGeral(wb: any): { total: number; porCidade: Record<string, 
   const porCidade: Record<string, number> = {}
   for (const row of dados) {
     const vals = (row || []).filter((v: any) => v !== null)
-    if (vals.length >= 3 && typeof vals[0] === 'number' && vals[0] >= 1 && vals[0] <= 20) {
+    if (
+      vals.length >= 3 &&
+      typeof vals[0] === 'number' &&
+      vals[0] >= 1 &&
+      vals[0] <= 20
+    ) {
       const cidade = String(vals[1] || '')
       const valor = typeof vals[2] === 'number' ? vals[2] : 0
-      if (cidade && valor > 0) { porCidade[cidade] = valor; total += valor }
+      if (cidade && valor > 0) {
+        porCidade[cidade] = valor
+        total += valor
+      }
     }
     if (vals.length >= 2) {
       const ultimo = vals[vals.length - 1]
       const penultimo = String(vals[vals.length - 2] || '').toUpperCase()
-      if (penultimo.includes('TOTAL') && typeof ultimo === 'number' && ultimo > 100000) total = ultimo
+      if (
+        penultimo.includes('TOTAL') &&
+        typeof ultimo === 'number' &&
+        ultimo > 100000
+      ) {
+        total = ultimo
+      }
     }
   }
   return { total, porCidade }
 }
 
-// ── Componente principal ───────────────────────────────────────────────────
+// =============================================================================
+// COMPONENTE PRINCIPAL
+// =============================================================================
 export default function DepartamentoPessoal() {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [processando, setProcessando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoImportacao | null>(null)
+  // Guardamos o arquivo importado pra poder re-parsear se o usuário trocar o
+  // tipo (folha/antecipação) na prévia — o tipo afeta a quinzena extraída.
+  const [arquivoAtual, setArquivoAtual] = useState<File | null>(null)
   const [importando, setImportando] = useState(false)
   const [erroImport, setErroImport] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const processarExcel = async (arquivo: File, mesAnoOverride?: string) => {
+  const processarExcel = async (
+    arquivo: File,
+    mesAnoOverride?: string,
+    tipoOverride?: TipoFolha,
+  ) => {
     setProcessando(true)
     setErroImport(null)
-    setResultado(null)
+    setArquivoAtual(arquivo)
+    if (!tipoOverride) setResultado(null)
+
     try {
       const buf = await arquivo.arrayBuffer()
+
+      // Detecta tipo pelo nome do arquivo, ou usa override do select da prévia
+      const tipoFolha: TipoFolha =
+        tipoOverride ||
+        (arquivo.name.toUpperCase().includes('ANTECIP') ? 'antecipacao' : 'folha')
+
+      // ── PARSING PRINCIPAL ─────────────────────────────────────────────────
+      // lib/parser-folha.ts — validado contra os arquivos reais (Mar/26)
+      // FOLHA dia 10: 312 colaboradores, R$ 496.276,24 (oficial 490.910,24)
+      // ANTECIP dia 20: 305 colaboradores, R$ 351.739,91 (oficial 351.705,91)
+      const parsed = parseFolhaPagamento(buf, tipoFolha)
+
+      // Lê o XLSX uma segunda vez pra pegar metadados (banco/CPF e total oficial)
       const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const dadosCadastrais = extrairDadosCadastrais(wb)
+      const { total: totalReal } = extrairTotalGeral(wb)
+
+      // Mapeia o resultado do parser pro formato ColaboradorImportado
       const colaboradores: ColaboradorImportado[] = []
       const erros: string[] = []
 
-      const nomeArq = arquivo.name
-      const matchMes = nomeArq.match(/^(\d{2})[_\-]/)
-      const matchAno = nomeArq.match(/(20\d{2})/)
+      for (const aba of parsed.abas) {
+        const chave = aba.cidade.trim().toUpperCase()
+        const cidade = MAPA_CIDADES[chave]
+        if (!cidade) {
+          erros.push(
+            `Aba "${aba.cidade}" não reconhecida — ${aba.colaboradores.length} colaboradores ignorados`,
+          )
+          continue
+        }
+        for (const c of aba.colaboradores) {
+          const cad = dadosCadastrais.get(c.nome.toUpperCase())
+          colaboradores.push({
+            nome: c.nome,
+            cpf: cad?.cpf,
+            cidade,
+            funcao: 'Motorista',
+            salarioBase: c.valor,
+            totalReceber: c.valor,
+            banco: cad?.banco ? normalizarBanco(cad.banco) : undefined,
+            jaExiste: false,
+          })
+        }
+      }
+
+      // Detecta mês/ano pelo nome do arquivo
+      const matchMes = arquivo.name.match(/^(\d{2})[_\-]/)
+      const matchAno = arquivo.name.match(/(20\d{2})/)
       const mes = matchMes ? parseInt(matchMes[1]) : new Date().getMonth() + 1
       const anoArq = matchAno ? parseInt(matchAno[1]) : new Date().getFullYear()
       const mesValido = mes >= 1 && mes <= 12 ? mes : new Date().getMonth() + 1
-      const anoValido = anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
-      const mesAno = mesAnoOverride || `${anoValido}-${String(mesValido).padStart(2, '0')}`
+      const anoValido =
+        anoArq >= 2020 && anoArq <= 2030 ? anoArq : new Date().getFullYear()
+      const mesAno =
+        mesAnoOverride || `${anoValido}-${String(mesValido).padStart(2, '0')}`
 
-      const { total: totalReal } = extrairTotalGeral(wb)
-
-      for (const nomeAba of wb.SheetNames) {
-        const chave = nomeAba.trim().toUpperCase()
-        const cidade = MAPA_CIDADES[chave]
-        if (!cidade) {
-          if (!chave.includes('TOTAL GERAL') && !chave.includes('MODELO')) {
-            erros.push(`Aba "${nomeAba}" não reconhecida`)
-          }
-          continue
-        }
-        const ws = wb.Sheets[nomeAba]
-        const dadosAba: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
-        const colabs = parsearAba(dadosAba, cidade, chave)
-        if (colabs.length === 0) erros.push(`Aba "${nomeAba}" — nenhum colaborador extraído`)
-        colaboradores.push(...colabs)
-      }
-
-      // Marcar existentes
+      // Cruza com colaboradores já cadastrados no Redis (pra marcar "jaExiste")
       const res = await fetch('/api/dp/colaboradores')
       const cadastrados: Colaborador[] = await res.json()
-      const semInternos = colaboradores.filter(c => !c.nome.startsWith('__TOTAL__'))
-      const comStatus = semInternos.map(c => {
-        const existente = cadastrados.find(cad =>
-          cad.nome.toLowerCase().trim() === c.nome.toLowerCase().trim()
+      const comStatus = colaboradores.map(c => {
+        const existente = cadastrados.find(
+          cad => cad.nome.toLowerCase().trim() === c.nome.toLowerCase().trim(),
         )
         return { ...c, jaExiste: !!existente, colaboradorId: existente?.id }
       })
 
+      // Calcula totais
       const totalFolha = colaboradores.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
-      const valorPorColaborador: Record<string, number> = {}
-
       for (const c of colaboradores) {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
       }
+
+      // SOMA quando o mesmo nome aparece mais de uma vez (caso Willian Anderson
+      // em Mococa: CPF + CNPJ = 2 recibos legítimos). Sobrescrever perderia um.
+      const valorPorColaborador: Record<string, number> = {}
       for (const c of comStatus) {
-        valorPorColaborador[c.nome.trim().toUpperCase()] = c.totalReceber
+        const chave = c.nome.trim().toUpperCase()
+        valorPorColaborador[chave] = (valorPorColaborador[chave] ?? 0) + c.totalReceber
       }
 
-      const nomeUpper = nomeArq.toUpperCase()
-      const tipoFolha: 'antecipacao' | 'folha' = nomeUpper.includes('ANTECIP') ? 'antecipacao' : 'folha'
-
-      setResultado({ colaboradores: comStatus, mesAno, totalFolha, totalReal, totalPorCidade, valorPorColaborador, nomeArquivo: nomeArq, tipoFolha, erros, avisos: [] })
+      setResultado({
+        colaboradores: comStatus,
+        mesAno,
+        totalFolha,
+        totalReal,
+        totalPorCidade,
+        valorPorColaborador,
+        nomeArquivo: arquivo.name,
+        tipoFolha,
+        erros,
+        avisos: [],
+      })
     } catch (e: any) {
       setErroImport('Erro ao processar: ' + e.message)
     } finally {
@@ -330,7 +310,8 @@ export default function DepartamentoPessoal() {
     const agora = new Date().toISOString()
 
     await fetch('/api/dp/fechamentos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         id: `fech_${resultado.mesAno}_${resultado.tipoFolha}`,
         mesAno: resultado.mesAno,
@@ -346,18 +327,25 @@ export default function DepartamentoPessoal() {
 
     const [anoFech, mesFech] = resultado.mesAno.split('-').map(Number)
     const diaPag = resultado.tipoFolha === 'antecipacao' ? 20 : 10
-    const mesPagNum = resultado.tipoFolha === 'folha' ? (mesFech === 12 ? 1 : mesFech + 1) : mesFech
-    const anoPagNum = resultado.tipoFolha === 'folha' && mesFech === 12 ? anoFech + 1 : anoFech
+    const mesPagNum =
+      resultado.tipoFolha === 'folha' ? (mesFech === 12 ? 1 : mesFech + 1) : mesFech
+    const anoPagNum =
+      resultado.tipoFolha === 'folha' && mesFech === 12 ? anoFech + 1 : anoFech
     const dataPagStr = `${String(diaPag).padStart(2, '0')}/${String(mesPagNum).padStart(2, '0')}/${anoPagNum}`
 
     for (const [cidadeStr, valorCidade] of Object.entries(resultado.totalPorCidade)) {
       if (valorCidade > 0) {
         await fetch('/api/dp/pagamentos', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             id: `pag_${resultado.mesAno}_${resultado.tipoFolha}_${cidadeStr.replace(/\s+/g, '_')}`,
-            mesAno: resultado.mesAno, cidade: cidadeStr, tipo: resultado.tipoFolha,
-            valor: valorCidade, dataPagamento: dataPagStr, createdAt: agora,
+            mesAno: resultado.mesAno,
+            cidade: cidadeStr,
+            tipo: resultado.tipoFolha,
+            valor: valorCidade,
+            dataPagamento: dataPagStr,
+            createdAt: agora,
           }),
         })
       }
@@ -366,24 +354,39 @@ export default function DepartamentoPessoal() {
     for (const c of novos) {
       const colab: Colaborador = {
         id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-        nome: c.nome, cpf: c.cpf, cidade: c.cidade, funcao: c.funcao,
-        salarioBase: c.salarioBase, dataInicio: '', status: 'ativo',
-        dadosBancarios: { banco: c.banco || '', agencia: c.agencia, conta: c.conta, pix: c.pix },
-        observacoes: c.observacoes, createdAt: agora, updatedAt: agora,
+        nome: c.nome,
+        cpf: c.cpf,
+        cidade: c.cidade,
+        funcao: c.funcao,
+        salarioBase: c.salarioBase,
+        dataInicio: '',
+        status: 'ativo',
+        dadosBancarios: {
+          banco: c.banco || '',
+          agencia: c.agencia,
+          conta: c.conta,
+          pix: c.pix,
+        },
+        observacoes: c.observacoes,
+        createdAt: agora,
+        updatedAt: agora,
       }
       await fetch('/api/dp/colaboradores', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(colab),
       })
     }
 
     setResultado(null)
+    setArquivoAtual(null)
     setImportando(false)
     setReload(r => r + 1)
     setAbaAtiva(novos.length > 0 ? 'colaboradores' : 'resumo')
   }
 
-  const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const fmt = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const abas: { id: Aba; label: string; icon: string }[] = [
     { id: 'resumo',        label: 'Resumo',                 icon: '📊' },
     { id: 'pagamentos',    label: 'Controle de Pagamentos', icon: '💰' },
@@ -445,7 +448,7 @@ export default function DepartamentoPessoal() {
                     {resultado.colaboradores.length} colaboradores · {resultado.colaboradores.filter(c => !c.jaExiste).length} novos · {resultado.colaboradores.filter(c => c.jaExiste).length} já cadastrados
                   </div>
                 </div>
-                <button onClick={() => setResultado(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
+                <button onClick={() => { setResultado(null); setArquivoAtual(null) }} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--text-3)' }}>✕</button>
               </div>
 
               <div style={{ background: 'var(--sky-light)', border: '1px solid var(--sky-mid)', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.25rem', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -470,7 +473,14 @@ export default function DepartamentoPessoal() {
                   <label style={{ fontSize: 12, color: 'var(--text-2)', fontWeight: 600 }}>Tipo:</label>
                   <select
                     value={resultado.tipoFolha}
-                    onChange={e => setResultado(r => r ? { ...r, tipoFolha: e.target.value as 'antecipacao' | 'folha' } : r)}
+                    onChange={async e => {
+                      const novoTipo = e.target.value as TipoFolha
+                      // Re-parseia com o novo target — no formato B isso muda qual quinzena
+                      // (1ª = antecipação, 2ª = folha) é extraída.
+                      if (arquivoAtual) {
+                        await processarExcel(arquivoAtual, resultado.mesAno, novoTipo)
+                      }
+                    }}
                     style={{ padding: '0.3rem 0.6rem', fontSize: 12, fontWeight: 700, borderRadius: 6, border: '1px solid var(--border)', fontFamily: 'inherit', background: 'white', color: 'var(--navy)' }}
                   >
                     <option value="antecipacao">📅 Antecipação (dia 20)</option>
@@ -555,7 +565,7 @@ export default function DepartamentoPessoal() {
               </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                <button onClick={() => setResultado(null)} style={{ padding: '0.55rem 1.1rem', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
+                <button onClick={() => { setResultado(null); setArquivoAtual(null) }} style={{ padding: '0.55rem 1.1rem', fontSize: 13, background: 'white', color: 'var(--text-2)', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontFamily: 'inherit' }}>Cancelar</button>
                 <button
                   onClick={confirmarImportacao}
                   disabled={importando}
