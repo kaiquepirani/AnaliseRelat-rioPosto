@@ -49,6 +49,40 @@ const CORES_METRICA: { [k in Metrica]: string } = {
   Comparativo: '#475569',
 }
 
+// Tooltip customizado pro modo Comparativo (mostra a decomposição da receita)
+const TooltipComparativo = ({ active, payload, label }: any) => {
+  if (!active || !payload || payload.length === 0) return null
+  const original = payload[0]?.payload || {}
+  const receita = Number(original.Receita) || 0
+  const combustivel = Number(original['Combustível']) || 0
+  const folha = Number(original.Folha) || 0
+  const margem = Number(original.Margem) || 0
+  const margemPct = Number(original['Margem %']) || 0
+
+  return (
+    <div style={{
+      background: '#fff', border: '1px solid #e2e8f0',
+      borderRadius: 8, padding: '10px 12px', fontSize: 12,
+      boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+      minWidth: 220,
+    }}>
+      <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: '#1e293b' }}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '4px 16px', alignItems: 'baseline' }}>
+        <span style={{ color: '#64748b', fontWeight: 600 }}>Receita</span>
+        <strong style={{ color: '#1e293b' }}>{fmtReal(receita)}</strong>
+        <span style={{ color: '#dc2626' }}>− Combustível</span>
+        <span style={{ color: '#dc2626' }}>{fmtReal(combustivel)}</span>
+        <span style={{ color: '#7c3aed' }}>− Folha</span>
+        <span style={{ color: '#7c3aed' }}>{fmtReal(folha)}</span>
+        <span style={{ color: margem >= 0 ? '#047857' : '#dc2626', fontWeight: 700, borderTop: '1px solid #f1f5f9', paddingTop: 4 }}>= Margem</span>
+        <strong style={{ color: margem >= 0 ? '#047857' : '#dc2626', borderTop: '1px solid #f1f5f9', paddingTop: 4 }}>{fmtReal(margem)}</strong>
+        <span style={{ color: '#f59e0b' }}>Margem %</span>
+        <strong style={{ color: '#f59e0b' }}>{fmtPctSimples(margemPct)}</strong>
+      </div>
+    </div>
+  )
+}
+
 export default function PainelGestao({ token, onLogout }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
@@ -101,7 +135,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     if (met === 'Receita') return m.receita
     if (met === 'Combustível') return m.combustivel
     if (met === 'Folha') return m.folhaLiquida * fator
-    // Margem (e Comparativo aqui não chega, ele tem fluxo próprio)
     return m.receita - m.combustivel - (m.folhaLiquida * fator)
   }
 
@@ -109,7 +142,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
     if (met === 'Receita') return base.totalReceita
     if (met === 'Combustível') return base.totalCombustivel
     if (met === 'Folha') return base.totalFolhaLiquida * fator
-    if (met === 'Comparativo') return base.totalReceita // ranqueia por receita no Comparativo
+    if (met === 'Comparativo') return base.totalReceita
     return base.totalReceita - base.totalCombustivel - (base.totalFolhaLiquida * fator)
   }
 
@@ -146,7 +179,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     return basesOrdenadas.filter(b => basesAtivas.has(b.baseNome)).map(b => b.baseNome)
   }, [modoFiltro, top5BasesNomes, basesAtivas, basesOrdenadas])
 
-  // Bases que vão SOMAR no modo Comparativo
   const basesParaSomar = useMemo<ConsolidadoBase[]>(() => {
     if (!consolidado) return []
     if (modoFiltro === 'todos') return consolidado.bases
@@ -154,7 +186,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     return consolidado.bases.filter(b => basesAtivas.has(b.baseNome))
   }, [consolidado, modoFiltro, top5BasesNomes, basesAtivas])
 
-  // Dados do gráfico empilhado (modos: Receita, Combustível, Folha, Margem)
   const dadosGraficoEmpilhado = useMemo(() => {
     if (!consolidado) return []
     return NOMES_MESES.map((mes, i) => {
@@ -173,7 +204,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     })
   }, [consolidado, metrica, modoFiltro, basesParaGrafico, fator])
 
-  // Dados do modo Comparativo (somatório das bases selecionadas, 4 barras + linha)
   const dadosComparativo = useMemo(() => {
     return NOMES_MESES.map((mes, i) => {
       let receita = 0, combustivel = 0, folha = 0
@@ -196,7 +226,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     })
   }, [basesParaSomar, fator])
 
-  // Totais das bases selecionadas (pra mostrar no subtitle do Comparativo)
   const totaisSelecionadas = useMemo(() => {
     let receita = 0, combustivel = 0, folha = 0
     for (let j = 0; j < basesParaSomar.length; j++) {
@@ -237,16 +266,15 @@ export default function PainelGestao({ token, onLogout }: Props) {
     return -1
   }, [consolidado])
 
-  // Subtitle dinâmico do gráfico
   const subtituloGrafico = useMemo(() => {
     if (metrica !== 'Comparativo') return 'Selecione a métrica e quais bases visualizar'
     const t = totaisSelecionadas
+    if (t.qtdBases === 0) return 'Selecione pelo menos uma base nos chips abaixo'
     const escopo = modoFiltro === 'todos'
       ? `todas as ${t.qtdBases} bases`
       : modoFiltro === 'top5'
       ? `top 5 bases`
       : `${t.qtdBases} ${t.qtdBases === 1 ? 'base selecionada' : 'bases selecionadas'}`
-    if (t.qtdBases === 0) return 'Selecione pelo menos uma base nos chips abaixo'
     return `${escopo} · Margem total ${fmtReal(t.margem)} (${fmtPctSimples(t.margemPct)})`
   }, [metrica, totaisSelecionadas, modoFiltro])
 
@@ -316,7 +344,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
           </div>
         ) : consolidado && kpis ? (
           <>
-            {/* KPIs */}
             <div style={{
               display: 'grid',
               gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -341,7 +368,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 icone={kpis.margem >= 0 ? '📊' : '📉'} />
             </div>
 
-            {/* Aviso de itens órfãos */}
             {(consolidado.postosOrfaos.length > 0 ||
               consolidado.faturamentoLinhasOrfas.length > 0 ||
               consolidado.folhaCidadesOrfas.length > 0) && (
@@ -373,10 +399,8 @@ export default function PainelGestao({ token, onLogout }: Props) {
               </div>
             )}
 
-            {/* Gráfico de evolução mensal */}
             <Secao titulo={`📊 Evolução mensal — ${ANO_GESTAO}`} sub={subtituloGrafico}>
 
-              {/* Toggle de métrica */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
                   Métrica:
@@ -389,7 +413,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 ))}
               </div>
 
-              {/* Chips de bases */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
                   Bases:
@@ -415,11 +438,10 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 })}
               </div>
 
-              {/* Gráfico */}
               <div style={{ width: '100%', height: 400 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   {metrica === 'Comparativo' ? (
-                    <ComposedChart data={dadosComparativo} margin={{ top: 20, right: 60, left: 10, bottom: 10 }}>
+                    <ComposedChart data={dadosComparativo} margin={{ top: 26, right: 60, left: 10, bottom: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                       <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                       <YAxis yAxisId="left" tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
@@ -427,19 +449,14 @@ export default function PainelGestao({ token, onLogout }: Props) {
                         tickFormatter={(v: any) => `${Math.round(Number(v))}%`}
                         tick={{ fontSize: 11, fill: '#f59e0b' }}
                         width={50} />
-                      <Tooltip
-                        formatter={(v: any, name: any) => {
-                          if (name === 'Margem %') return [fmtPctSimples(Number(v)), name]
-                          return [fmtReal(Number(v)), name]
-                        }}
-                        contentStyle={{ borderRadius: 8, fontSize: 12 }}
-                        labelStyle={{ fontWeight: 600 }}
-                      />
+                      <Tooltip content={<TooltipComparativo />} />
                       <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="rect" />
-                      <Bar yAxisId="left" dataKey="Receita" fill="#10b981" radius={[3, 3, 0, 0]} />
-                      <Bar yAxisId="left" dataKey="Combustível" fill="#dc2626" radius={[3, 3, 0, 0]} />
-                      <Bar yAxisId="left" dataKey="Folha" fill="#7c3aed" radius={[3, 3, 0, 0]} />
-                      <Bar yAxisId="left" dataKey="Margem" fill="#2D3A6B" radius={[3, 3, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="Combustível" stackId="custos" fill="#dc2626" />
+                      <Bar yAxisId="left" dataKey="Folha" stackId="custos" fill="#7c3aed" />
+                      <Bar yAxisId="left" dataKey="Margem" stackId="custos" fill="#10b981" radius={[6, 6, 0, 0]}>
+                        <LabelList dataKey="Receita" position="top" formatter={fmtRealK}
+                          style={{ fontSize: 10, fill: '#334155', fontWeight: 700 }} />
+                      </Bar>
                       <Line yAxisId="right" type="monotone" dataKey="Margem %"
                         stroke="#f59e0b" strokeWidth={2.5}
                         dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
@@ -473,7 +490,12 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 </ResponsiveContainer>
               </div>
 
-              {/* Legenda das bases ativas (modo empilhado) */}
+              {metrica === 'Comparativo' && (
+                <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
+                  Cada barra mostra a decomposição da receita: <span style={{ color: '#dc2626', fontWeight: 600 }}>Combustível</span> + <span style={{ color: '#7c3aed', fontWeight: 600 }}>Folha</span> + <span style={{ color: '#10b981', fontWeight: 600 }}>Margem</span>. O número no topo é a receita total. A linha <span style={{ color: '#f59e0b', fontWeight: 600 }}>laranja</span> é a margem em %.
+                </div>
+              )}
+
               {metrica !== 'Comparativo' && modoFiltro !== 'todos' && basesParaGrafico.length > 0 && (
                 <div style={{
                   marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8,
@@ -505,7 +527,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
               )}
             </Secao>
 
-            {/* Tabela por base */}
             <Secao titulo="🏢 Resultado por Base Operacional"
               sub="Ranqueado pela margem operacional absoluta">
               <div style={{ overflowX: 'auto' }}>
