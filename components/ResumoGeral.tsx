@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react'
 import { Lancamento, Extrato } from '@/lib/types'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell } from 'recharts'
+import EvolucaoPorBase from './EvolucaoPorBase'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtL = (v: number) => v.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' L'
@@ -190,6 +191,9 @@ export default function ResumoGeral({ totalValor, totalLitros, totalVeiculos, al
           </div>
         </div>
       )}
+
+      {/* ── Gráfico NOVO: evolução por base operacional (acima do gráfico de postos) ── */}
+      <EvolucaoPorBase extratos={extratos} metrica={metrica} />
 
       {/* ── Gráfico 1: evolução mensal por posto ── */}
       {dadosMensais.length > 0 && postos.length > 0 && (
