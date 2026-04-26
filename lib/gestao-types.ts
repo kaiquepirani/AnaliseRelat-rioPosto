@@ -5,11 +5,11 @@
 export const ANO_GESTAO = 2026
 export const MULTIPLICADOR_ENCARGOS = 1.7
 
-// Cada Base Operacional é uma unidade de negócio que liga 3 fontes:
+// Cada Base Operacional liga 3 fontes:
 // - folhaCidades: cidades EXATAS como cadastradas no DP (ver dp-types.ts)
 // - postos: nomes EXATOS dos postos como aparecem nos extratos
 // - faturamentoLinhas: nomes EXATOS das linhas como aparecem na planilha de faturamento
-// O matching é tolerante (case-insensitive, sem acentos, contains-match)
+// O matching é tolerante (case-insensitive, sem acentos, sem pontuação, contains-match)
 export interface BaseOperacional {
   id: string
   nome: string
@@ -19,7 +19,7 @@ export interface BaseOperacional {
   observacao?: string
 }
 
-// Mapeamento pré-populado pelo Kaique (abr/2026)
+// Mapeamento pré-populado (abr/2026)
 // Pode ser editado depois via /api/gestao/bases (a criar)
 export const BASES_PADRAO: BaseOperacional[] = [
   {
@@ -27,7 +27,13 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Águas de Lindóia',
     folhaCidades: ['Águas de Lindóia (Folha)', 'Águas de Lindóia (Diárias)'],
     postos: ['Tanque Águas', 'Posto Portal', 'Posto Shell Queijo Bom'],
-    faturamentoLinhas: ['Águas Saúde', 'Águas Escolar', 'Monte Sião Saúde', 'Lindóia Saúde'],
+    faturamentoLinhas: [
+      'Águas Saúde',
+      'Águas Escolar',
+      'Águas Educação',   // sinônimo encontrado no banner de órfãos
+      'Monte Sião Saúde',
+      'Lindóia Saúde',
+    ],
   },
   {
     id: 'lindoia',
@@ -56,15 +62,15 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Mogi Mirim',
     folhaCidades: [],
     postos: ['RVM Max', 'Posto Vitoria'],
-    faturamentoLinhas: ['Mogi Saude', 'DRS S.J.B.V.'],
-    observacao: 'Folha não considerada no momento',
+    faturamentoLinhas: ['Mogi Saude', 'DRS S.J.B.V.', 'DSR S.J.B.V.'], // ambas grafias por garantia
+    observacao: 'Folha não considerada no momento (cidade aparece nos pagamentos como órfã)',
   },
   {
     id: 'pinhal',
     nome: 'Pinhal',
     folhaCidades: ['Pinhal'],
     postos: ['Cooperativa dos Cafeicultores', 'Posto São Cristovão'],
-    faturamentoLinhas: ['Pinhal Educação', 'Pinhal Saude', 'S. A. Jardim'],
+    faturamentoLinhas: ['Pinhal Educação', 'Pinhal Saude', 'S. A. Jardim', 'S.A.JARDIM', 'SA Jardim'],
   },
   {
     id: 'aguai',
@@ -85,7 +91,17 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Porto Ferreira',
     folhaCidades: ['Porto Ferreira'],
     postos: [],
-    faturamentoLinhas: ['Porto Ferreira Monitoras', 'Porto Ferreira Vans', 'Porto Ferreira Onibus'],
+    faturamentoLinhas: [
+      'Porto Ferreira Monitoras',
+      'Porto Ferreira Vans',
+      'Porto Ferreira Onibus',
+      // grafias com parênteses (como aparecem nos dados reais):
+      'Porto Ferreira (Monitoras)',
+      'Porto Ferreira (Van)',
+      'Porto Ferreira (Vans)',
+      'Porto Ferreira (Onibus)',
+      'Porto Ferreira (Ônibus)',
+    ],
     observacao: 'Posto a confirmar e cadastrar',
   },
   {
@@ -124,26 +140,42 @@ export const BASES_PADRAO: BaseOperacional[] = [
 // Helpers de matching
 // ──────────────────────────────────────────────────────────────────────
 
+// Normalizador: lowercase + sem acentos + sem pontuação comum + colapsa espaços
+// Trata "S.A.JARDIM" === "S. A. Jardim" === "SA Jardim" === "S A JARDIM"
 export const normalizar = (s: string): string => {
   if (!s) return ''
   return s
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,()[\]{}\/\\\-_]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-// Match: alvo e algum item da lista são iguais OU um contém o outro (após normalizar)
-// Tolera variações tipo "Posto Portal" vs "Auto Posto Portal LTDA" vs "POSTO PORTAL"
+// Versão sem espaços, pra casos como "DSR S.J.B.V." vs "DSR SJBV"
+const semEspacos = (s: string): string => s.replace(/\s+/g, '')
+
+// Match tolerante: testa igualdade, contains nos dois sentidos,
+// e também versão sem espaços (pra siglas pontuadas).
 export const matchTolerante = (alvo: string, lista: string[]): boolean => {
   if (!alvo || !lista || lista.length === 0) return false
   const alvoN = normalizar(alvo)
   if (!alvoN) return false
+  const alvoNS = semEspacos(alvoN)
+
   for (let i = 0; i < lista.length; i++) {
     const itemN = normalizar(lista[i])
     if (!itemN) continue
+
+    // 1) Match exato ou contains após normalizar
     if (alvoN === itemN || alvoN.indexOf(itemN) >= 0 || itemN.indexOf(alvoN) >= 0) {
+      return true
+    }
+
+    // 2) Sem espaços (pra siglas pontuadas tipo S.J.B.V. vs SJBV)
+    const itemNS = semEspacos(itemN)
+    if (alvoNS && itemNS && (alvoNS === itemNS || alvoNS.indexOf(itemNS) >= 0 || itemNS.indexOf(alvoNS) >= 0)) {
       return true
     }
   }
@@ -157,23 +189,20 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
 export interface ValorMensal {
   receita: number
   combustivel: number
-  folhaLiquida: number  // sem encargos — multiplique por 1.7 no UI quando o toggle estiver ligado
+  folhaLiquida: number
 }
 
 export interface ConsolidadoBase {
   baseId: string
   baseNome: string
   observacao?: string
-  meses: ValorMensal[]  // 12 elementos (índice 0=Jan, 11=Dez)
+  meses: ValorMensal[]  // 12 elementos (Jan..Dez)
   totalReceita: number
   totalCombustivel: number
   totalFolhaLiquida: number
-  // status do mapeamento
   temFolhaMapeada: boolean
   temPostoMapeado: boolean
   temFaturamentoMapeado: boolean
-  // sinaliza que existem nomes mapeados que NÃO foram encontrados nos dados
-  // (útil pra detectar typo no mapeamento ou dados faltantes)
   postosMapeadosNaoEncontrados: string[]
   folhaCidadesMapeadasNaoEncontradas: string[]
   faturamentoLinhasMapeadasNaoEncontradas: string[]
@@ -188,12 +217,9 @@ export interface ConsolidadoCompleto {
     totalFolhaLiquida: number
   }
   totaisPorMes: ValorMensal[]
-  // itens encontrados nas fontes que NÃO foram atribuídos a nenhuma base
-  // (sinaliza que precisa atualizar o mapeamento)
   postosOrfaos: string[]
   folhaCidadesOrfas: string[]
   faturamentoLinhasOrfas: string[]
-  // metadados
   ultimaAtualizacao: string
   fontes: {
     qtdExtratos: number
@@ -203,12 +229,12 @@ export interface ConsolidadoCompleto {
 }
 
 // ──────────────────────────────────────────────────────────────────────
-// Consolidador — junta as 3 fontes em ConsolidadoCompleto
+// Consolidador
 // ──────────────────────────────────────────────────────────────────────
 
 interface InputConsolidacao {
   ano: number
-  faturamento: any  // FaturamentoCompleto
+  faturamento: any
   extratos: any[]
   pagamentos: any[]
   bases: BaseOperacional[]
@@ -216,16 +242,12 @@ interface InputConsolidacao {
 
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
   if (!data || typeof data !== 'string') return { ano: null, mes: null }
-  // YYYY-MM-DD ou YYYY-MM
   let m = data.match(/^(\d{4})-(\d{2})/)
   if (m) return { ano: parseInt(m[1], 10), mes: parseInt(m[2], 10) - 1 }
-  // DD/MM/YYYY
   m = data.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
   if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
-  // DD-MM-YYYY
   m = data.match(/^(\d{2})-(\d{2})-(\d{4})/)
   if (m) return { ano: parseInt(m[3], 10), mes: parseInt(m[2], 10) - 1 }
-  // fallback Date
   try {
     const d = new Date(data)
     if (!isNaN(d.getTime())) return { ano: d.getFullYear(), mes: d.getMonth() }
@@ -239,10 +261,19 @@ const arrZeros = (): ValorMensal[] => {
   return out
 }
 
+// Extrai array de postos de um extrato, suportando ambos os formatos:
+// - ext.postos[]  (formato real do projeto)
+// - ext.posto     (fallback, caso a estrutura mude)
+const extrairPostos = (ext: any): any[] => {
+  if (!ext) return []
+  if (Array.isArray(ext.postos)) return ext.postos
+  if (ext.posto) return [ext.posto]
+  return []
+}
+
 export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   const { ano, faturamento, extratos, pagamentos, bases } = input
 
-  // Mapa por baseId (para acumular)
   const porBase: { [id: string]: ConsolidadoBase } = {}
   bases.forEach(b => {
     porBase[b.id] = {
@@ -262,17 +293,21 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   })
 
-  // Acompanha o que foi atribuído pra detectar órfãos
   const postosUsados: { [nome: string]: true } = {}
   const cidadesFolhaUsadas: { [cidade: string]: true } = {}
   const linhasFatUsadas: { [linha: string]: true } = {}
 
-  // Helper: marca um item mapeado como encontrado (remove da lista de "não encontrados")
+  // remove da lista "não encontrados" o item mapeado que bateu com "alvo"
   const marcarEncontrado = (lista: string[], alvo: string) => {
     const alvoN = normalizar(alvo)
+    const alvoNS = semEspacos(alvoN)
     for (let i = lista.length - 1; i >= 0; i--) {
       const itN = normalizar(lista[i])
-      if (alvoN === itN || alvoN.indexOf(itN) >= 0 || itN.indexOf(alvoN) >= 0) {
+      const itNS = semEspacos(itN)
+      if (
+        alvoN === itN || alvoN.indexOf(itN) >= 0 || itN.indexOf(alvoN) >= 0 ||
+        (alvoNS && itNS && (alvoNS === itNS || alvoNS.indexOf(itNS) >= 0 || itNS.indexOf(alvoNS) >= 0))
+      ) {
         lista.splice(i, 1)
       }
     }
@@ -310,40 +345,47 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Combustível (extratos) ─────
+  // ───── Combustível (extratos com postos[] array) ─────
   for (let i = 0; i < extratos.length; i++) {
     const ext = extratos[i]
-    const posto = ext && ext.posto ? ext.posto : null
-    const nomePosto = posto && posto.nome ? String(posto.nome) : ''
-    if (!nomePosto) continue
+    if (!ext) continue
+    const postosArr = extrairPostos(ext)
 
-    let baseEncontrada: BaseOperacional | null = null
-    for (let j = 0; j < bases.length; j++) {
-      if (matchTolerante(nomePosto, bases[j].postos)) {
-        baseEncontrada = bases[j]
-        break
+    for (let j = 0; j < postosArr.length; j++) {
+      const posto = postosArr[j]
+      if (!posto) continue
+      const nomePosto = posto.nome ? String(posto.nome) : ''
+      if (!nomePosto) continue
+
+      let baseEncontrada: BaseOperacional | null = null
+      for (let k = 0; k < bases.length; k++) {
+        if (matchTolerante(nomePosto, bases[k].postos)) {
+          baseEncontrada = bases[k]
+          break
+        }
       }
-    }
-    if (!baseEncontrada) continue
+      if (!baseEncontrada) continue
 
-    postosUsados[nomePosto] = true
-    marcarEncontrado(porBase[baseEncontrada.id].postosMapeadosNaoEncontrados, nomePosto)
+      postosUsados[nomePosto] = true
+      marcarEncontrado(porBase[baseEncontrada.id].postosMapeadosNaoEncontrados, nomePosto)
 
-    const lancs = Array.isArray(ext.lancamentos) ? ext.lancamentos : []
-    for (let k = 0; k < lancs.length; k++) {
-      const l = lancs[k]
-      const data = l && l.data ? l.data : ''
-      if (!data) continue
-      const parsed = parseAnoMes(String(data))
-      if (parsed.ano !== ano) continue
-      if (parsed.mes == null) continue
-      const v = Number(l.valor) || 0
-      porBase[baseEncontrada.id].meses[parsed.mes].combustivel += v
-      porBase[baseEncontrada.id].totalCombustivel += v
+      // Lançamentos ficam dentro do posto (estrutura real do projeto)
+      const lancs = Array.isArray(posto.lancamentos) ? posto.lancamentos : []
+      for (let l = 0; l < lancs.length; l++) {
+        const lanc = lancs[l]
+        const data = lanc && lanc.data ? lanc.data : ''
+        if (!data) continue
+        const parsed = parseAnoMes(String(data))
+        if (parsed.ano !== ano) continue
+        if (parsed.mes == null) continue
+        const v = Number(lanc.valor) || 0
+        porBase[baseEncontrada.id].meses[parsed.mes].combustivel += v
+        porBase[baseEncontrada.id].totalCombustivel += v
+      }
     }
   }
 
-  // ───── Folha (pagamentos do DP) ─────
+  // ───── Folha (Pagamentos do DP) ─────
   let qtdPagAno = 0
   for (let i = 0; i < pagamentos.length; i++) {
     const p = pagamentos[i]
@@ -378,8 +420,10 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   // ───── Detectar órfãos ─────
   const todosPostosNaFonte: { [n: string]: true } = {}
   for (let i = 0; i < extratos.length; i++) {
-    const n = extratos[i] && extratos[i].posto && extratos[i].posto.nome
-    if (n) todosPostosNaFonte[n] = true
+    const postosArr = extrairPostos(extratos[i])
+    for (let j = 0; j < postosArr.length; j++) {
+      if (postosArr[j] && postosArr[j].nome) todosPostosNaFonte[postosArr[j].nome] = true
+    }
   }
   const postosOrfaos: string[] = []
   Object.keys(todosPostosNaFonte).forEach(p => {
