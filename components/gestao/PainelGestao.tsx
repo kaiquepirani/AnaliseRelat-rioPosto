@@ -8,7 +8,7 @@ import {
 } from 'recharts'
 import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
-  type ConsolidadoCompleto, type ConsolidadoBase,
+  type ConsolidadoCompleto, type ConsolidadoBase, type VinculosPostos,
 } from '@/lib/gestao-types'
 
 interface Props {
@@ -99,10 +99,11 @@ export default function PainelGestao({ token, onLogout }: Props) {
     setCarregando(true)
     setErro(null)
     try {
-      const [resFat, resExt, resPag] = await Promise.all([
+      const [resFat, resExt, resPag, resVinc] = await Promise.all([
         fetch('/api/faturamento', { headers }),
         fetch('/api/extratos', { headers }),
         fetch('/api/dp/pagamentos', { headers }),
+        fetch('/api/vinculos-postos', { headers }),
       ])
 
       if (resFat.status === 401) { onLogout(); return }
@@ -110,6 +111,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
       const faturamento = resFat.ok ? await resFat.json() : null
       const extratos = resExt.ok ? await resExt.json() : []
       const pagamentos = resPag.ok ? await resPag.json() : []
+      const vinculosPostos: VinculosPostos = resVinc.ok ? await resVinc.json() : {}
 
       const cons = consolidar({
         ano: ANO_GESTAO,
@@ -117,6 +119,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
         extratos: Array.isArray(extratos) ? extratos : [],
         pagamentos: Array.isArray(pagamentos) ? pagamentos : [],
         bases: BASES_PADRAO,
+        vinculosPostos,
       })
       setConsolidado(cons)
     } catch (e: any) {
@@ -394,7 +397,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                   </div>
                 )}
                 <div style={{ marginTop: 8, fontSize: 11, opacity: 0.85 }}>
-                  Esses valores não estão sendo somados em nenhuma base. Atualize o mapeamento em <code>lib/gestao-types.ts</code> se necessário.
+                  Postos podem ser vinculados manualmente pelo dashboard de combustível. Cidades de folha e linhas de faturamento são ajustadas em <code>lib/gestao-types.ts</code>.
                 </div>
               </div>
             )}
