@@ -3,8 +3,8 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList,
+  BarChart, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, LabelList, Legend,
 } from 'recharts'
 import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
@@ -25,8 +25,8 @@ const fmtRealK = (n: number) => {
   if (abs >= 1_000) return `R$ ${(n / 1_000).toFixed(0)}K`
   return fmtReal(n)
 }
+const fmtPctSimples = (n: number) => `${n.toFixed(1).replace('.', ',')}%`
 
-// Paleta pra bases (12 cores distintas e legíveis)
 const PALETA_BASES = [
   '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
   '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
@@ -38,7 +38,7 @@ const corBase = (nomeBase: string, todasBases: string[]): string => {
   return PALETA_BASES[idx % PALETA_BASES.length]
 }
 
-type Metrica = 'Receita' | 'Combustível' | 'Folha' | 'Margem'
+type Metrica = 'Receita' | 'Combustível' | 'Folha' | 'Margem' | 'Comparativo'
 type ModoFiltro = 'todos' | 'top5' | 'custom'
 
 const CORES_METRICA: { [k in Metrica]: string } = {
@@ -46,6 +46,7 @@ const CORES_METRICA: { [k in Metrica]: string } = {
   'Combustível': '#dc2626',
   Folha: '#7c3aed',
   Margem: '#2D3A6B',
+  Comparativo: '#475569',
 }
 
 export default function PainelGestao({ token, onLogout }: Props) {
@@ -54,7 +55,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
   const [comEncargos, setComEncargos] = useState(true)
   const [consolidado, setConsolidado] = useState<ConsolidadoCompleto | null>(null)
 
-  // Estado do gráfico
   const [metrica, setMetrica] = useState<Metrica>('Receita')
   const [modoFiltro, setModoFiltro] = useState<ModoFiltro>('todos')
   const [basesAtivas, setBasesAtivas] = useState<Set<string>>(new Set())
@@ -96,21 +96,20 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
   const fator = comEncargos ? MULTIPLICADOR_ENCARGOS : 1
 
-  // Calcula valor de uma base num mês específico para a métrica selecionada
   const valorBaseMes = (base: ConsolidadoBase, mesIdx: number, met: Metrica): number => {
     const m = base.meses[mesIdx]
     if (met === 'Receita') return m.receita
     if (met === 'Combustível') return m.combustivel
     if (met === 'Folha') return m.folhaLiquida * fator
-    // Margem
+    // Margem (e Comparativo aqui não chega, ele tem fluxo próprio)
     return m.receita - m.combustivel - (m.folhaLiquida * fator)
   }
 
-  // Total anual da base na métrica
   const valorBaseTotal = (base: ConsolidadoBase, met: Metrica): number => {
     if (met === 'Receita') return base.totalReceita
     if (met === 'Combustível') return base.totalCombustivel
     if (met === 'Folha') return base.totalFolhaLiquida * fator
+    if (met === 'Comparativo') return base.totalReceita // ranqueia por receita no Comparativo
     return base.totalReceita - base.totalCombustivel - (base.totalFolhaLiquida * fator)
   }
 
@@ -131,7 +130,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }
   }, [consolidado, fator])
 
-  // Lista de TODAS as bases (ordenada pelo valor da métrica selecionada, descendente)
   const basesOrdenadas = useMemo(() => {
     if (!consolidado) return []
     const lista = consolidado.bases.slice()
@@ -139,22 +137,25 @@ export default function PainelGestao({ token, onLogout }: Props) {
     return lista
   }, [consolidado, metrica, fator])
 
-  // Top 5 bases pela métrica
-  const top5BasesNomes = useMemo(() => {
-    return basesOrdenadas.slice(0, 5).map(b => b.baseNome)
-  }, [basesOrdenadas])
-
+  const top5BasesNomes = useMemo(() => basesOrdenadas.slice(0, 5).map(b => b.baseNome), [basesOrdenadas])
   const todasBasesNomes = useMemo(() => basesOrdenadas.map(b => b.baseNome), [basesOrdenadas])
 
-  // Bases que vão pro gráfico no momento
   const basesParaGrafico = useMemo<string[]>(() => {
     if (modoFiltro === 'todos') return []
     if (modoFiltro === 'top5') return top5BasesNomes
     return basesOrdenadas.filter(b => basesAtivas.has(b.baseNome)).map(b => b.baseNome)
   }, [modoFiltro, top5BasesNomes, basesAtivas, basesOrdenadas])
 
-  // Dados pro gráfico (12 meses)
-  const dadosGrafico = useMemo(() => {
+  // Bases que vão SOMAR no modo Comparativo
+  const basesParaSomar = useMemo<ConsolidadoBase[]>(() => {
+    if (!consolidado) return []
+    if (modoFiltro === 'todos') return consolidado.bases
+    if (modoFiltro === 'top5') return consolidado.bases.filter(b => top5BasesNomes.indexOf(b.baseNome) >= 0)
+    return consolidado.bases.filter(b => basesAtivas.has(b.baseNome))
+  }, [consolidado, modoFiltro, top5BasesNomes, basesAtivas])
+
+  // Dados do gráfico empilhado (modos: Receita, Combustível, Folha, Margem)
+  const dadosGraficoEmpilhado = useMemo(() => {
     if (!consolidado) return []
     return NOMES_MESES.map((mes, i) => {
       const obj: any = { mes }
@@ -172,6 +173,43 @@ export default function PainelGestao({ token, onLogout }: Props) {
     })
   }, [consolidado, metrica, modoFiltro, basesParaGrafico, fator])
 
+  // Dados do modo Comparativo (somatório das bases selecionadas, 4 barras + linha)
+  const dadosComparativo = useMemo(() => {
+    return NOMES_MESES.map((mes, i) => {
+      let receita = 0, combustivel = 0, folha = 0
+      for (let j = 0; j < basesParaSomar.length; j++) {
+        const m = basesParaSomar[j].meses[i]
+        receita += m.receita
+        combustivel += m.combustivel
+        folha += m.folhaLiquida * fator
+      }
+      const margem = receita - combustivel - folha
+      const margemPct = receita > 0 ? (margem / receita) * 100 : 0
+      return {
+        mes,
+        Receita: receita,
+        'Combustível': combustivel,
+        Folha: folha,
+        Margem: margem,
+        'Margem %': margemPct,
+      }
+    })
+  }, [basesParaSomar, fator])
+
+  // Totais das bases selecionadas (pra mostrar no subtitle do Comparativo)
+  const totaisSelecionadas = useMemo(() => {
+    let receita = 0, combustivel = 0, folha = 0
+    for (let j = 0; j < basesParaSomar.length; j++) {
+      const b = basesParaSomar[j]
+      receita += b.totalReceita
+      combustivel += b.totalCombustivel
+      folha += b.totalFolhaLiquida * fator
+    }
+    const margem = receita - combustivel - folha
+    const margemPct = receita > 0 ? (margem / receita) * 100 : 0
+    return { receita, combustivel, folha, margem, margemPct, qtdBases: basesParaSomar.length }
+  }, [basesParaSomar, fator])
+
   const toggleBase = (baseNome: string) => {
     const novo = new Set(basesAtivas)
     if (novo.has(baseNome)) novo.delete(baseNome)
@@ -180,7 +218,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     setModoFiltro('custom')
   }
 
-  // Tabela
   const dadosTabela = useMemo(() => {
     if (!consolidado) return []
     return consolidado.bases.map(b => {
@@ -199,6 +236,19 @@ export default function PainelGestao({ token, onLogout }: Props) {
     }
     return -1
   }, [consolidado])
+
+  // Subtitle dinâmico do gráfico
+  const subtituloGrafico = useMemo(() => {
+    if (metrica !== 'Comparativo') return 'Selecione a métrica e quais bases visualizar'
+    const t = totaisSelecionadas
+    const escopo = modoFiltro === 'todos'
+      ? `todas as ${t.qtdBases} bases`
+      : modoFiltro === 'top5'
+      ? `top 5 bases`
+      : `${t.qtdBases} ${t.qtdBases === 1 ? 'base selecionada' : 'bases selecionadas'}`
+    if (t.qtdBases === 0) return 'Selecione pelo menos uma base nos chips abaixo'
+    return `${escopo} · Margem total ${fmtReal(t.margem)} (${fmtPctSimples(t.margemPct)})`
+  }, [metrica, totaisSelecionadas, modoFiltro])
 
   return (
     <div style={{ minHeight: '100vh', background: '#f4f6fb', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -223,7 +273,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
       <main style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
 
-        {/* Toggle folha + atualizar */}
         <div style={{
           background: '#fff', padding: 14, borderRadius: 12,
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: 16,
@@ -279,15 +328,15 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 cor="#047857" icone="💰" />
               <KPI titulo="Custo combustível"
                 valor={fmtReal(kpis.combustivel)}
-                sub={`${kpis.pctCombustivel.toFixed(1).replace('.', ',')}% da receita`}
+                sub={`${fmtPctSimples(kpis.pctCombustivel)} da receita`}
                 cor="#dc2626" icone="⛽" />
               <KPI titulo={`Custo folha${comEncargos ? ' (×1,7)' : ' líquida'}`}
                 valor={fmtReal(kpis.folha)}
-                sub={`${kpis.pctFolha.toFixed(1).replace('.', ',')}% da receita`}
+                sub={`${fmtPctSimples(kpis.pctFolha)} da receita`}
                 cor="#7c3aed" icone="👥" />
               <KPI titulo="Margem operacional"
                 valor={fmtReal(kpis.margem)}
-                sub={`${kpis.margemPct.toFixed(1).replace('.', ',')}% da receita`}
+                sub={`${fmtPctSimples(kpis.margemPct)} da receita`}
                 cor={kpis.margem >= 0 ? '#10b981' : '#dc2626'}
                 icone={kpis.margem >= 0 ? '📊' : '📉'} />
             </div>
@@ -324,19 +373,18 @@ export default function PainelGestao({ token, onLogout }: Props) {
               </div>
             )}
 
-            {/* Gráfico de evolução mensal por bases */}
-            <Secao titulo={`📊 Evolução mensal — ${ANO_GESTAO}`}
-              sub='Selecione a métrica e quais bases visualizar'>
+            {/* Gráfico de evolução mensal */}
+            <Secao titulo={`📊 Evolução mensal — ${ANO_GESTAO}`} sub={subtituloGrafico}>
 
               {/* Toggle de métrica */}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
                   Métrica:
                 </span>
-                {(['Receita', 'Combustível', 'Folha', 'Margem'] as Metrica[]).map(m => (
+                {(['Receita', 'Combustível', 'Folha', 'Margem', 'Comparativo'] as Metrica[]).map(m => (
                   <button key={m} onClick={() => setMetrica(m)}
                     style={chipStyle(metrica === m, CORES_METRICA[m])}>
-                    {m}
+                    {m === 'Comparativo' ? '📊 Comparativo' : m}
                   </button>
                 ))}
               </div>
@@ -368,36 +416,65 @@ export default function PainelGestao({ token, onLogout }: Props) {
               </div>
 
               {/* Gráfico */}
-              <div style={{ width: '100%', height: 380 }}>
+              <div style={{ width: '100%', height: 400 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={dadosGrafico} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                    <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
-                    <Tooltip
-                      formatter={(v: any, name: any) => [fmtReal(Number(v)), name === '__total__' ? `Total ${metrica}` : name]}
-                      contentStyle={{ borderRadius: 8, fontSize: 12, maxWidth: 320 }}
-                      labelStyle={{ fontWeight: 600 }}
-                      itemSorter={(item: any) => -Number(item.value)}
-                    />
-                    {modoFiltro === 'todos' ? (
-                      <Bar dataKey="__total__" fill={CORES_METRICA[metrica]} radius={[6, 6, 0, 0]} name={metrica}>
-                        <LabelList dataKey="__total__" position="top" formatter={fmtRealK}
-                          style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
-                      </Bar>
-                    ) : (
-                      basesParaGrafico.map(baseNome => (
-                        <Bar key={baseNome} dataKey={baseNome} stackId="a"
-                          fill={corBase(baseNome, todasBasesNomes)}
-                          name={baseNome} />
-                      ))
-                    )}
-                  </BarChart>
+                  {metrica === 'Comparativo' ? (
+                    <ComposedChart data={dadosComparativo} margin={{ top: 20, right: 60, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                      <YAxis yAxisId="left" tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
+                      <YAxis yAxisId="right" orientation="right"
+                        tickFormatter={(v: any) => `${Math.round(Number(v))}%`}
+                        tick={{ fontSize: 11, fill: '#f59e0b' }}
+                        width={50} />
+                      <Tooltip
+                        formatter={(v: any, name: any) => {
+                          if (name === 'Margem %') return [fmtPctSimples(Number(v)), name]
+                          return [fmtReal(Number(v)), name]
+                        }}
+                        contentStyle={{ borderRadius: 8, fontSize: 12 }}
+                        labelStyle={{ fontWeight: 600 }}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="rect" />
+                      <Bar yAxisId="left" dataKey="Receita" fill="#10b981" radius={[3, 3, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="Combustível" fill="#dc2626" radius={[3, 3, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="Folha" fill="#7c3aed" radius={[3, 3, 0, 0]} />
+                      <Bar yAxisId="left" dataKey="Margem" fill="#2D3A6B" radius={[3, 3, 0, 0]} />
+                      <Line yAxisId="right" type="monotone" dataKey="Margem %"
+                        stroke="#f59e0b" strokeWidth={2.5}
+                        dot={{ r: 4, fill: '#f59e0b', strokeWidth: 0 }}
+                        activeDot={{ r: 6 }} />
+                    </ComposedChart>
+                  ) : (
+                    <BarChart data={dadosGraficoEmpilhado} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                      <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
+                      <Tooltip
+                        formatter={(v: any, name: any) => [fmtReal(Number(v)), name === '__total__' ? `Total ${metrica}` : name]}
+                        contentStyle={{ borderRadius: 8, fontSize: 12, maxWidth: 320 }}
+                        labelStyle={{ fontWeight: 600 }}
+                        itemSorter={(item: any) => -Number(item.value)}
+                      />
+                      {modoFiltro === 'todos' ? (
+                        <Bar dataKey="__total__" fill={CORES_METRICA[metrica]} radius={[6, 6, 0, 0]} name={metrica}>
+                          <LabelList dataKey="__total__" position="top" formatter={fmtRealK}
+                            style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
+                        </Bar>
+                      ) : (
+                        basesParaGrafico.map(baseNome => (
+                          <Bar key={baseNome} dataKey={baseNome} stackId="a"
+                            fill={corBase(baseNome, todasBasesNomes)}
+                            name={baseNome} />
+                        ))
+                      )}
+                    </BarChart>
+                  )}
                 </ResponsiveContainer>
               </div>
 
-              {/* Legenda das bases ativas */}
-              {modoFiltro !== 'todos' && basesParaGrafico.length > 0 && (
+              {/* Legenda das bases ativas (modo empilhado) */}
+              {metrica !== 'Comparativo' && modoFiltro !== 'todos' && basesParaGrafico.length > 0 && (
                 <div style={{
                   marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8,
                   paddingTop: 10, borderTop: '1px solid #f1f5f9',
@@ -486,7 +563,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                             ...tdStyle, textAlign: 'right', fontWeight: 600,
                             color: b.margemPct == null ? '#94a3b8' : (b.margemPct >= 0 ? '#047857' : '#dc2626'),
                           }}>
-                            {b.margemPct == null ? '—' : `${b.margemPct.toFixed(1).replace('.', ',')}%`}
+                            {b.margemPct == null ? '—' : fmtPctSimples(b.margemPct)}
                           </td>
                           <td style={tdStyle}>
                             {incompleto || naoEncontrou ? (
@@ -524,7 +601,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
               </div>
             </Secao>
 
-            {/* Metadados */}
             <div style={{
               marginTop: 16, padding: 12, background: '#fff', borderRadius: 8,
               fontSize: 11, color: '#94a3b8', display: 'flex', flexWrap: 'wrap',
@@ -540,8 +616,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     </div>
   )
 }
-
-// ──────── Componentes auxiliares ────────
 
 const KPI = ({ titulo, valor, sub, cor, icone }: {
   titulo: string; valor: string; sub?: string; cor: string; icone: string
