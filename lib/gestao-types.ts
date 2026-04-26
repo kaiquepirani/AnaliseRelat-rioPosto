@@ -5,11 +5,6 @@
 export const ANO_GESTAO = 2026
 export const MULTIPLICADOR_ENCARGOS = 1.7
 
-// Cada Base Operacional liga 3 fontes:
-// - folhaCidades: cidades EXATAS como cadastradas no DP (ver dp-types.ts)
-// - postos: nomes EXATOS dos postos como aparecem nos extratos
-// - faturamentoLinhas: nomes EXATOS das linhas como aparecem na planilha de faturamento
-// O matching é tolerante (case-insensitive, sem acentos, sem pontuação, contains-match)
 export interface BaseOperacional {
   id: string
   nome: string
@@ -31,7 +26,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
       'Águas Educação',
       'Monte Sião Saúde',
       'Lindóia Saúde',
-      'Orbis Renováveis',  // contrato encerrado, mas histórico é da base de Águas
+      'Orbis Renováveis',
     ],
   },
   {
@@ -82,7 +77,7 @@ export const BASES_PADRAO: BaseOperacional[] = [
     id: 'mococa',
     nome: 'Mococa',
     folhaCidades: ['Mococa'],
-    postos: ['Posto Mocafor'],
+    postos: ['Mocafor'],
     faturamentoLinhas: ['Mococa Saúde', 'Mococa Educação'],
   },
   {
@@ -129,12 +124,35 @@ export const BASES_PADRAO: BaseOperacional[] = [
   },
 ]
 
+// Itens que devem ser ignorados (não somados em nenhuma base E não aparecem como órfãos no banner)
+// Útil pra dados que existem mas a gestão decidiu não considerar por enquanto.
+export const IGNORAR = {
+  postos: [] as string[],
+  folhaCidades: ['Mogi Mirim'],
+  faturamentoLinhas: [] as string[],
+}
+
 // ──────────────────────────────────────────────────────────────────────
 // Helpers de matching
 // ──────────────────────────────────────────────────────────────────────
 
-// Normalizador: lowercase + sem acentos + sem pontuação comum + colapsa espaços
-// Trata "S.A.JARDIM" === "S. A. Jardim" === "SA Jardim" === "S A JARDIM"
+// Stopwords PT-BR + termos empresariais comuns (não contam como tokens significativos)
+const STOPWORDS: { [w: string]: true } = (() => {
+  const arr = [
+    // preposições, artigos, conjunções
+    'a', 'o', 'as', 'os', 'da', 'de', 'do', 'das', 'dos', 'em', 'na', 'no', 'nas', 'nos',
+    'e', 'ou', 'com', 'sem', 'para', 'por', 'sob', 'um', 'uma',
+    // termos empresariais
+    'auto', 'posto', 'ltda', 'epp', 'me', 'sa', 'cia', 'co', 'eireli', 'eire',
+    'comercio', 'comercial', 'industria', 'industrial',
+    'distribuidora', 'distribuidor', 'distribuicao',
+    'combustivel', 'combustiveis', 'derivados', 'petroleo', 'gas',
+  ]
+  const m: { [w: string]: true } = {}
+  for (let i = 0; i < arr.length; i++) m[arr[i]] = true
+  return m
+})()
+
 export const normalizar = (s: string): string => {
   if (!s) return ''
   return s
@@ -146,11 +164,44 @@ export const normalizar = (s: string): string => {
     .trim()
 }
 
-// Versão sem espaços, pra casos como "DSR S.J.B.V." vs "DSR SJBV"
 const semEspacos = (s: string): string => s.replace(/\s+/g, '')
 
-// Match tolerante: testa igualdade, contains nos dois sentidos,
-// e também versão sem espaços (pra siglas pontuadas).
+// Tokens significativos: palavras ≥ 2 chars que não são stopwords
+const tokensSig = (s: string): string[] => {
+  const norm = normalizar(s)
+  if (!norm) return []
+  const partes = norm.split(' ')
+  const out: string[] = []
+  for (let i = 0; i < partes.length; i++) {
+    const t = partes[i]
+    if (t.length < 2) continue
+    if (STOPWORDS[t]) continue
+    out.push(t)
+  }
+  return out
+}
+
+// Match por tokens: TODAS as palavras significativas do mapeamento devem aparecer no candidato
+// Ex: mapeamento "Skina dos Italianos" → tokens [skina, italianos]
+//     real      "AUTO POSTO SKINA ITALIANOS LTDA EPP" → tokens [skina, italianos]
+//     todas as do mapeamento estão no real → MATCH
+const matchPorTokens = (mapeamento: string, candidato: string): boolean => {
+  const tokensMap = tokensSig(mapeamento)
+  if (tokensMap.length === 0) return false
+  const tokensCand = tokensSig(candidato)
+  if (tokensCand.length === 0) return false
+  const setCand: { [t: string]: true } = {}
+  for (let i = 0; i < tokensCand.length; i++) setCand[tokensCand[i]] = true
+  for (let i = 0; i < tokensMap.length; i++) {
+    if (!setCand[tokensMap[i]]) return false
+  }
+  return true
+}
+
+// Match tolerante em 3 níveis:
+//  1) string exata ou contains após normalizar
+//  2) sem espaços (pra siglas pontuadas)
+//  3) por tokens significativos (mais permissivo, ignora stopwords e termos empresariais)
 export const matchTolerante = (alvo: string, lista: string[]): boolean => {
   if (!alvo || !lista || lista.length === 0) return false
   const alvoN = normalizar(alvo)
@@ -158,17 +209,23 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
   const alvoNS = semEspacos(alvoN)
 
   for (let i = 0; i < lista.length; i++) {
-    const itemN = normalizar(lista[i])
+    const item = lista[i]
+    const itemN = normalizar(item)
     if (!itemN) continue
 
+    // 1) exato ou contains
     if (alvoN === itemN || alvoN.indexOf(itemN) >= 0 || itemN.indexOf(alvoN) >= 0) {
       return true
     }
 
+    // 2) sem espaços
     const itemNS = semEspacos(itemN)
     if (alvoNS && itemNS && (alvoNS === itemNS || alvoNS.indexOf(itemNS) >= 0 || itemNS.indexOf(alvoNS) >= 0)) {
       return true
     }
+
+    // 3) por tokens (mais agressivo)
+    if (matchPorTokens(item, alvo)) return true
   }
   return false
 }
@@ -252,14 +309,17 @@ const arrZeros = (): ValorMensal[] => {
   return out
 }
 
-// Extrai array de postos de um extrato, suportando ambos os formatos:
-// - ext.postos[]  (formato real do projeto)
-// - ext.posto     (fallback)
 const extrairPostos = (ext: any): any[] => {
   if (!ext) return []
   if (Array.isArray(ext.postos)) return ext.postos
   if (ext.posto) return [ext.posto]
   return []
+}
+
+// Verifica se um nome (do dado real) bate com algum item de uma lista de "ignorar"
+const ehIgnorado = (nome: string, listaIgnorar: string[]): boolean => {
+  if (!nome || !listaIgnorar || listaIgnorar.length === 0) return false
+  return matchTolerante(nome, listaIgnorar)
 }
 
 export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
@@ -289,15 +349,8 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   const linhasFatUsadas: { [linha: string]: true } = {}
 
   const marcarEncontrado = (lista: string[], alvo: string) => {
-    const alvoN = normalizar(alvo)
-    const alvoNS = semEspacos(alvoN)
     for (let i = lista.length - 1; i >= 0; i--) {
-      const itN = normalizar(lista[i])
-      const itNS = semEspacos(itN)
-      if (
-        alvoN === itN || alvoN.indexOf(itN) >= 0 || itN.indexOf(alvoN) >= 0 ||
-        (alvoNS && itNS && (alvoNS === itNS || alvoNS.indexOf(itNS) >= 0 || itNS.indexOf(alvoNS) >= 0))
-      ) {
+      if (matchTolerante(alvo, [lista[i]])) {
         lista.splice(i, 1)
       }
     }
@@ -406,7 +459,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     porBase[baseEncontrada.id].totalFolhaLiquida += v
   }
 
-  // ───── Detectar órfãos ─────
+  // ───── Detectar órfãos (excluindo os que estão na lista de IGNORAR) ─────
   const todosPostosNaFonte: { [n: string]: true } = {}
   for (let i = 0; i < extratos.length; i++) {
     const postosArr = extrairPostos(extratos[i])
@@ -416,7 +469,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   }
   const postosOrfaos: string[] = []
   Object.keys(todosPostosNaFonte).forEach(p => {
-    if (!postosUsados[p]) postosOrfaos.push(p)
+    if (!postosUsados[p] && !ehIgnorado(p, IGNORAR.postos)) postosOrfaos.push(p)
   })
 
   const linhasFatTodas: { [l: string]: true } = {}
@@ -428,7 +481,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   }
   const faturamentoLinhasOrfas: string[] = []
   Object.keys(linhasFatTodas).forEach(l => {
-    if (!linhasFatUsadas[l]) faturamentoLinhasOrfas.push(l)
+    if (!linhasFatUsadas[l] && !ehIgnorado(l, IGNORAR.faturamentoLinhas)) faturamentoLinhasOrfas.push(l)
   })
 
   const cidadesFolhaTodas: { [c: string]: true } = {}
@@ -440,7 +493,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   }
   const folhaCidadesOrfas: string[] = []
   Object.keys(cidadesFolhaTodas).forEach(c => {
-    if (!cidadesFolhaUsadas[c]) folhaCidadesOrfas.push(c)
+    if (!cidadesFolhaUsadas[c] && !ehIgnorado(c, IGNORAR.folhaCidades)) folhaCidadesOrfas.push(c)
   })
 
   // ───── Totais ─────
