@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
   BarChart, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, LabelList, Legend,
+  Tooltip, ResponsiveContainer, LabelList, Legend, Cell, ReferenceLine,
 } from 'recharts'
 import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
@@ -259,6 +259,42 @@ export default function PainelGestao({ token, onLogout }: Props) {
       return { ...b, folha, margem, margemPct }
     }).sort((a, b) => b.margem - a.margem)
   }, [consolidado, fator])
+
+  // Ranking de margem % respeitando o filtro de bases (Todos/Top5/custom).
+  // Inclui a média ponderada (Σmargem ÷ Σreceita) como referência pra
+  // colorir cada barra: verde se acima da média, vermelho se abaixo,
+  // âmbar se está perto (±2 pontos percentuais).
+  const dadosRankingMargem = useMemo(() => {
+    if (basesParaSomar.length === 0) {
+      return { itens: [], mediaPonderada: 0 }
+    }
+    let receitaTotal = 0
+    let margemTotal = 0
+    const itens = basesParaSomar.map(b => {
+      const folha = b.totalFolhaLiquida * fator
+      const margem = b.totalReceita - b.totalCombustivel - folha
+      const margemPct = b.totalReceita > 0 ? (margem / b.totalReceita) * 100 : null
+      receitaTotal += b.totalReceita
+      margemTotal += margem
+      return {
+        baseId: b.baseId,
+        baseNome: b.baseNome,
+        margem,
+        margemPct,
+        receita: b.totalReceita,
+      }
+    })
+    const mediaPonderada = receitaTotal > 0 ? (margemTotal / receitaTotal) * 100 : 0
+
+    // Ordena: bases com margemPct null no fim (sem dado), resto por margemPct desc
+    itens.sort((a, b) => {
+      if (a.margemPct == null && b.margemPct == null) return 0
+      if (a.margemPct == null) return 1
+      if (b.margemPct == null) return -1
+      return b.margemPct - a.margemPct
+    })
+    return { itens, mediaPonderada }
+  }, [basesParaSomar, fator])
 
   const ultimoMesComDado = useMemo(() => {
     if (!consolidado) return -1
@@ -529,6 +565,112 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 </div>
               )}
             </Secao>
+
+            {/* ── Ranking de Margem % por Base ────────────────────────────── */}
+            {dadosRankingMargem.itens.length > 0 && (() => {
+              const { itens, mediaPonderada } = dadosRankingMargem
+              const TOLERANCIA = 2 // ±2 p.p. da média conta como "perto da média"
+              const corDaMargem = (pct: number | null): string => {
+                if (pct == null) return '#cbd5e1'
+                const diff = pct - mediaPonderada
+                if (diff > TOLERANCIA) return '#10b981'  // verde — acima
+                if (diff < -TOLERANCIA) return '#dc2626' // vermelho — abaixo
+                return '#f59e0b'                          // âmbar — perto
+              }
+              const acima = itens.filter(i => i.margemPct != null && (i.margemPct - mediaPonderada) > TOLERANCIA).length
+              const naMedia = itens.filter(i => i.margemPct != null && Math.abs(i.margemPct - mediaPonderada) <= TOLERANCIA).length
+              const abaixo = itens.filter(i => i.margemPct != null && (i.margemPct - mediaPonderada) < -TOLERANCIA).length
+
+              const subtitulo = `Média ponderada: ${fmtPctSimples(mediaPonderada)} · ${acima} acima · ${naMedia} na média · ${abaixo} abaixo`
+
+              // Altura: 40px por base, mínimo 240px
+              const alturaGrafico = Math.max(240, itens.length * 40)
+
+              return (
+                <Secao
+                  titulo="🏁 Ranking de Margem % por base"
+                  sub={subtitulo}
+                >
+                  <div style={{ width: '100%', height: alturaGrafico }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={itens}
+                        layout="vertical"
+                        margin={{ top: 6, right: 56, left: 8, bottom: 6 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
+                        <XAxis
+                          type="number"
+                          tick={{ fontSize: 11 }}
+                          tickFormatter={(v: any) => `${Math.round(Number(v))}%`}
+                          domain={[
+                            (dataMin: number) => Math.min(0, Math.floor(dataMin - 5)),
+                            (dataMax: number) => Math.ceil(dataMax + 5),
+                          ]}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="baseNome"
+                          tick={{ fontSize: 12, fontWeight: 500 }}
+                          width={140}
+                        />
+                        <Tooltip
+                          formatter={(v: any) => [
+                            v == null ? '—' : fmtPctSimples(Number(v)),
+                            'Margem %',
+                          ]}
+                          contentStyle={{ fontSize: 12, borderRadius: 8 }}
+                          labelStyle={{ fontWeight: 600, color: '#1e293b' }}
+                          cursor={{ fill: 'rgba(45,58,107,0.04)' }}
+                        />
+                        <ReferenceLine
+                          x={mediaPonderada}
+                          stroke="#94a3b8"
+                          strokeDasharray="4 4"
+                          label={{
+                            value: `Média ${fmtPctSimples(mediaPonderada)}`,
+                            position: 'top',
+                            fill: '#64748b',
+                            fontSize: 10,
+                            fontWeight: 600,
+                          }}
+                        />
+                        <Bar dataKey="margemPct" radius={[0, 4, 4, 0]} barSize={22}>
+                          {itens.map((item, i) => (
+                            <Cell key={i} fill={corDaMargem(item.margemPct)} />
+                          ))}
+                          <LabelList
+                            dataKey="margemPct"
+                            position="right"
+                            formatter={(v: any) => v == null ? '—' : fmtPctSimples(Number(v))}
+                            style={{ fontSize: 11, fontWeight: 700, fill: '#334155' }}
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Legenda das cores */}
+                  <div style={{
+                    marginTop: 10, paddingTop: 10, borderTop: '1px solid #f1f5f9',
+                    display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 11, color: '#64748b',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#10b981' }} />
+                      <span>Acima da média (&gt; +{TOLERANCIA} p.p.)</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#f59e0b' }} />
+                      <span>Próximo da média (±{TOLERANCIA} p.p.)</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 12, height: 12, borderRadius: 2, background: '#dc2626' }} />
+                      <span>Abaixo da média (&lt; −{TOLERANCIA} p.p.)</span>
+                    </div>
+                  </div>
+                </Secao>
+              )
+            })()}
 
             <Secao titulo="🏢 Resultado por Base Operacional"
               sub="Ranqueado pela margem operacional absoluta">
