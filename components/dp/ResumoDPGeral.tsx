@@ -32,24 +32,15 @@ const CORES = ['#2D3A6B','#4AABDB','#10b981','#f59e0b','#ef4444','#8b5cf6',
                '#ec4899','#06b6d4','#84cc16','#f97316','#14b8a6','#6366f1','#a855f7','#fb7185']
 
 // ─── Label customizado: total acima da barra vertical ───────────────────────
-// Usado na barra de FOLHA (topo do stack). Só renderiza quando folha > 0.
-// Usado na barra de ANTECIPAÇÃO quando não há folha naquele mês.
 function makeLabelMensal(dados: Array<{ folha: number; total: number }>, isAntecipacao: boolean) {
   const LabelMensal = (props: any) => {
     const { x, y, width, index } = props
     const d = dados[index]
     if (!d || d.total <= 0) return null
-    if (isAntecipacao && d.folha > 0) return null   // folha vai mostrar
-    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null  // antecipação vai mostrar
+    if (isAntecipacao && d.folha > 0) return null
+    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null
     return (
-      <text
-        x={x + width / 2}
-        y={y - 5}
-        textAnchor="middle"
-        fontSize={10}
-        fontWeight={700}
-        fill="#374151"
-      >
+      <text x={x + width / 2} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={700} fill="#374151">
         {fmtK(d.total)}
       </text>
     )
@@ -59,23 +50,15 @@ function makeLabelMensal(dados: Array<{ folha: number; total: number }>, isAntec
 }
 
 // ─── Label customizado: total à direita da barra horizontal ─────────────────
-// Usado na barra da direita do stack (folha ou antecipação, dependendo do caso).
 function makeLabelCidade(dados: Array<{ folha: number; antecipacao: number; total: number }>, isAntecipacao: boolean) {
   const LabelCidade = (props: any) => {
     const { x, y, width, height, index } = props
     const d = dados[index]
     if (!d || d.total <= 0) return null
-    if (isAntecipacao && d.folha > 0) return null   // folha vai mostrar
-    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null  // antecipação vai mostrar
+    if (isAntecipacao && d.folha > 0) return null
+    if (!isAntecipacao && (!d.folha || d.folha === 0)) return null
     return (
-      <text
-        x={x + width + 6}
-        y={y + height / 2 + 4}
-        textAnchor="start"
-        fontSize={11}
-        fontWeight={700}
-        fill="#374151"
-      >
+      <text x={x + width + 6} y={y + height / 2 + 4} textAnchor="start" fontSize={11} fontWeight={700} fill="#374151">
         {fmtK(d.total)}
       </text>
     )
@@ -89,14 +72,12 @@ const LabelSimples = (props: any) => {
   const { x, y, width, height, value, layout } = props
   if (!value || value <= 0) return null
   if (layout === 'vertical') {
-    // barra horizontal
     return (
       <text x={x + width + 6} y={y + height / 2 + 4} textAnchor="start" fontSize={11} fontWeight={700} fill="#374151">
         {fmtK(value)}
       </text>
     )
   }
-  // barra vertical
   return (
     <text x={x + width / 2} y={y - 5} textAnchor="middle" fontSize={10} fontWeight={700} fill="#374151">
       {fmtK(value)}
@@ -104,11 +85,28 @@ const LabelSimples = (props: any) => {
   )
 }
 
+// ─── Estilo dos chips de filtro de cidade ───────────────────────────────────
+const chipStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
+  padding: '5px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+  borderRadius: 14,
+  border: `1.5px solid ${ativo ? cor : '#e5e7eb'}`,
+  background: ativo ? cor : 'white',
+  color: ativo ? 'white' : '#6b7280',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  transition: 'all 0.15s',
+  whiteSpace: 'nowrap' as const,
+})
+
 export default function ResumoDPGeral() {
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([])
   const [carregando, setCarregando] = useState(true)
   const [mesSel, setMesSel] = useState<string>('todos')
   const [tipoVis, setTipoVis] = useState<'antecipacao' | 'folha' | 'total'>('total')
+  // ← NOVO: cidades filtradas (toggle múltiplo). Vazio = todas.
+  const [cidadesAtivas, setCidadesAtivas] = useState<Set<string>>(new Set())
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -134,6 +132,33 @@ export default function ResumoDPGeral() {
     Array.from(new Set(fechamentos.map(f => f.mesAno))).sort().reverse(),
   [fechamentos])
 
+  // ← NOVO: lista de todas as cidades que aparecem em algum fechamento
+  const cidadesDisponiveis = useMemo(() => {
+    const set = new Set<string>()
+    for (const f of fechamentos) {
+      for (const cidade of Object.keys(f.totalPorCidade || {})) {
+        set.add(cidade)
+      }
+    }
+    return Array.from(set).sort()
+  }, [fechamentos])
+
+  // ← NOVO: cor estável por cidade (índice em cidadesDisponiveis)
+  const corCidade = useCallback((cidade: string) => {
+    const idx = cidadesDisponiveis.indexOf(cidade)
+    return CORES[(idx >= 0 ? idx : 0) % CORES.length]
+  }, [cidadesDisponiveis])
+
+  // ← NOVO: alterna seleção de uma cidade
+  const toggleCidade = (cidade: string) => {
+    setCidadesAtivas(prev => {
+      const novo = new Set(prev)
+      if (novo.has(cidade)) novo.delete(cidade)
+      else novo.add(cidade)
+      return novo
+    })
+  }
+
   const fechsFiltrados = useMemo(() =>
     mesSel === 'todos' ? fechamentos : fechamentos.filter(f => f.mesAno === mesSel),
   [fechamentos, mesSel])
@@ -141,10 +166,49 @@ export default function ResumoDPGeral() {
   const fechAntecip = fechsFiltrados.find(f => f.tipo === 'antecipacao')
   const fechFolha   = fechsFiltrados.find(f => f.tipo === 'folha')
 
-  const totalAntecipacao = fechAntecip?.totalGeral ?? 0
-  const totalFolha       = fechFolha?.totalGeral ?? 0
-  const totalGeral       = totalAntecipacao + totalFolha
+  // ← ALTERADO: totais consideram filtro de cidade
+  const totalAntecipacao = useMemo(() => {
+    if (cidadesAtivas.size === 0) {
+      // soma de todos os fechamentos do tipo antecipação no escopo do mês
+      let total = 0
+      for (const f of fechsFiltrados) {
+        if (f.tipo === 'antecipacao') total += f.totalGeral
+      }
+      return total
+    }
+    let total = 0
+    const cidadesArr = Array.from(cidadesAtivas)
+    for (const f of fechsFiltrados) {
+      if (f.tipo !== 'antecipacao') continue
+      for (const c of cidadesArr) {
+        total += (f.totalPorCidade?.[c] || 0)
+      }
+    }
+    return total
+  }, [fechsFiltrados, cidadesAtivas])
 
+  const totalFolha = useMemo(() => {
+    if (cidadesAtivas.size === 0) {
+      let total = 0
+      for (const f of fechsFiltrados) {
+        if (f.tipo === 'folha') total += f.totalGeral
+      }
+      return total
+    }
+    let total = 0
+    const cidadesArr = Array.from(cidadesAtivas)
+    for (const f of fechsFiltrados) {
+      if (f.tipo !== 'folha') continue
+      for (const c of cidadesArr) {
+        total += (f.totalPorCidade?.[c] || 0)
+      }
+    }
+    return total
+  }, [fechsFiltrados, cidadesAtivas])
+
+  const totalGeral = totalAntecipacao + totalFolha
+
+  // dadosPorCidade: NÃO aplica filtro de cidade (gráfico fica intacto)
   const dadosPorCidade = useMemo(() => {
     const mapa: Record<string, { antecipacao: number; folha: number }> = {}
     for (const f of fechsFiltrados) {
@@ -160,16 +224,34 @@ export default function ResumoDPGeral() {
       .sort((a, b) => b.total - a.total)
   }, [fechsFiltrados])
 
+  // ← ALTERADO: evolução mensal aplica filtro de cidade
   const evolucaoMensal = useMemo(() => {
     return mesesDisponiveis.slice().reverse().map(mes => {
       const fsMes = fechamentos.filter(f => f.mesAno === mes)
-      const antecipacao = fsMes.find(f => f.tipo === 'antecipacao')?.totalGeral ?? 0
-      const folha       = fsMes.find(f => f.tipo === 'folha')?.totalGeral ?? 0
+      const fAntecip = fsMes.find(f => f.tipo === 'antecipacao')
+      const fFolha   = fsMes.find(f => f.tipo === 'folha')
+
+      let antecipacao = 0
+      let folha = 0
+
+      if (cidadesAtivas.size === 0) {
+        antecipacao = fAntecip?.totalGeral ?? 0
+        folha = fFolha?.totalGeral ?? 0
+      } else {
+        const cidadesArr = Array.from(cidadesAtivas)
+        if (fAntecip) {
+          for (const c of cidadesArr) antecipacao += (fAntecip.totalPorCidade?.[c] || 0)
+        }
+        if (fFolha) {
+          for (const c of cidadesArr) folha += (fFolha.totalPorCidade?.[c] || 0)
+        }
+      }
+
       return { label: labelMesCurto(mes), mes, antecipacao, folha, total: antecipacao + folha }
     })
-  }, [fechamentos, mesesDisponiveis])
+  }, [fechamentos, mesesDisponiveis, cidadesAtivas])
 
-  // Memoizar os componentes de label para evitar recriação desnecessária
+  // Memoizar componentes de label
   const LabelMensalAntecip = useMemo(() => makeLabelMensal(evolucaoMensal, true), [evolucaoMensal])
   const LabelMensalFolha   = useMemo(() => makeLabelMensal(evolucaoMensal, false), [evolucaoMensal])
   const LabelCidadeAntecip = useMemo(() => makeLabelCidade(dadosPorCidade, true), [dadosPorCidade])
@@ -200,6 +282,13 @@ export default function ResumoDPGeral() {
       <div className="estado-desc">Importe uma folha Excel para visualizar o resumo</div>
     </div>
   )
+
+  const filtroAtivo = cidadesAtivas.size > 0
+  const labelFiltro = filtroAtivo
+    ? cidadesAtivas.size === 1
+      ? Array.from(cidadesAtivas)[0]
+      : `${cidadesAtivas.size} cidades`
+    : ''
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -248,13 +337,59 @@ export default function ResumoDPGeral() {
         </div>
       </div>
 
+      {/* ── NOVO: Filtro de cidades (chips) ── */}
+      {cidadesDisponiveis.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '0.75rem 1rem', boxShadow: 'var(--shadow-sm)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>
+              Filtrar por cidade:
+            </label>
+            {filtroAtivo && (
+              <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                Mostrando dados de <b style={{ color: 'var(--navy)' }}>{labelFiltro}</b>
+              </span>
+            )}
+            {filtroAtivo && (
+              <button
+                onClick={() => setCidadesAtivas(new Set())}
+                style={{ padding: '3px 10px', fontSize: 11, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--bg)', color: 'var(--text-2)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}
+              >
+                ✕ Limpar
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            <button
+              onClick={() => setCidadesAtivas(new Set())}
+              style={chipStyle(!filtroAtivo, '#2D3A6B')}
+            >
+              Todas
+            </button>
+            {cidadesDisponiveis.map(cidade => {
+              const ativo = cidadesAtivas.has(cidade)
+              return (
+                <button
+                  key={cidade}
+                  onClick={() => toggleCidade(cidade)}
+                  style={chipStyle(ativo, corCidade(cidade))}
+                >
+                  {cidade}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       {/* ── Cards ── */}
       <div className="cards-grid">
         <div className="card" style={{ background: 'var(--navy)', border: 'none' }}>
           <div className="card-label" style={{ color: 'rgba(255,255,255,0.6)' }}>
-            {mesSel === 'todos' ? 'Total geral (todos os meses)' : `Total — ${labelMesAno(mesSel)}`}
+            {filtroAtivo
+              ? `Total — ${labelFiltro}${mesSel !== 'todos' ? ` em ${labelMesAno(mesSel)}` : ''}`
+              : mesSel === 'todos' ? 'Total geral (todos os meses)' : `Total — ${labelMesAno(mesSel)}`}
           </div>
-          <div className="card-valor" style={{ fontSize: 18, color: 'white' }}>{fmt(totalGeral || totalAntecipacao + totalFolha)}</div>
+          <div className="card-valor" style={{ fontSize: 18, color: 'white' }}>{fmt(totalGeral)}</div>
           <div className="card-sub" style={{ color: 'rgba(255,255,255,0.5)' }}>{fechsFiltrados.length} fechamento{fechsFiltrados.length !== 1 ? 's' : ''}</div>
         </div>
         <div className="card" style={{ borderColor: totalAntecipacao > 0 ? '#fcd34d' : undefined }}>
@@ -273,16 +408,19 @@ export default function ResumoDPGeral() {
         </div>
         <div className="card">
           <div className="card-label">Cidades</div>
-          <div className="card-valor">{dadosPorCidade.length}</div>
-          <div className="card-sub">com lançamentos</div>
+          <div className="card-valor">{filtroAtivo ? cidadesAtivas.size : dadosPorCidade.length}</div>
+          <div className="card-sub">{filtroAtivo ? `de ${dadosPorCidade.length} no total` : 'com lançamentos'}</div>
         </div>
       </div>
 
       {/* ── Gráfico de evolução mensal ── */}
       {evolucaoMensal.length > 1 && (
         <div className="grafico-card">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
-            <div className="grafico-titulo" style={{ margin: 0 }}>Evolução mensal</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: 8 }}>
+            <div className="grafico-titulo" style={{ margin: 0 }}>
+              Evolução mensal
+              {filtroAtivo && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-2)', marginLeft: 8 }}>— {labelFiltro}</span>}
+            </div>
             <div style={{ fontSize: 11, color: 'var(--text-3)' }}>Clique em um mês para filtrar</div>
           </div>
           <ResponsiveContainer width="100%" height={240}>
@@ -312,7 +450,7 @@ export default function ResumoDPGeral() {
         </div>
       )}
 
-      {/* ── Gráfico por cidade ── */}
+      {/* ── Gráfico por cidade (NÃO filtrado por cidade — mostra tudo) ── */}
       {dadosPorCidade.length > 0 && (
         <div className="grafico-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
@@ -358,6 +496,7 @@ export default function ResumoDPGeral() {
           <div className="grafico-titulo">
             Detalhamento por cidade
             {mesSel !== 'todos' && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-2)', marginLeft: 8 }}>— {labelMesAno(mesSel)}</span>}
+            {filtroAtivo && <span style={{ fontSize: 12, fontWeight: 400, color: 'var(--text-2)', marginLeft: 8 }}>· filtrando {labelFiltro}</span>}
           </div>
           <table className="tabela tabela-sm">
             <thead>
@@ -370,29 +509,34 @@ export default function ResumoDPGeral() {
               </tr>
             </thead>
             <tbody>
-              {dadosPorCidade.map((d, i) => (
-                <tr key={i}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 10, height: 10, borderRadius: 2, background: CORES[i % CORES.length], display: 'inline-block', flexShrink: 0 }} />
-                      <span style={{ fontWeight: 600 }}>{d.cidade}</span>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: 'right', color: '#d97706' }}>{d.antecipacao > 0 ? fmt(d.antecipacao) : '—'}</td>
-                  <td style={{ textAlign: 'right', color: '#16a34a' }}>{d.folha > 0 ? fmt(d.folha) : '—'}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(d.total)}</td>
-                  <td style={{ textAlign: 'right', color: 'var(--text-2)', fontSize: 12 }}>
-                    {totalGeral > 0 ? ((d.total / (totalGeral || totalAntecipacao + totalFolha)) * 100).toFixed(1) + '%' : '—'}
-                  </td>
-                </tr>
-              ))}
+              {dadosPorCidade
+                .filter(d => !filtroAtivo || cidadesAtivas.has(d.cidade))
+                .map((d, i) => {
+                  const totalRef = filtroAtivo ? totalGeral : dadosPorCidade.reduce((acc, x) => acc + x.total, 0)
+                  return (
+                    <tr key={i} style={{ background: filtroAtivo ? 'rgba(74,171,219,0.06)' : undefined }}>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ width: 10, height: 10, borderRadius: 2, background: corCidade(d.cidade), display: 'inline-block', flexShrink: 0 }} />
+                          <span style={{ fontWeight: 600 }}>{d.cidade}</span>
+                        </div>
+                      </td>
+                      <td style={{ textAlign: 'right', color: '#d97706' }}>{d.antecipacao > 0 ? fmt(d.antecipacao) : '—'}</td>
+                      <td style={{ textAlign: 'right', color: '#16a34a' }}>{d.folha > 0 ? fmt(d.folha) : '—'}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(d.total)}</td>
+                      <td style={{ textAlign: 'right', color: 'var(--text-2)', fontSize: 12 }}>
+                        {totalRef > 0 ? ((d.total / totalRef) * 100).toFixed(1) + '%' : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--sky-light)' }}>
-                <td style={{ fontWeight: 700 }}>TOTAL</td>
+                <td style={{ fontWeight: 700 }}>TOTAL{filtroAtivo ? ' (filtrado)' : ''}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700, color: '#d97706' }}>{fmt(totalAntecipacao)}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>{fmt(totalFolha)}</td>
-                <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalAntecipacao + totalFolha)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--navy)' }}>{fmt(totalGeral)}</td>
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>100%</td>
               </tr>
             </tfoot>
