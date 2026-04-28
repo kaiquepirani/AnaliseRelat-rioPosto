@@ -88,24 +88,32 @@ export default function EditarPagamentoColaboradorModal({
   const totalMesDepois = totalMesAntes + deltaTotal
 
   const houveAlteracao = deltaAntecip !== 0 || deltaFolha !== 0
+  const temPagamentoExistente = valorAntecipAtual > 0 || valorFolhaAtual > 0
 
-  const salvar = useCallback(async () => {
-    if (!houveAlteracao) {
+  // ─────────────────────────────────────────────────────────────
+  // Aplica novos valores ao(s) fechamento(s)
+  // ─────────────────────────────────────────────────────────────
+  const aplicarValores = useCallback(async (vAntecip: number, vFolha: number) => {
+    const dAntecip = vAntecip - valorAntecipAtual
+    const dFolha = vFolha - valorFolhaAtual
+
+    if (dAntecip === 0 && dFolha === 0) {
       onClose()
       return
     }
+
     setErro('')
     setSalvando(true)
 
     try {
       // ─── 1. Atualiza antecipação se mudou ──────────────────────────
-      if (fechAntecip && deltaAntecip !== 0) {
+      if (fechAntecip && dAntecip !== 0) {
         const novoVPC: Record<string, number> = { ...(fechAntecip.valorPorColaborador ?? {}) }
-        if (novoAntecip > 0) novoVPC[nomeKey] = novoAntecip
+        if (vAntecip > 0) novoVPC[nomeKey] = vAntecip
         else delete novoVPC[nomeKey]
 
         const novoTPC: Record<string, number> = { ...fechAntecip.totalPorCidade }
-        const valCidade = (novoTPC[colaboradorCidade] ?? 0) + deltaAntecip
+        const valCidade = (novoTPC[colaboradorCidade] ?? 0) + dAntecip
         if (valCidade > 0.005) novoTPC[colaboradorCidade] = Math.round(valCidade * 100) / 100
         else delete novoTPC[colaboradorCidade]
 
@@ -113,7 +121,7 @@ export default function EditarPagamentoColaboradorModal({
           ...fechAntecip,
           valorPorColaborador: novoVPC,
           totalPorCidade: novoTPC,
-          totalGeral: Math.round((fechAntecip.totalGeral + deltaAntecip) * 100) / 100,
+          totalGeral: Math.round((fechAntecip.totalGeral + dAntecip) * 100) / 100,
           totalColaboradores: Object.keys(novoVPC).length,
         }
 
@@ -127,13 +135,13 @@ export default function EditarPagamentoColaboradorModal({
       }
 
       // ─── 2. Atualiza complemento se mudou ──────────────────────────
-      if (fechFolha && deltaFolha !== 0) {
+      if (fechFolha && dFolha !== 0) {
         const novoVPC: Record<string, number> = { ...(fechFolha.valorPorColaborador ?? {}) }
-        if (novoFolha > 0) novoVPC[nomeKey] = novoFolha
+        if (vFolha > 0) novoVPC[nomeKey] = vFolha
         else delete novoVPC[nomeKey]
 
         const novoTPC: Record<string, number> = { ...fechFolha.totalPorCidade }
-        const valCidade = (novoTPC[colaboradorCidade] ?? 0) + deltaFolha
+        const valCidade = (novoTPC[colaboradorCidade] ?? 0) + dFolha
         if (valCidade > 0.005) novoTPC[colaboradorCidade] = Math.round(valCidade * 100) / 100
         else delete novoTPC[colaboradorCidade]
 
@@ -141,7 +149,7 @@ export default function EditarPagamentoColaboradorModal({
           ...fechFolha,
           valorPorColaborador: novoVPC,
           totalPorCidade: novoTPC,
-          totalGeral: Math.round((fechFolha.totalGeral + deltaFolha) * 100) / 100,
+          totalGeral: Math.round((fechFolha.totalGeral + dFolha) * 100) / 100,
           totalColaboradores: Object.keys(novoVPC).length,
         }
 
@@ -161,7 +169,20 @@ export default function EditarPagamentoColaboradorModal({
     } finally {
       setSalvando(false)
     }
-  }, [houveAlteracao, fechAntecip, fechFolha, deltaAntecip, deltaFolha, novoAntecip, novoFolha, nomeKey, colaboradorCidade, onSaved, onClose])
+  }, [fechAntecip, fechFolha, valorAntecipAtual, valorFolhaAtual, nomeKey, colaboradorCidade, onSaved, onClose])
+
+  const salvar = useCallback(() => {
+    aplicarValores(novoAntecip, novoFolha)
+  }, [aplicarValores, novoAntecip, novoFolha])
+
+  const excluirPagamento = useCallback(() => {
+    const totalRemover = valorAntecipAtual + valorFolhaAtual
+    const msg = `Remover totalmente o pagamento de ${colaboradorNome} em ${labelMesAno(mesAno)}?\n\n` +
+                `Será removido: ${fmt(totalRemover)}\n` +
+                `(Antecipação: ${fmt(valorAntecipAtual)} + Complemento: ${fmt(valorFolhaAtual)})`
+    if (!confirm(msg)) return
+    aplicarValores(0, 0)
+  }, [aplicarValores, valorAntecipAtual, valorFolhaAtual, colaboradorNome, mesAno])
 
   const NAVY = '#2D3A6B'
 
@@ -307,41 +328,66 @@ export default function EditarPagamentoColaboradorModal({
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-            <button
-              onClick={onClose}
-              disabled={salvando}
-              style={{
-                padding: '10px 18px',
-                border: '1px solid #e5e7eb',
-                background: 'white',
-                color: '#374151',
-                borderRadius: 8,
-                cursor: salvando ? 'default' : 'pointer',
-                fontWeight: 600,
-                fontSize: 14,
-                fontFamily: 'inherit',
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={salvar}
-              disabled={salvando || !houveAlteracao}
-              style={{
-                padding: '10px 22px',
-                border: 'none',
-                background: salvando || !houveAlteracao ? '#9ca3af' : NAVY,
-                color: 'white',
-                borderRadius: 8,
-                cursor: salvando || !houveAlteracao ? 'default' : 'pointer',
-                fontWeight: 700,
-                fontSize: 14,
-                fontFamily: 'inherit',
-              }}
-            >
-              {salvando ? 'Salvando…' : houveAlteracao ? 'Salvar alterações' : 'Sem alterações'}
-            </button>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            {/* Botão Excluir à esquerda — só aparece se há pagamento existente */}
+            {temPagamentoExistente && (
+              <button
+                onClick={excluirPagamento}
+                disabled={salvando}
+                title="Remove totalmente o pagamento deste colaborador neste mês"
+                style={{
+                  padding: '10px 16px',
+                  border: '1px solid #fca5a5',
+                  background: salvando ? '#f9fafb' : '#fef2f2',
+                  color: salvando ? '#9ca3af' : '#dc2626',
+                  borderRadius: 8,
+                  cursor: salvando ? 'default' : 'pointer',
+                  fontWeight: 600,
+                  fontSize: 13,
+                  fontFamily: 'inherit',
+                }}
+              >
+                🗑️ Excluir pagamento
+              </button>
+            )}
+
+            {/* Botões à direita */}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={onClose}
+                disabled={salvando}
+                style={{
+                  padding: '10px 18px',
+                  border: '1px solid #e5e7eb',
+                  background: 'white',
+                  color: '#374151',
+                  borderRadius: 8,
+                  cursor: salvando ? 'default' : 'pointer',
+                  fontWeight: 600,
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={salvar}
+                disabled={salvando || !houveAlteracao}
+                style={{
+                  padding: '10px 22px',
+                  border: 'none',
+                  background: salvando || !houveAlteracao ? '#9ca3af' : NAVY,
+                  color: 'white',
+                  borderRadius: 8,
+                  cursor: salvando || !houveAlteracao ? 'default' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 14,
+                  fontFamily: 'inherit',
+                }}
+              >
+                {salvando ? 'Salvando…' : houveAlteracao ? 'Salvar alterações' : 'Sem alterações'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
