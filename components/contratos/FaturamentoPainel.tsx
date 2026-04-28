@@ -20,7 +20,6 @@ const fmtRealK = (n: number) => {
 }
 const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1).replace('.', ',')}%`
 
-// Aceita "1500", "1.500", "1500,50", "1.500,50", "R$ 1.500,50"
 const parseBRL = (s: string): number => {
   if (!s) return 0
   const clean = s.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')
@@ -30,7 +29,6 @@ const parseBRL = (s: string): number => {
 
 const PALETA_ANOS = ['#94a3b8', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626']
 
-// Paleta extensa pra 27+ cidades (cores distintas e legíveis)
 const PALETA_CIDADES = [
   '#2D3A6B', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626',
   '#0891b2', '#ea580c', '#84cc16', '#ec4899', '#6366f1', '#14b8a6',
@@ -53,7 +51,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   const [cidadesAtivas, setCidadesAtivas] = useState<Set<string>>(new Set())
   const inputFileRef = useRef<HTMLInputElement>(null)
 
-  // === Estado do Lançamento Manual ===
   const [modalManualAberto, setModalManualAberto] = useState(false)
   const [manualCidade, setManualCidade] = useState('')
   const [manualNovaCidade, setManualNovaCidade] = useState('')
@@ -146,7 +143,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     )
   }
 
-  // ==== Cálculos básicos ====
   const anos = dados.anos
   const anoAtual = anoSelecionado || anos[anos.length - 1]
   const anoAtualData = dados.porAno[anoAtual]
@@ -179,14 +175,12 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
 
   const top10Cidades = anoAtualData.cidades.slice(0, 10)
 
-  // ==== Lista global de cidades (todos os anos, ordenada alfabeticamente) ====
   const todasCidadesSet = new Set<string>()
   for (const ano of anos) {
     for (const c of dados.porAno[ano].cidades) todasCidadesSet.add(c.cidade)
   }
   const todasCidadesGlobal = Array.from(todasCidadesSet).sort()
 
-  // ==== Anos disponíveis para lançamento manual (existentes + atual + próximo) ====
   const anosManual = (() => {
     const set = new Set<number>(anos)
     const atual = new Date().getFullYear()
@@ -195,37 +189,37 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return Array.from(set).sort((a, b) => a - b)
   })()
 
-  // ==== Cidades disponíveis no ano atual (ordenadas por total desc) ====
   const cidadesDoAno = anoAtualData.cidades
 
-  // ==== Cidades selecionadas pra renderizar no gráfico ====
   let cidadesParaGrafico: string[] = []
   if (modoFiltro === 'todos') {
     cidadesParaGrafico = cidadesDoAno.map(c => c.cidade)
   } else if (modoFiltro === 'top10') {
     cidadesParaGrafico = top10Cidades.map(c => c.cidade)
   } else {
-    // custom: usa o set
     cidadesParaGrafico = cidadesDoAno
       .filter(c => cidadesAtivas.has(c.cidade))
       .map(c => c.cidade)
   }
 
-  // ==== Monta dados pra barras empilhadas ====
+  // ==== Monta dados pra barras empilhadas (com __total__ sempre presente) ====
   const dadosEmpilhado = NOMES_MESES.map((mes, i) => {
     const obj: any = { mes }
     if (modoFiltro === 'todos') {
       obj['__total__'] = anoAtualData.totalPorMes[i] || 0
     } else {
+      let total = 0
       for (const cidade of cidadesParaGrafico) {
         const cid = anoAtualData.cidades.find(c => c.cidade === cidade)
-        obj[cidade] = cid?.meses[i] ?? 0
+        const v = cid?.meses[i] ?? 0
+        obj[cidade] = v
+        total += v
       }
+      obj['__total__'] = total
     }
     return obj
   })
 
-  // ==== Toggle de uma cidade no modo custom ====
   const toggleCidade = (cidade: string) => {
     const novo = new Set(cidadesAtivas)
     if (novo.has(cidade)) novo.delete(cidade)
@@ -234,7 +228,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     setModoFiltro('custom')
   }
 
-  // ==== Manual: Abrir modal ====
   const abrirModalManual = () => {
     setManualAno(anoAtual)
     setManualMes(new Date().getMonth())
@@ -246,7 +239,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     setModalManualAberto(true)
   }
 
-  // ==== Manual: Valor atual no slot escolhido ====
   const cidadeAlvoManual = manualUsarNova ? manualNovaCidade.trim() : manualCidade
   const valorExistenteManual = (() => {
     if (!cidadeAlvoManual) return null
@@ -257,7 +249,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     return cid.meses[manualMes]
   })()
 
-  // ==== Manual: Salvar ====
   const salvarManual = async () => {
     const cidadeAlvo = manualUsarNova ? manualNovaCidade.trim() : manualCidade
     if (!cidadeAlvo) {
@@ -307,7 +298,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
 
       alert(`✅ Lançamento salvo\n\n${cidadeAlvo}\n${NOMES_MESES[manualMes]}/${manualAno}: ${fmtReal(novoValor)}`)
       setModalManualAberto(false)
-      setAnoSelecionado(manualAno) // pula pra o ano em que lançou
+      setAnoSelecionado(manualAno)
       await carregar()
     } catch (err: any) {
       alert(`Erro: ${err?.message || 'desconhecido'}`)
@@ -389,11 +380,10 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
           sub={`em ${anoAtual}`} cor="#4AABDB" icone="🏙️" />
       </div>
 
-      {/* === Gráfico: Barras empilhadas estilo combustível === */}
+      {/* === Gráfico: Barras empilhadas === */}
       <Secao titulo={`📊 Evolução Mensal por Contrato — ${anoAtual}`}
         sub='Selecione um contrato para ver isolado, ou "Todos" para ver o total geral'>
 
-        {/* Chips de filtro */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
           <button onClick={() => { setModoFiltro('todos'); setCidadesAtivas(new Set()) }}
             style={chipStyle(modoFiltro === 'todos', '#2D3A6B')}>
@@ -416,10 +406,9 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
           })}
         </div>
 
-        {/* Gráfico */}
         <div style={{ width: '100%', height: 380 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={dadosEmpilhado} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+            <BarChart data={dadosEmpilhado} margin={{ top: 24, right: 20, left: 10, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
               <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
               <YAxis tickFormatter={fmtRealK} tick={{ fontSize: 11 }} width={70} />
@@ -435,17 +424,22 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
                     style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
                 </Bar>
               ) : (
-                cidadesParaGrafico.map(cidade => (
+                cidadesParaGrafico.map((cidade, idx) => (
                   <Bar key={cidade} dataKey={cidade} stackId="a"
                     fill={corCidade(cidade, todasCidadesGlobal)}
-                    name={cidade} />
+                    name={cidade}>
+                    {idx === cidadesParaGrafico.length - 1 && (
+                      <LabelList dataKey="__total__" position="top"
+                        formatter={(v: any) => Number(v) > 0 ? fmtRealK(Number(v)) : ''}
+                        style={{ fontSize: 10, fill: '#334155', fontWeight: 600 }} />
+                    )}
+                  </Bar>
                 ))
               )}
             </BarChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Legenda customizada quando NÃO está em modo "todos" */}
         {modoFiltro !== 'todos' && cidadesParaGrafico.length > 0 && (
           <div style={{
             marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8,
@@ -477,7 +471,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
         )}
       </Secao>
 
-      {/* === Gráfico: Barras simples do ano selecionado === */}
+      {/* === Gráfico: Barras simples === */}
       <Secao titulo={`📊 Faturamento Mensal ${anoAtual}`}
         sub="Detalhamento mês a mês do ano selecionado">
         <div style={{ width: '100%', height: 280 }}>
@@ -497,7 +491,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
         </div>
       </Secao>
 
-      {/* === Tabela: Detalhamento por Cidade === */}
+      {/* === Tabela === */}
       <Secao titulo={`🏙️ Detalhamento por Cidade — ${anoAtual}`}
         sub={`${anoAtualData.cidades.length} contratos`}>
         <div style={{ overflowX: 'auto' }}>
@@ -547,7 +541,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
         </div>
       </Secao>
 
-      {/* === Top 10 Cidades === */}
+      {/* === Top 10 === */}
       <Secao titulo={`🏆 Top 10 Maiores Faturamentos — ${anoAtual}`}
         sub="Cidades/contratos com maior receita no ano">
         <div style={{ display: 'grid', gap: 8 }}>
@@ -635,7 +629,7 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
         </div>
       </Secao>
 
-      {/* === MODAL: Lançamento Manual === */}
+      {/* === MODAL Lançamento Manual === */}
       {modalManualAberto && (
         <div style={{
           position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)',
@@ -647,7 +641,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
             width: '100%', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto',
             boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
           }}>
-            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
@@ -663,7 +656,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
               }}>×</button>
             </div>
 
-            {/* Cidade / Contrato */}
             <div style={{ marginBottom: 14 }}>
               <label style={labelStyle}>Cidade / Contrato</label>
               {!manualUsarNova ? (
@@ -690,7 +682,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
               </label>
             </div>
 
-            {/* Ano + Mês */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
               <div>
                 <label style={labelStyle}>Ano</label>
@@ -712,7 +703,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
               </div>
             </div>
 
-            {/* Valor existente (se houver) */}
             {valorExistenteManual !== null && valorExistenteManual !== undefined && (
               <div style={{
                 background: '#fffbeb', border: '1px solid #fde68a',
@@ -739,7 +729,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
               </div>
             )}
 
-            {/* Valor */}
             <div style={{ marginBottom: 18 }}>
               <label style={labelStyle}>Valor (R$)</label>
               <input type="text" value={manualValor}
@@ -757,7 +746,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
               )}
             </div>
 
-            {/* Botões */}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => setModalManualAberto(false)} disabled={salvandoManual} style={{
                 padding: '9px 16px', background: '#fff', color: '#475569',
@@ -781,8 +769,6 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     </div>
   )
 }
-
-// ===== Estilos & componentes auxiliares =====
 
 const chipStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
   padding: '5px 11px',
