@@ -63,3 +63,13 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ erro: e.message }, { status: 500 })
   }
 }
+
+// ⚠️ Limpa TODOS os fechamentos — usado pelo botão "Limpar tudo" do ResumoDPGeral
+export async function PATCH() {
+  try {
+    await redis.set(KEY_FECHAMENTOS, [])
+    return NextResponse.json({ sucesso: true, mensagem: 'Todos os fechamentos foram removidos.' })
+  } catch (e: any) {
+    return NextResponse.json({ erro: e.message }, { status: 500 })
+  }
+}
