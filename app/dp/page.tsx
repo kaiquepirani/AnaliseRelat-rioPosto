@@ -5,8 +5,10 @@ import * as XLSX from 'xlsx'
 import CadastroColaboradores from '@/components/dp/CadastroColaboradores'
 import ControlePagamentos from '@/components/dp/ControlePagamentos'
 import ResumoDPGeral from '@/components/dp/ResumoDPGeral'
+import DuplicatasModal from '@/components/dp/DuplicatasModal'
 import { Colaborador, Cidade, Funcao } from '@/lib/dp-types'
 import { parseFolhaPagamento } from '@/lib/parser-folha'
+import { buscarMatch, LIMITE_AUTO_MERGE } from '@/lib/dedup-nomes'
 
 type Aba = 'resumo' | 'pagamentos' | 'colaboradores'
 type TipoFolha = 'antecipacao' | 'folha'
@@ -14,8 +16,6 @@ type TipoFolha = 'antecipacao' | 'folha'
 // =============================================================================
 // MAPA DE ABAS — Nome da aba do XLSX (uppercased + trimmed) → tipo Cidade
 // =============================================================================
-// Os arquivos da folha (dia 10) e da antecipação (dia 20) usam nomes de aba
-// ligeiramente diferentes. Ambos são mapeados aqui.
 const MAPA_CIDADES: Record<string, Cidade> = {
   'FOLHA AGUAS':       'Águas de Lindóia (Folha)',
   'ÁGUAS (FOLHA)':     'Águas de Lindóia (Folha)',
@@ -60,6 +60,8 @@ interface ColaboradorImportado {
   observacoes?: string
   jaExiste: boolean
   colaboradorId?: string
+  // ← NOVO: indica que esse colaborador foi auto-mesclado com nome similar
+  autoMesclado?: { nomeOriginal: string; score: number }
 }
 
 interface ResultadoImportacao {
@@ -76,10 +78,9 @@ interface ResultadoImportacao {
 }
 
 // =============================================================================
-// HELPERS LOCAIS — Apenas o que NÃO está no parser-folha.ts
+// HELPERS LOCAIS
 // =============================================================================
 
-/** Normaliza nomes de bancos a partir do texto bruto da planilha */
 function normalizarBanco(texto: string): string {
   const t = texto.toUpperCase()
   if (t.includes('NUBANK') || t.includes('NU PAGAMENTO')) return 'Nubank'
@@ -93,13 +94,6 @@ function normalizarBanco(texto: string): string {
   return texto.trim()
 }
 
-/**
- * Best-effort: pesca CPF/CNPJ e banco do cabeçalho `CPF | _ | NOME | _ | BANCO`
- * (ou `CNPJ | ...`). Indexado por nome em UPPERCASE pra cruzar com o parser.
- *
- * O parser-folha.ts foca em extrair valor — esses campos extras são opcionais
- * e enriquecem a prévia/cadastro automático.
- */
 function extrairDadosCadastrais(
   wb: XLSX.WorkBook,
 ): Map<string, { cpf?: string; banco?: string }> {
@@ -118,8 +112,6 @@ function extrairDadosCadastrais(
         const banco = String(nr[5] ?? '').trim()
         if (nome.length > 3) {
           const chave = nome.toUpperCase()
-          // Primeiro recibo encontrado vence (Willian Anderson em Mococa
-          // aparece 2x — CPF e CNPJ; manter o CPF por ser o cadastro principal)
           if (!out.has(chave)) {
             out.set(chave, {
               cpf: cpf.length > 5 ? cpf : undefined,
@@ -133,10 +125,6 @@ function extrairDadosCadastrais(
   return out
 }
 
-/**
- * Lê a aba "TOTAL GERAL DA FOLHA" do XLSX para mostrar na prévia o
- * comparativo "Total a pagar (recibos)" vs "Total geral folha (oficial)".
- */
 function extrairTotalGeral(
   wb: XLSX.WorkBook,
 ): { total: number; porCidade: Record<string, number> } {
@@ -183,12 +171,12 @@ export default function DepartamentoPessoal() {
   const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
   const [processando, setProcessando] = useState(false)
   const [resultado, setResultado] = useState<ResultadoImportacao | null>(null)
-  // Guardamos o arquivo importado pra poder re-parsear se o usuário trocar o
-  // tipo (folha/antecipação) na prévia — o tipo afeta a quinzena extraída.
   const [arquivoAtual, setArquivoAtual] = useState<File | null>(null)
   const [importando, setImportando] = useState(false)
   const [erroImport, setErroImport] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
+  // ← NOVO: modal de revisão de duplicatas
+  const [mostrandoDuplicatas, setMostrandoDuplicatas] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const processarExcel = async (
@@ -204,25 +192,22 @@ export default function DepartamentoPessoal() {
     try {
       const buf = await arquivo.arrayBuffer()
 
-      // Detecta tipo pelo nome do arquivo, ou usa override do select da prévia
       const tipoFolha: TipoFolha =
         tipoOverride ||
         (arquivo.name.toUpperCase().includes('ANTECIP') ? 'antecipacao' : 'folha')
 
-      // ── PARSING PRINCIPAL ─────────────────────────────────────────────────
-      // lib/parser-folha.ts — validado contra os arquivos reais (Mar/26)
-      // FOLHA dia 10: 312 colaboradores, R$ 496.276,24 (oficial 490.910,24)
-      // ANTECIP dia 20: 305 colaboradores, R$ 351.739,91 (oficial 351.705,91)
       const parsed = parseFolhaPagamento(buf, tipoFolha)
-
-      // Lê o XLSX uma segunda vez pra pegar metadados (banco/CPF e total oficial)
       const wb = XLSX.read(buf, { type: 'array', cellDates: true })
       const dadosCadastrais = extrairDadosCadastrais(wb)
       const { total: totalReal } = extrairTotalGeral(wb)
 
-      // Mapeia o resultado do parser pro formato ColaboradorImportado
+      // Cruza com colaboradores já cadastrados ANTES de criar a lista
+      const res = await fetch('/api/dp/colaboradores')
+      const cadastrados: Colaborador[] = await res.json()
+
       const colaboradores: ColaboradorImportado[] = []
       const erros: string[] = []
+      const avisos: string[] = []
 
       for (const aba of parsed.abas) {
         const chave = aba.cidade.trim().toUpperCase()
@@ -234,16 +219,55 @@ export default function DepartamentoPessoal() {
           continue
         }
         for (const c of aba.colaboradores) {
+          // ──────────────────────────────────────────────────────────
+          // ★ DEDUP PREVENTIVO: busca match no cadastro existente
+          // ──────────────────────────────────────────────────────────
+          const match = buscarMatch(
+            c.nome,
+            cidade,
+            cadastrados.map(cad => ({ nome: cad.nome, cidade: cad.cidade })),
+          )
+
+          let nomeFinal = c.nome
+          let jaExiste = false
+          let colaboradorId: string | undefined
+          let autoMesclado: { nomeOriginal: string; score: number } | undefined
+
+          if (match.tipo === 'identico') {
+            // Match perfeito — usa o nome canônico do cadastro
+            const ex = cadastrados.find(cad => cad.nome.trim().toUpperCase() === match.alvo.trim().toUpperCase())
+            if (ex) {
+              nomeFinal = ex.nome
+              jaExiste = true
+              colaboradorId = ex.id
+            }
+          } else if (match.tipo === 'auto_merge') {
+            // Match com >=90% de confiança — funde automaticamente
+            const ex = cadastrados.find(cad => cad.nome.trim().toUpperCase() === match.alvo.trim().toUpperCase())
+            if (ex) {
+              nomeFinal = ex.nome
+              jaExiste = true
+              colaboradorId = ex.id
+              autoMesclado = { nomeOriginal: c.nome, score: match.score }
+              avisos.push(
+                `"${c.nome}" foi automaticamente mesclado com "${ex.nome}" (${(match.score * 100).toFixed(0)}% similar)`,
+              )
+            }
+          }
+          // 'revisar' e 'novo' → cadastra com nome próprio (revisar pelo modal depois)
+
           const cad = dadosCadastrais.get(c.nome.toUpperCase())
           colaboradores.push({
-            nome: c.nome,
+            nome: nomeFinal,
             cpf: cad?.cpf,
             cidade,
             funcao: 'Motorista',
             salarioBase: c.valor,
             totalReceber: c.valor,
             banco: cad?.banco ? normalizarBanco(cad.banco) : undefined,
-            jaExiste: false,
+            jaExiste,
+            colaboradorId,
+            autoMesclado,
           })
         }
       }
@@ -259,16 +283,6 @@ export default function DepartamentoPessoal() {
       const mesAno =
         mesAnoOverride || `${anoValido}-${String(mesValido).padStart(2, '0')}`
 
-      // Cruza com colaboradores já cadastrados no Redis (pra marcar "jaExiste")
-      const res = await fetch('/api/dp/colaboradores')
-      const cadastrados: Colaborador[] = await res.json()
-      const comStatus = colaboradores.map(c => {
-        const existente = cadastrados.find(
-          cad => cad.nome.toLowerCase().trim() === c.nome.toLowerCase().trim(),
-        )
-        return { ...c, jaExiste: !!existente, colaboradorId: existente?.id }
-      })
-
       // Calcula totais
       const totalFolha = colaboradores.reduce((s, c) => s + c.totalReceber, 0)
       const totalPorCidade: Record<string, number> = {}
@@ -276,16 +290,16 @@ export default function DepartamentoPessoal() {
         totalPorCidade[c.cidade] = (totalPorCidade[c.cidade] || 0) + c.totalReceber
       }
 
-      // SOMA quando o mesmo nome aparece mais de uma vez (caso Willian Anderson
-      // em Mococa: CPF + CNPJ = 2 recibos legítimos). Sobrescrever perderia um.
+      // valorPorColaborador — soma quando mesmo nome aparece mais de uma vez
+      // (com auto-merge, nomes mesclados já compartilham a mesma chave)
       const valorPorColaborador: Record<string, number> = {}
-      for (const c of comStatus) {
+      for (const c of colaboradores) {
         const chave = c.nome.trim().toUpperCase()
         valorPorColaborador[chave] = (valorPorColaborador[chave] ?? 0) + c.totalReceber
       }
 
       setResultado({
-        colaboradores: comStatus,
+        colaboradores,
         mesAno,
         totalFolha,
         totalReal,
@@ -294,7 +308,7 @@ export default function DepartamentoPessoal() {
         nomeArquivo: arquivo.name,
         tipoFolha,
         erros,
-        avisos: [],
+        avisos,
       })
     } catch (e: any) {
       setErroImport('Erro ao processar: ' + e.message)
@@ -351,7 +365,15 @@ export default function DepartamentoPessoal() {
       }
     }
 
+    // Dedup interna na lista de novos antes de cadastrar
+    // (caso o parser retorne 2 ocorrências do mesmo nome novo)
+    const novosUnicos = new Map<string, ColaboradorImportado>()
     for (const c of novos) {
+      const k = c.nome.trim().toUpperCase()
+      if (!novosUnicos.has(k)) novosUnicos.set(k, c)
+    }
+
+    for (const c of Array.from(novosUnicos.values())) {
       const colab: Colaborador = {
         id: `colab_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         nome: c.nome,
@@ -382,7 +404,7 @@ export default function DepartamentoPessoal() {
     setArquivoAtual(null)
     setImportando(false)
     setReload(r => r + 1)
-    setAbaAtiva(novos.length > 0 ? 'colaboradores' : 'resumo')
+    setAbaAtiva(novosUnicos.size > 0 ? 'colaboradores' : 'resumo')
   }
 
   const fmt = (v: number) =>
@@ -423,12 +445,34 @@ export default function DepartamentoPessoal() {
       </header>
 
       <main className="main">
-        <div className="abas" style={{ marginBottom: '1.25rem' }}>
+        <div className="abas" style={{ marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: 8 }}>
           {abas.map(aba => (
             <button key={aba.id} className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`} onClick={() => setAbaAtiva(aba.id)}>
               {aba.icon} {aba.label}
             </button>
           ))}
+          {/* ← NOVO: botão de revisar duplicatas */}
+          <button
+            onClick={() => setMostrandoDuplicatas(true)}
+            title="Revisar colaboradores potencialmente duplicados"
+            style={{
+              marginLeft: 'auto',
+              padding: '0.45rem 0.9rem',
+              fontSize: 12,
+              fontWeight: 700,
+              background: 'white',
+              color: '#2D3A6B',
+              border: '1px solid #bfdbfe',
+              borderRadius: 8,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            🔍 Revisar duplicatas
+          </button>
         </div>
 
         {erroImport && (
@@ -475,8 +519,6 @@ export default function DepartamentoPessoal() {
                     value={resultado.tipoFolha}
                     onChange={async e => {
                       const novoTipo = e.target.value as TipoFolha
-                      // Re-parseia com o novo target — no formato B isso muda qual quinzena
-                      // (1ª = antecipação, 2ª = folha) é extraída.
                       if (arquivoAtual) {
                         await processarExcel(arquivoAtual, resultado.mesAno, novoTipo)
                       }
@@ -518,6 +560,23 @@ export default function DepartamentoPessoal() {
                 )
               })()}
 
+              {/* ← NOVO: avisos de auto-merge (>=90% similar) */}
+              {resultado.avisos.length > 0 && (
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8', marginBottom: 6 }}>
+                    🔗 Mesclagens automáticas detectadas ({resultado.avisos.length})
+                  </div>
+                  {resultado.avisos.slice(0, 5).map((a, i) => (
+                    <div key={i} style={{ fontSize: 11, color: '#1e40af', marginBottom: 2 }}>• {a}</div>
+                  ))}
+                  {resultado.avisos.length > 5 && (
+                    <div style={{ fontSize: 11, color: '#1e40af', fontStyle: 'italic' }}>
+                      …e mais {resultado.avisos.length - 5}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {resultado.erros.length > 0 && (
                 <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '0.75rem 1rem', marginBottom: '1rem' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>⚠️ Avisos</div>
@@ -540,6 +599,11 @@ export default function DepartamentoPessoal() {
                     <tr key={i} style={{ background: c.jaExiste ? '#fffbeb' : undefined }}>
                       <td>
                         <div style={{ fontWeight: 600, fontSize: 12 }}>{c.nome}</div>
+                        {c.autoMesclado && (
+                          <div style={{ fontSize: 10, color: '#1d4ed8', marginTop: 2 }}>
+                            🔗 mesclado de &quot;{c.autoMesclado.nomeOriginal}&quot; ({(c.autoMesclado.score * 100).toFixed(0)}%)
+                          </div>
+                        )}
                         {c.observacoes && <div style={{ fontSize: 10, color: 'var(--amber)' }}>📌 {c.observacoes}</div>}
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--text-2)' }}>{c.cidade}</td>
@@ -551,9 +615,11 @@ export default function DepartamentoPessoal() {
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(c.totalReceber)}</td>
                       <td>
-                        {c.jaExiste
-                          ? <span style={{ fontSize: 10, background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', borderRadius: 10, padding: '2px 7px', fontWeight: 600 }}>Já cadastrado</span>
-                          : <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '2px 7px', fontWeight: 600 }}>Novo</span>}
+                        {c.autoMesclado
+                          ? <span style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 10, padding: '2px 7px', fontWeight: 600 }}>Mesclado</span>
+                          : c.jaExiste
+                            ? <span style={{ fontSize: 10, background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', borderRadius: 10, padding: '2px 7px', fontWeight: 600 }}>Já cadastrado</span>
+                            : <span style={{ fontSize: 10, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 10, padding: '2px 7px', fontWeight: 600 }}>Novo</span>}
                       </td>
                     </tr>
                   ))}
@@ -561,7 +627,7 @@ export default function DepartamentoPessoal() {
               </table>
 
               <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: '1.25rem' }}>
-                ℹ️ Apenas os <strong>novos</strong> colaboradores serão cadastrados. Após importar, revise e complete os dados de cada um.
+                ℹ️ Apenas os <strong>novos</strong> colaboradores serão cadastrados. Após importar, revise possíveis duplicatas em <strong>🔍 Revisar duplicatas</strong>.
               </div>
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -578,6 +644,14 @@ export default function DepartamentoPessoal() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Modal de revisar duplicatas */}
+        {mostrandoDuplicatas && (
+          <DuplicatasModal
+            onClose={() => setMostrandoDuplicatas(false)}
+            onUnificacaoFeita={() => { setReload(r => r + 1) }}
+          />
         )}
 
         {abaAtiva === 'resumo'        && <ResumoDPGeral key={reload} />}
