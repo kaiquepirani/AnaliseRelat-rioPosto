@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Colaborador, Cidade } from '@/lib/dp-types'
+import EditarPagamentoColaboradorModal from './EditarPagamentoColaboradorModal'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtK = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(1)}k` : fmt(v)
@@ -223,6 +224,8 @@ export default function ControlePagamentos() {
   const [carregando, setCarregando] = useState(true)
   const [cidadeExpandida, setCidadeExpandida] = useState<Cidade | null>(null)
   const [colaboradorModal, setColaboradorModal] = useState<Colaborador | null>(null)
+  // ← NOVO: colaborador em edição de pagamento
+  const [colaboradorEditando, setColaboradorEditando] = useState<Colaborador | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -277,6 +280,19 @@ export default function ControlePagamentos() {
           colaborador={colaboradorModal}
           fechamentos={fechamentos}
           onFechar={() => setColaboradorModal(null)}
+        />
+      )}
+
+      {/* ← NOVO: Modal de edição de pagamento */}
+      {colaboradorEditando && (
+        <EditarPagamentoColaboradorModal
+          colaboradorNome={colaboradorEditando.nome}
+          colaboradorCidade={colaboradorEditando.cidade}
+          mesAno={mesAno}
+          fechAntecip={fechAntecip}
+          fechFolha={fechFolha}
+          onClose={() => setColaboradorEditando(null)}
+          onSaved={carregar}
         />
       )}
 
@@ -411,7 +427,7 @@ export default function ControlePagamentos() {
                 <div style={{ borderTop: '1px solid var(--border)' }}>
                   {/* Instrução sutil */}
                   <div style={{ padding: '0.5rem 1.25rem', background: 'var(--sky-light)', fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid var(--border)' }}>
-                    <span>💡</span> Clique em um colaborador para ver o histórico completo de pagamentos
+                    <span>💡</span> Clique no nome para ver o histórico · clique em ✏️ para corrigir os valores deste mês
                   </div>
                   <table className="tabela tabela-sm">
                     <thead>
@@ -421,6 +437,7 @@ export default function ControlePagamentos() {
                         <th style={{ textAlign: 'right' }}>Complemento</th>
                         <th style={{ textAlign: 'right', color: 'var(--navy)' }}>Total</th>
                         <th>Banco / PIX</th>
+                        <th style={{ width: 1 }}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -430,6 +447,7 @@ export default function ControlePagamentos() {
                         const valorFolha   = fechFolha?.valorPorColaborador?.[nomeKey] ?? null
                         const totalColab   = (valorAntecip ?? 0) + (valorFolha ?? 0)
                         const temValorReal = valorAntecip !== null || valorFolha !== null
+                        const podeEditar = !!(fechAntecip || fechFolha)
 
                         return (
                           <tr
@@ -481,6 +499,28 @@ export default function ControlePagamentos() {
                               {c.dadosBancarios?.pix && <div style={{ color: 'var(--text-3)' }}>PIX: {c.dadosBancarios.pix}</div>}
                               {!c.dadosBancarios?.banco && !c.dadosBancarios?.pix && <span style={{ color: 'var(--text-3)' }}>—</span>}
                             </td>
+
+                            {/* ← NOVO: botão de editar */}
+                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                              <button
+                                onClick={e => { e.stopPropagation(); if (podeEditar) setColaboradorEditando(c) }}
+                                disabled={!podeEditar}
+                                title={podeEditar ? 'Editar valores deste mês' : 'Importe a folha do mês para poder editar'}
+                                style={{
+                                  padding: '4px 10px',
+                                  fontSize: 12,
+                                  background: podeEditar ? '#eff6ff' : '#f9fafb',
+                                  color: podeEditar ? '#2D3A6B' : '#9ca3af',
+                                  border: `1px solid ${podeEditar ? '#bfdbfe' : '#e5e7eb'}`,
+                                  borderRadius: 6,
+                                  cursor: podeEditar ? 'pointer' : 'not-allowed',
+                                  fontFamily: 'inherit',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ✏️ Editar
+                              </button>
+                            </td>
                           </tr>
                         )
                       })}
@@ -491,6 +531,7 @@ export default function ControlePagamentos() {
                         <td style={{ textAlign: 'right', fontWeight: 700, color: '#d97706' }}>{antecip ? fmt(antecip) : '—'}</td>
                         <td style={{ textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>{folha ? fmt(folha) : '—'}</td>
                         <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--navy)' }}>{totalCidade > 0 ? fmt(totalCidade) : '—'}</td>
+                        <td />
                         <td />
                       </tr>
                     </tfoot>
