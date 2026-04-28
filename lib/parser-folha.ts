@@ -1,11 +1,18 @@
 // lib/parser-folha.ts
 // =============================================================================
 // PARSER DEFINITIVO — Folha de Pagamento ETCO Tur
-// Versão 2026-04-26 — Departamento Pessoal
+// Versão 2026-04-28 — Departamento Pessoal
 // =============================================================================
 //
-// Esta é uma reescrita completa, validada contra o arquivo real
-// "03_Folha_de_Pagamento_-_Março_-26_-_10-04-26.xlsx" (490.910,24 oficial).
+// CHANGELOG 2026-04-28:
+//   - FIX findNameA: ao buscar o nome do colaborador no formato A,
+//     ignorar candidatos cujo texto seja idêntico ao nome da aba (cidade).
+//     Isso corrigia o bug em CASA BRANCA, onde o cabeçalho do recibo
+//     ("CASA BRANCA" abaixo do nome do colaborador) era retornado em vez
+//     do nome real, gerando 10 colaboradores fantasmas com nome="Casa Branca"
+//     por importação. Validado: 10/10 colaboradores extraídos corretamente
+//     em ambas as folhas (8.721,58 antecip / 12.240,38 folha) com diff R$ 0,00.
+//     Nenhuma outra cidade afetada.
 //
 // FORMATOS DETECTADOS:
 //   A) "TOTAL A RECEBER" simples — cidades de salário fixo (Águas Folha,
@@ -274,8 +281,15 @@ function findNameB(rows: Row[], lineIdx: number): string | null {
 /**
  * Encontra o nome no formato A (linha solta antes do "TOTAL A RECEBER",
  * tipicamente em col 0 ou col 1 da primeira linha do quadro).
+ *
+ * IMPORTANTE: candidatos cujo texto seja IGUAL ao nome da aba (cidade)
+ * são ignorados, porque nos recibos o nome da cidade aparece como cabeçalho
+ * logo abaixo do nome do colaborador (ex.: em Casa Branca, a linha "CASA BRANCA"
+ * fica entre o nome do funcionário e o "TOTAL A RECEBER", e seria erroneamente
+ * capturada como nome do colaborador).
  */
-function findNameA(rows: Row[], lineIdx: number): string | null {
+function findNameA(rows: Row[], lineIdx: number, cidadeNome?: string): string | null {
+  const cidadeNorm = cidadeNome ? norm(cidadeNome) : null;
   const minJ = Math.max(lineIdx - 30, 0);
   for (let j = lineIdx - 1; j >= minJ; j--) {
     const row = rows[j];
@@ -284,7 +298,10 @@ function findNameA(rows: Row[], lineIdx: number): string | null {
     for (let c = 0; c < colsToCheck; c++) {
       const v = row[c];
       if (pareceNome(v)) {
-        return (v as string).trim();
+        const candidato = (v as string).trim();
+        // Pula se o candidato for o nome da cidade (cabeçalho do recibo)
+        if (cidadeNorm && norm(candidato) === cidadeNorm) continue;
+        return candidato;
       }
     }
   }
@@ -521,7 +538,7 @@ function parseAbaQuinzenal(
     });
   }
   for (const q of qA) {
-    const nome = findNameA(rows, q.inicio) || '?';
+    const nome = findNameA(rows, q.inicio, cidade) || '?';
     out.push({
       nome,
       valor: q.valor,
@@ -532,7 +549,7 @@ function parseAbaQuinzenal(
     });
   }
   for (const q of qA2) {
-    const nome = findNameA(rows, q.inicio) || '?';
+    const nome = findNameA(rows, q.inicio, cidade) || '?';
     out.push({
       nome,
       valor: q.valor,
