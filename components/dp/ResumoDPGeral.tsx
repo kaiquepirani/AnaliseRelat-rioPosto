@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, LabelList } from 'recharts'
+import EditarFechamentoModal from './EditarFechamentoModal'
 
 const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtK = (v: number) => v >= 1000 ? `R$${(v / 1000).toFixed(1)}k` : fmt(v)
@@ -12,6 +13,7 @@ interface Fechamento {
   arquivo: string
   totalGeral: number
   totalPorCidade: Record<string, number>
+  valorPorColaborador: Record<string, number>
   totalColaboradores: number
   dataImport: string
 }
@@ -105,8 +107,10 @@ export default function ResumoDPGeral() {
   const [carregando, setCarregando] = useState(true)
   const [mesSel, setMesSel] = useState<string>('todos')
   const [tipoVis, setTipoVis] = useState<'antecipacao' | 'folha' | 'total'>('total')
-  // ← NOVO: cidades filtradas (toggle múltiplo). Vazio = todas.
+  // ← cidades filtradas (toggle múltiplo). Vazio = todas.
   const [cidadesAtivas, setCidadesAtivas] = useState<Set<string>>(new Set())
+  // ← NOVO: fechamento sendo editado no modal
+  const [fechEditando, setFechEditando] = useState<Fechamento | null>(null)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -132,7 +136,7 @@ export default function ResumoDPGeral() {
     Array.from(new Set(fechamentos.map(f => f.mesAno))).sort().reverse(),
   [fechamentos])
 
-  // ← NOVO: lista de todas as cidades que aparecem em algum fechamento
+  // lista de todas as cidades que aparecem em algum fechamento
   const cidadesDisponiveis = useMemo(() => {
     const set = new Set<string>()
     for (const f of fechamentos) {
@@ -143,13 +147,13 @@ export default function ResumoDPGeral() {
     return Array.from(set).sort()
   }, [fechamentos])
 
-  // ← NOVO: cor estável por cidade (índice em cidadesDisponiveis)
+  // cor estável por cidade (índice em cidadesDisponiveis)
   const corCidade = useCallback((cidade: string) => {
     const idx = cidadesDisponiveis.indexOf(cidade)
     return CORES[(idx >= 0 ? idx : 0) % CORES.length]
   }, [cidadesDisponiveis])
 
-  // ← NOVO: alterna seleção de uma cidade
+  // alterna seleção de uma cidade
   const toggleCidade = (cidade: string) => {
     setCidadesAtivas(prev => {
       const novo = new Set(prev)
@@ -166,10 +170,9 @@ export default function ResumoDPGeral() {
   const fechAntecip = fechsFiltrados.find(f => f.tipo === 'antecipacao')
   const fechFolha   = fechsFiltrados.find(f => f.tipo === 'folha')
 
-  // ← ALTERADO: totais consideram filtro de cidade
+  // totais consideram filtro de cidade
   const totalAntecipacao = useMemo(() => {
     if (cidadesAtivas.size === 0) {
-      // soma de todos os fechamentos do tipo antecipação no escopo do mês
       let total = 0
       for (const f of fechsFiltrados) {
         if (f.tipo === 'antecipacao') total += f.totalGeral
@@ -224,7 +227,7 @@ export default function ResumoDPGeral() {
       .sort((a, b) => b.total - a.total)
   }, [fechsFiltrados])
 
-  // ← ALTERADO: evolução mensal aplica filtro de cidade
+  // evolução mensal aplica filtro de cidade
   const evolucaoMensal = useMemo(() => {
     return mesesDisponiveis.slice().reverse().map(mes => {
       const fsMes = fechamentos.filter(f => f.mesAno === mes)
@@ -309,16 +312,26 @@ export default function ResumoDPGeral() {
         </select>
 
         {mesSel !== 'todos' && (
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {fechAntecip && (
-              <button onClick={() => removerFechamento(fechAntecip.id)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #fca5a5', borderRadius: 8, background: '#fef2f2', fontSize: 12, color: '#dc2626', cursor: 'pointer', fontFamily: 'inherit' }}>
-                ✕ Antecipação
-              </button>
+              <>
+                <button onClick={() => setFechEditando(fechAntecip)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #bfdbfe', borderRadius: 8, background: '#eff6ff', fontSize: 12, color: '#2D3A6B', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+                  ✏️ Editar antecipação
+                </button>
+                <button onClick={() => removerFechamento(fechAntecip.id)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #fca5a5', borderRadius: 8, background: '#fef2f2', fontSize: 12, color: '#dc2626', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  ✕ Antecipação
+                </button>
+              </>
             )}
             {fechFolha && (
-              <button onClick={() => removerFechamento(fechFolha.id)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #fca5a5', borderRadius: 8, background: '#fef2f2', fontSize: 12, color: '#dc2626', cursor: 'pointer', fontFamily: 'inherit' }}>
-                ✕ Folha
-              </button>
+              <>
+                <button onClick={() => setFechEditando(fechFolha)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #bfdbfe', borderRadius: 8, background: '#eff6ff', fontSize: 12, color: '#2D3A6B', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600 }}>
+                  ✏️ Editar folha
+                </button>
+                <button onClick={() => removerFechamento(fechFolha.id)} style={{ padding: '0.4rem 0.75rem', border: '1px solid #fca5a5', borderRadius: 8, background: '#fef2f2', fontSize: 12, color: '#dc2626', cursor: 'pointer', fontFamily: 'inherit' }}>
+                  ✕ Folha
+                </button>
+              </>
             )}
           </div>
         )}
@@ -337,7 +350,7 @@ export default function ResumoDPGeral() {
         </div>
       </div>
 
-      {/* ── NOVO: Filtro de cidades (chips) ── */}
+      {/* ── Filtro de cidades (chips) ── */}
       {cidadesDisponiveis.length > 0 && (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '0.75rem 1rem', boxShadow: 'var(--shadow-sm)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -579,7 +592,14 @@ export default function ResumoDPGeral() {
                 <td style={{ fontSize: 12, color: 'var(--text-2)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.arquivo}</td>
                 <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmt(f.totalGeral)}</td>
                 <td style={{ fontSize: 12, color: 'var(--text-3)' }}>{new Date(f.dataImport).toLocaleDateString('pt-BR')}</td>
-                <td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <button
+                    onClick={() => setFechEditando(f)}
+                    title="Editar valores deste fechamento"
+                    style={{ padding: '3px 8px', fontSize: 11, background: '#eff6ff', color: '#2D3A6B', border: '1px solid #bfdbfe', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 600, marginRight: 6 }}
+                  >
+                    ✏️ Editar
+                  </button>
                   <button onClick={() => removerFechamento(f.id)} style={{ padding: '3px 8px', fontSize: 11, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 5, cursor: 'pointer', fontFamily: 'inherit' }}>Remover</button>
                 </td>
               </tr>
@@ -587,6 +607,15 @@ export default function ResumoDPGeral() {
           </tbody>
         </table>
       </div>
+
+      {/* ── Modal de edição ── */}
+      {fechEditando && (
+        <EditarFechamentoModal
+          fechamento={fechEditando}
+          onClose={() => setFechEditando(null)}
+          onSaved={carregar}
+        />
+      )}
     </div>
   )
 }
