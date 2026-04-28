@@ -20,6 +20,14 @@ const fmtRealK = (n: number) => {
 }
 const fmtPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(1).replace('.', ',')}%`
 
+// Aceita "1500", "1.500", "1500,50", "1.500,50", "R$ 1.500,50"
+const parseBRL = (s: string): number => {
+  if (!s) return 0
+  const clean = s.replace(/[R$\s]/g, '').replace(/\./g, '').replace(',', '.')
+  const n = parseFloat(clean)
+  return isNaN(n) ? 0 : n
+}
+
 const PALETA_ANOS = ['#94a3b8', '#4AABDB', '#10b981', '#f59e0b', '#7c3aed', '#dc2626']
 
 // Paleta extensa pra 27+ cidades (cores distintas e legíveis)
@@ -44,6 +52,17 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   const [modoFiltro, setModoFiltro] = useState<'todos' | 'top10' | 'custom'>('todos')
   const [cidadesAtivas, setCidadesAtivas] = useState<Set<string>>(new Set())
   const inputFileRef = useRef<HTMLInputElement>(null)
+
+  // === Estado do Lançamento Manual ===
+  const [modalManualAberto, setModalManualAberto] = useState(false)
+  const [manualCidade, setManualCidade] = useState('')
+  const [manualNovaCidade, setManualNovaCidade] = useState('')
+  const [manualUsarNova, setManualUsarNova] = useState(false)
+  const [manualAno, setManualAno] = useState<number>(new Date().getFullYear())
+  const [manualMes, setManualMes] = useState<number>(new Date().getMonth())
+  const [manualValor, setManualValor] = useState('')
+  const [manualModo, setManualModo] = useState<'substituir' | 'somar'>('substituir')
+  const [salvandoManual, setSalvandoManual] = useState(false)
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token])
 
@@ -167,6 +186,15 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   }
   const todasCidadesGlobal = Array.from(todasCidadesSet).sort()
 
+  // ==== Anos disponíveis para lançamento manual (existentes + atual + próximo) ====
+  const anosManual = (() => {
+    const set = new Set<number>(anos)
+    const atual = new Date().getFullYear()
+    set.add(atual)
+    set.add(atual + 1)
+    return Array.from(set).sort((a, b) => a - b)
+  })()
+
   // ==== Cidades disponíveis no ano atual (ordenadas por total desc) ====
   const cidadesDoAno = anoAtualData.cidades
 
@@ -184,11 +212,9 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
   }
 
   // ==== Monta dados pra barras empilhadas ====
-  // Cada item = { mes: 'Jan', cidade1: valor, cidade2: valor, ... }
   const dadosEmpilhado = NOMES_MESES.map((mes, i) => {
     const obj: any = { mes }
     if (modoFiltro === 'todos') {
-      // Modo "Todos": uma única série com soma total
       obj['__total__'] = anoAtualData.totalPorMes[i] || 0
     } else {
       for (const cidade of cidadesParaGrafico) {
@@ -206,6 +232,88 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
     else novo.add(cidade)
     setCidadesAtivas(novo)
     setModoFiltro('custom')
+  }
+
+  // ==== Manual: Abrir modal ====
+  const abrirModalManual = () => {
+    setManualAno(anoAtual)
+    setManualMes(new Date().getMonth())
+    setManualCidade(todasCidadesGlobal[0] || '')
+    setManualNovaCidade('')
+    setManualUsarNova(false)
+    setManualValor('')
+    setManualModo('substituir')
+    setModalManualAberto(true)
+  }
+
+  // ==== Manual: Valor atual no slot escolhido ====
+  const cidadeAlvoManual = manualUsarNova ? manualNovaCidade.trim() : manualCidade
+  const valorExistenteManual = (() => {
+    if (!cidadeAlvoManual) return null
+    const dataAno = dados.porAno[manualAno]
+    if (!dataAno) return null
+    const cid = dataAno.cidades.find(c => c.cidade === cidadeAlvoManual)
+    if (!cid) return null
+    return cid.meses[manualMes]
+  })()
+
+  // ==== Manual: Salvar ====
+  const salvarManual = async () => {
+    const cidadeAlvo = manualUsarNova ? manualNovaCidade.trim() : manualCidade
+    if (!cidadeAlvo) {
+      alert('Selecione ou cadastre uma cidade/contrato')
+      return
+    }
+    if (manualValor.trim() === '') {
+      alert('Informe o valor do faturamento')
+      return
+    }
+    const valorNum = parseBRL(manualValor)
+    if (valorNum < 0) {
+      alert('Valor não pode ser negativo')
+      return
+    }
+
+    setSalvandoManual(true)
+    try {
+      const existing = dados?.porAno[manualAno]?.cidades.find(c => c.cidade === cidadeAlvo)
+      const baseMeses: (number | null)[] = existing
+        ? existing.meses.slice()
+        : new Array(12).fill(null)
+
+      const valorAtual = baseMeses[manualMes]
+      let novoValor: number
+      if (manualModo === 'somar' && typeof valorAtual === 'number') {
+        novoValor = valorAtual + valorNum
+      } else {
+        novoValor = valorNum
+      }
+      baseMeses[manualMes] = novoValor
+
+      const r = await fetch('/api/faturamento', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ano: manualAno,
+          cidade: cidadeAlvo,
+          meses: baseMeses,
+        }),
+      })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}))
+        alert(d.erro || `Erro ${r.status} ao salvar`)
+        return
+      }
+
+      alert(`✅ Lançamento salvo\n\n${cidadeAlvo}\n${NOMES_MESES[manualMes]}/${manualAno}: ${fmtReal(novoValor)}`)
+      setModalManualAberto(false)
+      setAnoSelecionado(manualAno) // pula pra o ano em que lançou
+      await carregar()
+    } catch (err: any) {
+      alert(`Erro: ${err?.message || 'desconhecido'}`)
+    } finally {
+      setSalvandoManual(false)
+    }
   }
 
   return (
@@ -236,17 +344,26 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
             </span>
           )}
         </div>
-        <input ref={inputFileRef} type="file"
-          accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) importar(f) }} />
-        <button onClick={() => inputFileRef.current?.click()} disabled={importando} style={{
-          padding: '8px 16px', background: importando ? '#94a3b8' : '#7c3aed',
-          color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
-          cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-        }}>
-          {importando ? '⏳ Importando...' : '📤 Atualizar planilha'}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button onClick={abrirModalManual} style={{
+            padding: '8px 16px', background: '#10b981',
+            color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'inherit',
+          }}>
+            ➕ Lançamento manual
+          </button>
+          <input ref={inputFileRef} type="file"
+            accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) importar(f) }} />
+          <button onClick={() => inputFileRef.current?.click()} disabled={importando} style={{
+            padding: '8px 16px', background: importando ? '#94a3b8' : '#7c3aed',
+            color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+          }}>
+            {importando ? '⏳ Importando...' : '📤 Atualizar planilha'}
+          </button>
+        </div>
       </div>
 
       {/* === KPIs === */}
@@ -518,6 +635,149 @@ export default function FaturamentoPainel({ token, onLogout }: Props) {
         </div>
       </Secao>
 
+      {/* === MODAL: Lançamento Manual === */}
+      {modalManualAberto && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(15, 23, 42, 0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: 16,
+        }} onClick={() => !salvandoManual && setModalManualAberto(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#fff', borderRadius: 12, padding: 22,
+            width: '100%', maxWidth: 480, maxHeight: '92vh', overflowY: 'auto',
+            boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b' }}>
+                  ➕ Lançamento Manual
+                </div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                  Adicione um faturamento sem precisar reimportar a planilha
+                </div>
+              </div>
+              <button onClick={() => setModalManualAberto(false)} disabled={salvandoManual} style={{
+                background: 'transparent', border: 'none', fontSize: 22, color: '#94a3b8',
+                cursor: salvandoManual ? 'not-allowed' : 'pointer', padding: 0, lineHeight: 1,
+              }}>×</button>
+            </div>
+
+            {/* Cidade / Contrato */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Cidade / Contrato</label>
+              {!manualUsarNova ? (
+                <select value={manualCidade} onChange={e => setManualCidade(e.target.value)}
+                  style={inputStyle}>
+                  <option value="">— Selecione —</option>
+                  {todasCidadesGlobal.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              ) : (
+                <input type="text" value={manualNovaCidade}
+                  onChange={e => setManualNovaCidade(e.target.value.toUpperCase())}
+                  placeholder="Ex: NOVO CONTRATO XYZ"
+                  style={inputStyle} />
+              )}
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                fontSize: 11, color: '#64748b', marginTop: 6, cursor: 'pointer',
+              }}>
+                <input type="checkbox" checked={manualUsarNova}
+                  onChange={e => setManualUsarNova(e.target.checked)} />
+                🆕 Cadastrar nova cidade/contrato
+              </label>
+            </div>
+
+            {/* Ano + Mês */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+              <div>
+                <label style={labelStyle}>Ano</label>
+                <select value={manualAno} onChange={e => setManualAno(Number(e.target.value))}
+                  style={inputStyle}>
+                  {anosManual.map(a => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Mês</label>
+                <select value={manualMes} onChange={e => setManualMes(Number(e.target.value))}
+                  style={inputStyle}>
+                  {NOMES_MESES.map((m, i) => (
+                    <option key={m} value={i}>{m}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Valor existente (se houver) */}
+            {valorExistenteManual !== null && valorExistenteManual !== undefined && (
+              <div style={{
+                background: '#fffbeb', border: '1px solid #fde68a',
+                borderRadius: 8, padding: 10, marginBottom: 14, fontSize: 12,
+              }}>
+                <div style={{ color: '#92400e', fontWeight: 600, marginBottom: 4 }}>
+                  ⚠️ Já existe um valor para {NOMES_MESES[manualMes]}/{manualAno}
+                </div>
+                <div style={{ color: '#78350f' }}>
+                  Valor atual: <strong>{fmtReal(valorExistenteManual)}</strong>
+                </div>
+                <div style={{ marginTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: 'pointer', color: '#78350f' }}>
+                    <input type="radio" name="modo" checked={manualModo === 'substituir'}
+                      onChange={() => setManualModo('substituir')} />
+                    Substituir o valor
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, cursor: 'pointer', color: '#78350f' }}>
+                    <input type="radio" name="modo" checked={manualModo === 'somar'}
+                      onChange={() => setManualModo('somar')} />
+                    Somar ao valor atual
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Valor */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={labelStyle}>Valor (R$)</label>
+              <input type="text" value={manualValor}
+                onChange={e => setManualValor(e.target.value)}
+                placeholder="Ex: 15000 ou 15.000,50"
+                style={{ ...inputStyle, fontFamily: 'inherit', fontSize: 16, fontWeight: 600 }}
+                autoFocus />
+              {manualValor && (
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
+                  Será gravado: <strong style={{ color: '#047857' }}>{fmtReal(parseBRL(manualValor))}</strong>
+                  {manualModo === 'somar' && typeof valorExistenteManual === 'number' && valorExistenteManual > 0 && (
+                    <> → Total final: <strong style={{ color: '#047857' }}>{fmtReal(valorExistenteManual + parseBRL(manualValor))}</strong></>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Botões */}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalManualAberto(false)} disabled={salvandoManual} style={{
+                padding: '9px 16px', background: '#fff', color: '#475569',
+                border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13,
+                fontWeight: 600, cursor: salvandoManual ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+              }}>
+                Cancelar
+              </button>
+              <button onClick={salvarManual} disabled={salvandoManual} style={{
+                padding: '9px 18px', background: salvandoManual ? '#94a3b8' : '#10b981',
+                color: '#fff', border: 'none', borderRadius: 8, fontSize: 13,
+                fontWeight: 600, cursor: salvandoManual ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+              }}>
+                {salvandoManual ? '⏳ Salvando...' : '✅ Salvar lançamento'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -537,6 +797,17 @@ const chipStyle = (ativo: boolean, cor: string): React.CSSProperties => ({
   whiteSpace: 'nowrap',
   transition: 'all 0.15s',
 })
+
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: 11, fontWeight: 600,
+  color: '#475569', marginBottom: 5, textTransform: 'uppercase', letterSpacing: 0.3,
+}
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', padding: '9px 11px', border: '1px solid #e2e8f0',
+  borderRadius: 8, fontSize: 13, background: '#fff',
+  fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+}
 
 const KPI = ({ titulo, valor, sub, cor, icone }: {
   titulo: string; valor: string; sub: string; cor: string; icone: string
