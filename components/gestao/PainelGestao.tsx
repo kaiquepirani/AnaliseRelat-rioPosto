@@ -261,20 +261,11 @@ export default function PainelGestao({ token, onLogout }: Props) {
   }, [consolidado, fator])
 
   // Ranking de margem % POR MÊS, comparando bases lado a lado.
-  //
-  // Regra apples-to-apples: só considera meses onde TODA base selecionada
-  // tem receita > 0 E combustível > 0. Isso evita inflar margens em meses
-  // onde a planilha de orçamento já tem receita projetada mas combustível
-  // ainda não foi importado.
-  //
-  // Bases que não tenham nenhum mês válido ficam fora do gráfico (mas a
-  // gente as lista pro usuário saber).
   const dadosRankingMargem = useMemo(() => {
     if (basesParaSomar.length === 0) {
       return { dadosGrafico: [], mesesValidos: [] as number[], basesExcluidas: [] as string[], mediaGeralPct: 0 }
     }
 
-    // Passo 1: identifica os meses onde TODAS as bases têm receita+combustível
     const mesesValidos: number[] = []
     for (let i = 0; i < 12; i++) {
       const todasTemDados = basesParaSomar.every(b => {
@@ -288,7 +279,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
       return { dadosGrafico: [], mesesValidos: [], basesExcluidas: [] as string[], mediaGeralPct: 0 }
     }
 
-    // Passo 2: monta uma linha por base, com colunas = um campo por mês válido
     let receitaTotalGeral = 0
     let margemTotalGeral = 0
     const dadosGrafico = basesParaSomar.map(b => {
@@ -311,13 +301,10 @@ export default function PainelGestao({ token, onLogout }: Props) {
       return linha
     })
 
-    // Ordena pela margem média no período (decrescente)
     dadosGrafico.sort((a, b) => b.__margemMedia__ - a.__margemMedia__)
 
     const mediaGeralPct = receitaTotalGeral > 0 ? (margemTotalGeral / receitaTotalGeral) * 100 : 0
 
-    // Bases com dados parciais (têm receita ou combustível mas em meses
-    // diferentes de mesesValidos) — ficam fora do gráfico mas vamos avisar
     const basesExcluidas = basesParaSomar
       .filter(b => {
         const algumDado = b.meses.some(m => m.receita > 0 || m.combustivel > 0)
@@ -373,26 +360,62 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
       <main style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
 
+        {/* ───── BANNER DE AVISO SOBRE ENCARGOS ───── */}
+        {/*                                                                  */}
+        {/* Aparece sempre, mas muda de cor/tom conforme o estado:           */}
+        {/* - Quando × 1.7 ATIVADO (default): banner roxo de alerta forte    */}
+        {/*   explicando que os números NÃO batem com o DP                   */}
+        {/* - Quando "Líquida" ativado: banner verde claro confirmando       */}
+        {/*   que a folha bate com o DP                                       */}
+        <div style={{
+          marginBottom: 16, padding: '14px 18px',
+          background: comEncargos ? '#faf5ff' : '#f0fdf4',
+          border: `1.5px solid ${comEncargos ? '#d8b4fe' : '#86efac'}`,
+          borderLeft: `5px solid ${comEncargos ? '#7c3aed' : '#10b981'}`,
+          borderRadius: 10,
+          display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap',
+        }}>
+          <div style={{ fontSize: 22, lineHeight: 1, flexShrink: 0 }}>
+            {comEncargos ? '⚠️' : '✓'}
+          </div>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: comEncargos ? '#581c87' : '#14532d', marginBottom: 4 }}>
+              {comEncargos
+                ? `Folha exibida COM encargos estimados (× ${MULTIPLICADOR_ENCARGOS})`
+                : 'Folha exibida LÍQUIDA — bate com o Departamento Pessoal'}
+            </div>
+            <div style={{ fontSize: 12, color: comEncargos ? '#6b21a8' : '#166534', lineHeight: 1.5 }}>
+              {comEncargos ? (
+                <>
+                  Os valores de folha mostrados aqui estão multiplicados por <strong>{MULTIPLICADOR_ENCARGOS}</strong> para
+                  simular INSS, FGTS, férias e 13º (custo total da empresa).{' '}
+                  <strong>Esses números são <u>diferentes</u> do que aparece no Departamento Pessoal</strong>{' '}
+                  (que mostra apenas o líquido pago). Para conferência cruzada com o DP, troque para &ldquo;Líquida&rdquo;.
+                </>
+              ) : (
+                <>
+                  Os valores de folha aqui mostram exatamente o líquido pago (antecipação + complemento),
+                  sem encargos. <strong>Confere com o total exibido no Departamento Pessoal.</strong>
+                </>
+              )}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button onClick={() => setComEncargos(false)} style={toggleStyle(!comEncargos, '#10b981')}>
+              💵 Líquida
+            </button>
+            <button onClick={() => setComEncargos(true)} style={toggleStyle(comEncargos, '#7c3aed')}>
+              📊 × {MULTIPLICADOR_ENCARGOS}
+            </button>
+          </div>
+        </div>
+
         <div style={{
           background: '#fff', padding: 14, borderRadius: 12,
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: 16,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
           flexWrap: 'wrap', gap: 12,
         }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 600 }}>Folha:</span>
-            <button onClick={() => setComEncargos(false)} style={toggleStyle(!comEncargos, '#0369a1')}>
-              Líquida
-            </button>
-            <button onClick={() => setComEncargos(true)} style={toggleStyle(comEncargos, '#7c3aed')}>
-              × 1,7 (com encargos estimados)
-            </button>
-            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>
-              {comEncargos
-                ? 'simula INSS, FGTS, férias, 13º — aproximação para visão de custo real'
-                : 'apenas o líquido pago, sem encargos'}
-            </span>
-          </div>
           <button onClick={carregar} disabled={carregando} style={{
             padding: '8px 16px', background: carregando ? '#94a3b8' : '#10b981',
             color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
@@ -429,9 +452,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 valor={fmtReal(kpis.combustivel)}
                 sub={`${fmtPctSimples(kpis.pctCombustivel)} da receita`}
                 cor="#dc2626" icone="⛽" />
-              <KPI titulo={`Custo folha${comEncargos ? ' (×1,7)' : ' líquida'}`}
+              <KPI titulo={`Custo folha${comEncargos ? ` (× ${MULTIPLICADOR_ENCARGOS})` : ' líquida'}`}
                 valor={fmtReal(kpis.folha)}
-                sub={`${fmtPctSimples(kpis.pctFolha)} da receita`}
+                sub={`${fmtPctSimples(kpis.pctFolha)} da receita${comEncargos ? ' · com encargos' : ' · = DP'}`}
                 cor="#7c3aed" icone="👥" />
               <KPI titulo="Margem operacional"
                 valor={fmtReal(kpis.margem)}
@@ -477,12 +500,34 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
                   Métrica:
                 </span>
-                {(['Receita', 'Combustível', 'Folha', 'Margem', 'Comparativo'] as Metrica[]).map(m => (
-                  <button key={m} onClick={() => setMetrica(m)}
-                    style={chipStyle(metrica === m, CORES_METRICA[m])}>
-                    {m === 'Comparativo' ? '📊 Comparativo' : m}
-                  </button>
-                ))}
+                {(['Receita', 'Combustível', 'Folha', 'Margem', 'Comparativo'] as Metrica[]).map(m => {
+                  // ← AVISO INLINE: marca a métrica "Folha" com badge laranja
+                  // quando × 1,7 está ativado, deixando o usuário ciente
+                  // ANTES de clicar.
+                  const isFolha = m === 'Folha'
+                  return (
+                    <button key={m} onClick={() => setMetrica(m)}
+                      style={{
+                        ...chipStyle(metrica === m, CORES_METRICA[m]),
+                        position: 'relative' as const,
+                        paddingRight: isFolha && comEncargos ? 28 : undefined,
+                      }}
+                      title={isFolha && comEncargos ? `Folha mostrada com encargos (× ${MULTIPLICADOR_ENCARGOS})` : undefined}
+                    >
+                      {m === 'Comparativo' ? '📊 Comparativo' : m}
+                      {isFolha && comEncargos && (
+                        <span style={{
+                          position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
+                          background: '#f59e0b', color: '#fff',
+                          fontSize: 9, fontWeight: 700, padding: '1px 4px',
+                          borderRadius: 4, lineHeight: 1,
+                        }}>
+                          ×{MULTIPLICADOR_ENCARGOS}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })}
               </div>
 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
@@ -509,6 +554,22 @@ export default function PainelGestao({ token, onLogout }: Props) {
                   )
                 })}
               </div>
+
+              {/* ← AVISO no topo do gráfico quando a métrica é Folha + ×1,7 */}
+              {metrica === 'Folha' && comEncargos && (
+                <div style={{
+                  marginBottom: 10, padding: '8px 12px',
+                  background: '#fef3c7', borderLeft: '3px solid #f59e0b',
+                  borderRadius: 4, fontSize: 11, color: '#78350f',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontWeight: 700 }}>📊</span>
+                  <span>
+                    Os valores deste gráfico estão multiplicados por <strong>{MULTIPLICADOR_ENCARGOS}</strong> (com encargos).
+                    Para ver o valor líquido (igual ao DP), clique em <strong>&ldquo;💵 Líquida&rdquo;</strong> no banner acima.
+                  </span>
+                </div>
+              )}
 
               <div style={{ width: '100%', height: 400 }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -603,23 +664,18 @@ export default function PainelGestao({ token, onLogout }: Props) {
             {dadosRankingMargem.dadosGrafico.length > 0 && (() => {
               const { dadosGrafico, mesesValidos, basesExcluidas, mediaGeralPct } = dadosRankingMargem
 
-              // Paleta gradual por mês (do mais antigo ao mais recente).
-              // Tons de azul ETCO, do claro ao escuro.
               const PALETA_MESES = [
                 '#bfdbfe', '#93c5fd', '#60a5fa', '#3b82f6',
                 '#2563eb', '#1d4ed8', '#1e40af', '#1e3a8a',
                 '#172554', '#0f1d54', '#0a1850', '#06124a',
               ]
               const corDoMes = (mesIdx: number, posNoArray: number): string => {
-                // Se temos poucos meses (3 por exemplo), espalha pela paleta
-                // pra ter mais contraste. Se temos 12, usa direto.
                 const totalMeses = mesesValidos.length
                 if (totalMeses <= 1) return PALETA_MESES[5]
                 const idx = Math.floor((posNoArray / (totalMeses - 1)) * (PALETA_MESES.length - 1))
                 return PALETA_MESES[idx]
               }
 
-              // Período coberto, ex: "Jan a Mar/26"
               const primeiroMes = NOMES_MESES[mesesValidos[0]]
               const ultimoMes = NOMES_MESES[mesesValidos[mesesValidos.length - 1]]
               const periodo = mesesValidos.length === 1
@@ -631,7 +687,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 `(${periodo}) onde todas as bases têm receita e combustível · ` +
                 `Média ponderada: ${fmtPctSimples(mediaGeralPct)}`
 
-              // Altura: ~50px por base (precisa caber as N barras agrupadas)
               const alturaGrafico = Math.max(280, dadosGrafico.length * 50)
 
               return (
@@ -708,7 +763,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                     </ResponsiveContainer>
                   </div>
 
-                  {/* Legenda dos meses */}
                   <div style={{
                     marginTop: 10, paddingTop: 10, borderTop: '1px solid #f1f5f9',
                     display: 'flex', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#64748b',
@@ -729,7 +783,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                     </span>
                   </div>
 
-                  {/* Aviso sobre bases excluídas */}
                   {basesExcluidas.length > 0 && (
                     <div style={{
                       marginTop: 12, padding: '10px 12px',
@@ -745,7 +798,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
               )
             })()}
 
-            {/* Mensagem quando não há meses comparáveis */}
             {basesParaSomar.length > 0 &&
              dadosRankingMargem.dadosGrafico.length === 0 && (
               <Secao titulo="🏁 Margem % por base — comparativo mensal">
@@ -764,7 +816,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
             )}
 
             <Secao titulo="🏢 Resultado por Base Operacional"
-              sub="Ranqueado pela margem operacional absoluta">
+              sub={`Ranqueado pela margem operacional absoluta · Folha ${comEncargos ? `× ${MULTIPLICADOR_ENCARGOS} (com encargos)` : 'líquida (= DP)'}`}>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
                   <thead>
@@ -772,7 +824,11 @@ export default function PainelGestao({ token, onLogout }: Props) {
                       <th style={thStyle}>Base</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Receita</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Combustível</th>
-                      <th style={{ ...thStyle, textAlign: 'right' }}>Folha</th>
+                      <th style={{ ...thStyle, textAlign: 'right' }}>
+                        Folha {comEncargos && (
+                          <span style={{ color: '#f59e0b', fontWeight: 700 }}>×{MULTIPLICADOR_ENCARGOS}</span>
+                        )}
+                      </th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Margem R$</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Margem %</th>
                       <th style={thStyle}>Status</th>
