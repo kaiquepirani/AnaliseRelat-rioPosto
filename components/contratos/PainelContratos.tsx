@@ -11,6 +11,7 @@ import FormularioContrato from './FormularioContrato'
 import PreviaImportacao from './PreviaImportacao'
 import ResumoContratos from './ResumoContratos'
 import FaturamentoPainel from './FaturamentoPainel'
+import FinanciamentosPainel from './FinanciamentosPainel'
 
 interface Props {
   token: string
@@ -46,7 +47,7 @@ const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
   return 'VIGENTE'
 }
 
-type Aba = 'resumo' | 'contratos' | 'faturamento'
+type Aba = 'resumo' | 'contratos' | 'faturamento' | 'financiamentos'
 type FiltroSituacao = 'ativos' | 'todos' | 'vigentes_todos' | 'vigente' | 'vencendo' | 'vencendo_60' | 'vencido' | 'encerrado' | 'em_renovacao'
 
 export default function PainelContratos({ token, onLogout }: Props) {
@@ -347,12 +348,16 @@ export default function PainelContratos({ token, onLogout }: Props) {
           icone="📋" label="Contratos" />
         <BotaoAba ativo={abaAtiva === 'faturamento'} onClick={() => setAbaAtiva('faturamento')}
           icone="💵" label="Faturamento" />
+        <BotaoAba ativo={abaAtiva === 'financiamentos'} onClick={() => setAbaAtiva('financiamentos')}
+          icone="💰" label="Financiamentos" />
       </div>
 
       <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
 
         {abaAtiva === 'faturamento' ? (
           <FaturamentoPainel token={token} onLogout={onLogout} />
+        ) : abaAtiva === 'financiamentos' ? (
+          <FinanciamentosPainel token={token} onLogout={onLogout} />
         ) : carregando ? (
           <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
             Carregando...
