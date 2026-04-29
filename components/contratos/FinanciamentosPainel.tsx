@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
-  BarChart, Bar, LineChart, Line, ComposedChart, ResponsiveContainer,
-  XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell, PieChart, Pie,
+  BarChart, Bar, ComposedChart, ResponsiveContainer,
+  Line, XAxis, YAxis, Tooltip, Legend, CartesianGrid, Cell, PieChart, Pie,
 } from 'recharts'
 import type { Financiamento, TipoBem, PlanoOrigem } from '@/lib/financiamentos-types'
 import {
@@ -14,6 +14,33 @@ import {
 interface Props {
   token: string
   onLogout: () => void
+}
+
+// ============================================================
+// PALETA DARK PREMIUM AZUL
+// ============================================================
+const C = {
+  bg: '#0a0f1f',          // fundo principal (deep navy)
+  bgPanel: '#0f1830',     // painéis/cards
+  bgPanel2: '#152340',    // hover/elevado
+  bgPanel3: '#1c2d50',    // ainda mais elevado
+  border: '#1e2d4f',
+  borderStrong: '#2a3d68',
+  ink: '#e8edf7',         // texto principal
+  ink2: '#aab5cc',        // texto secundário
+  muted: '#6b7896',       // texto terciário
+  muted2: '#475066',
+  // Acentos
+  accent: '#4a9eff',      // azul vibrante (principal)
+  accent2: '#6db3ff',     // azul claro
+  accent3: '#2a7fd9',     // azul profundo
+  gold: '#d4b86a',        // dourado champanhe (luxo)
+  goldSoft: '#a8924d',
+  red: '#f87171',
+  amber: '#fbbf24',
+  green: '#3ecf8e',
+  violet: '#a78bfa',
+  teal: '#14b8a6',
 }
 
 const fmtReal = (n: number) =>
@@ -28,6 +55,21 @@ const fmtMonth = (s: string | null) => {
   const [y, m] = s.split('-')
   const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
   return `${meses[parseInt(m) - 1]}/${y.slice(2)}`
+}
+
+// Paleta para gráficos (cores vibrantes no fundo dark)
+const TIPO_COLORS_DARK: Record<string, string> = {
+  'Ônibus': '#d4b86a',
+  'Micro-ônibus': '#fbd38d',
+  'Van': '#a78bfa',
+  'Veículo': '#14b8a6',
+  'Imóvel/Terreno': '#fb7185',
+  'Carro Administrativo': '#4a9eff',
+  'Empréstimo': '#fbbf24',
+  'Consignado Funcionário': '#94a3b8',
+  'Compra de Veículos': '#3ecf8e',
+  'Equipamento Veicular': '#22d3ee',
+  'Outros': '#6b7896',
 }
 
 type Vista = 'dashboard' | 'lista'
@@ -96,7 +138,6 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
 
   const cronograma = useMemo(() => {
     const out: Record<string, number> = {}
-    const tiposPorMes: Record<string, Record<string, number>> = {}
 
     lista.forEach(f => {
       if (f.semInfo) return
@@ -118,8 +159,6 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           dt.setDate(dt.getDate() + 7 * i)
           const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
           out[key] = (out[key] || 0) + f.valorParcela
-          if (!tiposPorMes[key]) tiposPorMes[key] = {}
-          tiposPorMes[key][f.tipo] = (tiposPorMes[key][f.tipo] || 0) + f.valorParcela
         }
       } else {
         for (let i = 0; i < restantes; i++) {
@@ -128,8 +167,6 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           const m = (tot % 12) + 1
           const key = `${y}-${String(m).padStart(2, '0')}`
           out[key] = (out[key] || 0) + f.valorParcela
-          if (!tiposPorMes[key]) tiposPorMes[key] = {}
-          tiposPorMes[key][f.tipo] = (tiposPorMes[key][f.tipo] || 0) + f.valorParcela
         }
       }
     })
@@ -207,10 +244,31 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
     await carregar()
   }
 
+  // ============ Wrapper com fundo dark ============
+  // Como o painel pai (PainelContratos) tem fundo claro, encapsulamos tudo
+  // num container dark que "sobreescreve" visualmente esse trecho.
+  const wrapperStyle: React.CSSProperties = {
+    background: C.bg,
+    margin: '-24px -24px 0',  // estende até as bordas do main
+    padding: '24px',
+    minHeight: 'calc(100vh - 100px)',
+    color: C.ink,
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    backgroundImage: `
+      radial-gradient(ellipse 800px 600px at 20% -10%, rgba(74,158,255,0.06), transparent 60%),
+      radial-gradient(ellipse 600px 400px at 90% 110%, rgba(212,184,106,0.04), transparent 60%)
+    `,
+  }
+
   if (carregando) {
     return (
-      <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
-        Carregando financiamentos...
+      <div style={wrapperStyle}>
+        <div style={{
+          padding: 60, textAlign: 'center', color: C.ink2,
+          background: C.bgPanel, borderRadius: 12, border: `1px solid ${C.border}`,
+        }}>
+          Carregando financiamentos...
+        </div>
       </div>
     )
   }
@@ -222,14 +280,14 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
   const novosCount = lista.filter(f => f.novoContrato).length
 
   return (
-    <>
+    <div style={wrapperStyle}>
       {/* Toggle de vista */}
       <div style={{
-        display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap',
+        display: 'flex', gap: 8, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap',
       }}>
         <div style={{
-          display: 'inline-flex', background: '#fff', borderRadius: 8,
-          padding: 4, border: '1px solid #e5e7eb',
+          display: 'inline-flex', background: C.bgPanel, borderRadius: 10,
+          padding: 4, border: `1px solid ${C.border}`,
         }}>
           <button onClick={() => setVista('dashboard')} style={toggleBtn(vista === 'dashboard')}>
             📊 Dashboard
@@ -239,9 +297,13 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           </button>
         </div>
         <button onClick={abrirNovo} style={{
-          marginLeft: 'auto', padding: '10px 16px', background: '#2D3A6B', color: '#fff',
-          border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+          marginLeft: 'auto',
+          padding: '10px 18px',
+          background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+          color: '#fff', border: 'none', borderRadius: 8,
+          fontSize: 14, fontWeight: 600,
           cursor: 'pointer', fontFamily: 'inherit',
+          boxShadow: `0 4px 12px ${C.accent}40`,
         }}>+ Novo Financiamento</button>
       </div>
 
@@ -249,27 +311,27 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
         <>
           {/* KPIs */}
           <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-            gap: 14, marginBottom: 20,
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: 14, marginBottom: 22,
           }}>
-            <KPI titulo="Saldo Devedor" valor={fmtShort(agregados.totalSaldo)} cor="#dc2626"
+            <KPI titulo="Saldo Devedor" valor={fmtShort(agregados.totalSaldo)} cor={C.red}
               sub={`${lista.length} contratos`} />
-            <KPI titulo="Compromisso Mensal" valor={fmtShort(agregados.totalMensal)} cor="#2D3A6B"
-              sub="parcelas regulares" />
-            <KPI titulo={`Próximo: ${proxMesNome}`} valor={fmtShort(proxMes)} cor="#4AABDB"
+            <KPI titulo="Compromisso Mensal" valor={fmtShort(agregados.totalMensal)} cor={C.gold}
+              sub="parcelas regulares" highlight />
+            <KPI titulo={`Próximo: ${proxMesNome}`} valor={fmtShort(proxMes)} cor={C.accent}
               sub="compromisso já contratado" />
             <KPI titulo="Maior Credor"
-              valor={fmtShort(agregados.credores[0]?.saldo || 0)} cor="#7c3aed"
+              valor={fmtShort(agregados.credores[0]?.saldo || 0)} cor={C.violet}
               sub={`${(agregados.credores[0]?.banco || '–').substring(0, 18)} (${agregados.credores[0]?.qtd || 0})`} />
             <KPI titulo="Maior Contrato"
-              valor={fmtShort(maiorContrato ? calcSaldoDevedor(maiorContrato) : 0)} cor="#f59e0b"
+              valor={fmtShort(maiorContrato ? calcSaldoDevedor(maiorContrato) : 0)} cor={C.amber}
               sub={maiorContrato?.descricao.substring(0, 22) || '–'} />
-            <KPI titulo="Novos Contratos" valor={String(novosCount)} cor="#047857"
+            <KPI titulo="Novos Contratos" valor={String(novosCount)} cor={C.green}
               sub="marcados como novos" />
           </div>
 
           {/* Cronograma */}
-          <div style={cardStyle}>
+          <div style={{ ...cardStyle, marginBottom: 16 }}>
             <div style={cardHeader}>
               <div style={cardTitle}>📅 Cronograma de Compromisso Mensal</div>
               <div style={cardSub}>Barras = compromisso · Linha = saldo devedor decrescente</div>
@@ -277,19 +339,31 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
             <div style={{ height: 380 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={cronogramaComSaldo}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 10, fill: '#64748b' }} />
-                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: '#64748b' }}
+                  <defs>
+                    <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={C.accent2} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={C.accent3} stopOpacity={0.7} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                  <XAxis dataKey="mes" tick={{ fontSize: 10, fill: C.ink2 }} stroke={C.borderStrong} />
+                  <YAxis yAxisId="left" tick={{ fontSize: 11, fill: C.ink2 }}
+                    stroke={C.borderStrong}
                     tickFormatter={(v: number) => fmtShort(v)} />
-                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: '#047857' }}
+                  <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11, fill: C.gold }}
+                    stroke={C.borderStrong}
                     tickFormatter={(v: number) => fmtShort(v)} />
                   <Tooltip
                     formatter={(v: any) => fmtReal(v)}
-                    contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }}
+                    contentStyle={{
+                      background: C.bgPanel3, border: `1px solid ${C.borderStrong}`,
+                      borderRadius: 8, color: C.ink, fontSize: 12,
+                    }}
+                    labelStyle={{ color: C.ink, fontWeight: 600 }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar yAxisId="left" dataKey="compromisso" fill="#2D3A6B" name="Compromisso mensal" radius={[3, 3, 0, 0]} />
-                  <Line yAxisId="right" type="monotone" dataKey="saldo" stroke="#047857"
+                  <Legend wrapperStyle={{ fontSize: 12, color: C.ink2 }} />
+                  <Bar yAxisId="left" dataKey="compromisso" fill="url(#barGradient)" name="Compromisso mensal" radius={[4, 4, 0, 0]} />
+                  <Line yAxisId="right" type="monotone" dataKey="saldo" stroke={C.gold}
                     strokeWidth={2.5} dot={false} name="Saldo devedor" />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -306,13 +380,19 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
               <div style={{ height: 320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={agregados.credores.slice(0, 10)} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }}
+                    <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                    <XAxis type="number" tick={{ fontSize: 10, fill: C.ink2 }}
+                      stroke={C.borderStrong}
                       tickFormatter={(v: number) => fmtShort(v)} />
-                    <YAxis type="category" dataKey="banco" tick={{ fontSize: 10, fill: '#64748b' }} width={140} />
+                    <YAxis type="category" dataKey="banco" tick={{ fontSize: 10, fill: C.ink2 }}
+                      stroke={C.borderStrong}
+                      width={140} />
                     <Tooltip formatter={(v: any) => fmtReal(v)}
-                      contentStyle={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8 }} />
-                    <Bar dataKey="saldo" fill="#7c3aed" radius={[0, 3, 3, 0]} />
+                      contentStyle={{
+                        background: C.bgPanel3, border: `1px solid ${C.borderStrong}`,
+                        borderRadius: 8, color: C.ink, fontSize: 12,
+                      }} />
+                    <Bar dataKey="saldo" fill={C.accent} radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -329,13 +409,18 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
                     <Pie
                       data={agregados.tipos} dataKey="saldo" nameKey="tipo"
                       cx="50%" cy="50%" outerRadius={100} innerRadius={55}
+                      stroke={C.bg} strokeWidth={2}
                     >
                       {agregados.tipos.map(t => (
-                        <Cell key={t.tipo} fill={CORES_TIPO[t.tipo as TipoBem] || '#64748b'} />
+                        <Cell key={t.tipo} fill={TIPO_COLORS_DARK[t.tipo] || C.muted} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: any) => fmtReal(v)} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: any) => fmtReal(v)}
+                      contentStyle={{
+                        background: C.bgPanel3, border: `1px solid ${C.borderStrong}`,
+                        borderRadius: 8, color: C.ink, fontSize: 12,
+                      }} />
+                    <Legend wrapperStyle={{ fontSize: 11, color: C.ink2 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
@@ -346,16 +431,18 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
         <>
           {/* Filtros */}
           <div style={{
-            background: '#fff', padding: 14, borderRadius: 12,
+            background: C.bgPanel, padding: 14, borderRadius: 12,
             display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
-            marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+            marginBottom: 16, border: `1px solid ${C.border}`,
           }}>
             <input
               placeholder="Buscar prefixo, fornecedor, descrição..."
               value={busca} onChange={e => setBusca(e.target.value)}
               style={{
-                flex: '1 1 220px', padding: '10px 12px', border: '1px solid #e5e7eb',
+                flex: '1 1 220px', padding: '10px 12px',
+                border: `1px solid ${C.border}`,
                 borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                background: C.bgPanel2, color: C.ink,
               }}
             />
             <select value={filtroPlano} onChange={e => setFiltroPlano(e.target.value)} style={selectStyle}>
@@ -379,8 +466,8 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           {/* Cards de financiamento */}
           {filtrados.length === 0 ? (
             <div style={{
-              padding: 40, textAlign: 'center', color: '#64748b',
-              background: '#fff', borderRadius: 12,
+              padding: 40, textAlign: 'center', color: C.ink2,
+              background: C.bgPanel, borderRadius: 12, border: `1px solid ${C.border}`,
             }}>
               {lista.length === 0
                 ? 'Nenhum financiamento cadastrado. Clique em "+ Novo Financiamento" para começar.'
@@ -408,12 +495,12 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           onSalvar={salvar}
         />
       )}
-    </>
+    </div>
   )
 }
 
 // ====================================================================
-// CardFinanciamento
+// CardFinanciamento (dark)
 // ====================================================================
 function CardFinanciamento({ f, onEditar, onExcluir, onPagar }: {
   f: Financiamento
@@ -428,63 +515,75 @@ function CardFinanciamento({ f, onEditar, onExcluir, onPagar }: {
   const quit = calcQuitacao(f)
   const completed = pagas >= f.totalParcelas
 
-  const corBarra = completed ? '#14b8a6' : pct >= 75 ? '#3ecf8e' : pct >= 25 ? '#d4af37' : pct > 0 ? '#fbbf24' : '#dc2626'
+  const corBarra = completed ? C.teal : pct >= 75 ? C.green : pct >= 25 ? C.gold : pct > 0 ? C.amber : C.red
+  const corBorda = f.novoContrato ? C.green : f.temErro ? C.amber : C.accent
 
   return (
     <div style={{
-      background: '#fff', borderRadius: 8,
-      borderLeft: `4px solid ${f.novoContrato ? '#3ecf8e' : f.temErro ? '#fbbf24' : '#7c3aed'}`,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-      opacity: completed ? 0.6 : 1,
+      background: C.bgPanel,
+      borderRadius: 10,
+      borderLeft: `3px solid ${corBorda}`,
+      border: `1px solid ${C.border}`,
+      borderLeftWidth: 3,
+      borderLeftColor: corBorda,
       padding: 14,
+      opacity: completed ? 0.55 : 1,
+      transition: 'all 0.15s',
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: 220 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
               {f.descricao}
             </span>
-            <span style={tagStyle(f.planoOrigem === 'Veiculos' ? '#14b8a6' : '#7c3aed')}>
+            <span style={tagStyle(f.planoOrigem === 'Veiculos' ? C.teal : C.accent)}>
               {f.planoOrigem}
             </span>
-            <span style={tagStyle('#64748b')}>{f.tipo}</span>
-            {f.novoContrato && <span style={tagStyle('#3ecf8e')}>🆕 Novo</span>}
-            {f.reclassificado && <span style={tagStyle('#4AABDB')}>Reclass.</span>}
-            {f.temErro && <span style={tagStyle('#fbbf24')}>⚠️ Erro</span>}
-            {completed && <span style={tagStyle('#14b8a6')}>✓ Quitado</span>}
+            <span style={tagStyle(C.muted)}>{f.tipo}</span>
+            {f.novoContrato && <span style={tagStyle(C.green)}>🆕 Novo</span>}
+            {f.reclassificado && <span style={tagStyle(C.accent2)}>Reclass.</span>}
+            {f.temErro && <span style={tagStyle(C.amber)}>⚠️ Erro</span>}
+            {completed && <span style={tagStyle(C.teal)}>✓ Quitado</span>}
           </div>
-          <div style={{ fontSize: 12, color: '#64748b', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-            <span>🏦 <strong>{f.fornecedor}</strong></span>
+          <div style={{ fontSize: 12, color: C.ink2, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <span>🏦 <strong style={{ color: C.ink }}>{f.fornecedor}</strong></span>
             <span>📍 {f.cc.replace('GARAGEM ', '')}</span>
-            <span>💰 <strong>{fmtShort(f.valorParcela)}</strong>/mês</span>
+            <span>💰 <strong style={{ color: C.gold }}>{fmtShort(f.valorParcela)}</strong>/mês</span>
             <span>📅 {quit ? `Quita ${fmtMonth(quit)}` : '–'}</span>
           </div>
           {/* Barra de progresso */}
-          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1, height: 6, background: '#f1f5f9', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{
+              flex: 1, height: 6, background: C.bgPanel3,
+              borderRadius: 3, overflow: 'hidden',
+              border: `1px solid ${C.border}`,
+            }}>
               <div style={{
                 height: '100%', width: `${pct.toFixed(1)}%`, background: corBarra,
-                transition: 'width 0.4s ease',
+                transition: 'width 0.4s ease', boxShadow: `0 0 8px ${corBarra}80`,
               }} />
             </div>
-            <span style={{ fontSize: 11, fontFamily: 'monospace', color: '#475569', minWidth: 80, textAlign: 'right' }}>
+            <span style={{ fontSize: 11, fontFamily: 'monospace', color: C.ink2, minWidth: 80, textAlign: 'right' }}>
               <strong style={{ color: corBarra }}>{pagas}/{f.totalParcelas}</strong>
-              <span style={{ color: '#94a3b8', display: 'block', fontSize: 10 }}>
+              <span style={{ color: C.muted, display: 'block', fontSize: 10 }}>
                 {completed ? 'quitado' : `${restantes} a vencer`}
               </span>
             </span>
           </div>
         </div>
         <div style={{ textAlign: 'right', minWidth: 130 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: '#7c3aed', fontFamily: 'monospace' }}>
+          <div style={{
+            fontSize: 17, fontWeight: 700, color: C.gold,
+            fontFamily: 'monospace', letterSpacing: '-0.02em',
+          }}>
             {fmtShort(saldo)}
           </div>
-          <div style={{ display: 'flex', gap: 4, marginTop: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 4, marginTop: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             {!completed && (
-              <button onClick={onPagar} style={iconBtn('#047857')} title="Marcar próxima parcela como paga">✓</button>
+              <button onClick={onPagar} style={iconBtn(C.green)} title="Marcar próxima parcela como paga">✓</button>
             )}
-            <button onClick={onEditar} style={iconBtn('#2D3A6B')} title="Editar">✎</button>
-            <button onClick={onExcluir} style={iconBtn('#dc2626')} title="Excluir">🗑</button>
+            <button onClick={onEditar} style={iconBtn(C.accent)} title="Editar">✎</button>
+            <button onClick={onExcluir} style={iconBtn(C.red)} title="Excluir">🗑</button>
           </div>
         </div>
       </div>
@@ -493,7 +592,7 @@ function CardFinanciamento({ f, onEditar, onExcluir, onPagar }: {
 }
 
 // ====================================================================
-// ModalFormulario
+// ModalFormulario (dark)
 // ====================================================================
 function ModalFormulario({ financiamento, onCancelar, onSalvar }: {
   financiamento: Financiamento | null
@@ -530,21 +629,26 @@ function ModalFormulario({ financiamento, onCancelar, onSalvar }: {
 
   return (
     <div onClick={onCancelar} style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      zIndex: 1000, padding: 20,
+      zIndex: 1000, padding: 20, backdropFilter: 'blur(4px)',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
-        background: '#fff', borderRadius: 12, maxWidth: 580, width: '100%',
+        background: C.bgPanel, borderRadius: 12, maxWidth: 580, width: '100%',
         maxHeight: '90vh', overflowY: 'auto',
+        border: `1px solid ${C.borderStrong}`,
+        boxShadow: `0 20px 80px rgba(0,0,0,0.5), 0 0 0 1px ${C.accent}30`,
+        color: C.ink,
       }}>
-        <div style={{ padding: '18px 22px', borderBottom: '1px solid #e5e7eb',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>
+        <div style={{
+          padding: '18px 22px', borderBottom: `1px solid ${C.border}`,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.ink }}>
             {financiamento ? 'Editar Financiamento' : 'Novo Financiamento'}
           </div>
           <button onClick={onCancelar} style={{
-            background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: '#64748b',
+            background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: C.ink2,
           }}>✕</button>
         </div>
         <div style={{ padding: 22 }}>
@@ -583,7 +687,7 @@ function ModalFormulario({ financiamento, onCancelar, onSalvar }: {
             <Field label="Parcelas Pagas (no cadastro)">
               <input type="number" min={0} value={parcelaAtual}
                 onChange={e => setParcelaAtual(parseInt(e.target.value) || 0)} style={inputStyle} />
-              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+              <div style={{ fontSize: 10, color: C.muted, marginTop: 4 }}>
                 0 = nenhuma paga ainda
               </div>
             </Field>
@@ -615,18 +719,20 @@ function ModalFormulario({ financiamento, onCancelar, onSalvar }: {
           </Field>
         </div>
         <div style={{
-          padding: '14px 22px', borderTop: '1px solid #e5e7eb',
+          padding: '14px 22px', borderTop: `1px solid ${C.border}`,
           display: 'flex', gap: 8, justifyContent: 'flex-end',
         }}>
           <button onClick={onCancelar} style={{
-            padding: '10px 18px', background: '#f1f5f9', color: '#64748b',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            padding: '10px 18px', background: C.bgPanel3, color: C.ink2,
+            border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit',
           }}>Cancelar</button>
           <button onClick={handleSalvar} style={{
-            padding: '10px 18px', background: '#2D3A6B', color: '#fff',
-            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+            padding: '10px 18px',
+            background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+            color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit',
+            boxShadow: `0 4px 12px ${C.accent}40`,
           }}>Salvar</button>
         </div>
       </div>
@@ -638,10 +744,10 @@ function ModalFormulario({ financiamento, onCancelar, onSalvar }: {
 // Componentes auxiliares
 // ====================================================================
 const Field = ({ label, children }: { label: string; children: any }) => (
-  <div style={{ marginBottom: 12 }}>
+  <div style={{ marginBottom: 14 }}>
     <label style={{
-      display: 'block', fontSize: 11, fontWeight: 600, color: '#475569',
-      textTransform: 'uppercase', letterSpacing: 0.04, marginBottom: 5,
+      display: 'block', fontSize: 11, fontWeight: 600, color: C.ink2,
+      textTransform: 'uppercase', letterSpacing: 0.06, marginBottom: 6,
     }}>{label}</label>
     {children}
   </div>
@@ -651,56 +757,97 @@ const FieldRow = ({ children }: { children: any }) => (
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>{children}</div>
 )
 
-const KPI = ({ titulo, valor, cor, sub }: { titulo: string; valor: string; cor: string; sub?: string }) => (
+const KPI = ({ titulo, valor, cor, sub, highlight }: {
+  titulo: string; valor: string; cor: string; sub?: string; highlight?: boolean
+}) => (
   <div style={{
-    background: '#fff', padding: 16, borderRadius: 12,
-    borderTop: `3px solid ${cor}`, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+    background: highlight
+      ? `linear-gradient(135deg, ${C.bgPanel2} 0%, ${C.bgPanel} 100%)`
+      : C.bgPanel,
+    padding: 18, borderRadius: 12,
+    border: `1px solid ${C.border}`,
+    borderTop: `2px solid ${cor}`,
+    position: 'relative', overflow: 'hidden',
+    boxShadow: highlight ? `0 4px 20px ${cor}20` : 'none',
   }}>
-    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+    {highlight && (
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+        background: `linear-gradient(90deg, transparent, ${cor}80 50%, transparent)`,
+      }} />
+    )}
+    <div style={{
+      fontSize: 10, color: C.muted, fontWeight: 600,
+      textTransform: 'uppercase', letterSpacing: 0.5,
+    }}>
       {titulo}
     </div>
-    <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 6, fontFamily: 'monospace' }}>{valor}</div>
-    {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>{sub}</div>}
+    <div style={{
+      fontSize: 24, fontWeight: 700, color: cor,
+      marginTop: 8, fontFamily: 'monospace',
+      letterSpacing: '-0.025em',
+    }}>{valor}</div>
+    {sub && <div style={{ fontSize: 11, color: C.ink2, marginTop: 6 }}>{sub}</div>}
   </div>
 )
 
 // ====================================================================
-// Estilos compartilhados
+// Estilos compartilhados (dark)
 // ====================================================================
 const cardStyle: React.CSSProperties = {
-  background: '#fff', padding: 22, borderRadius: 12,
-  boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: 16,
+  background: C.bgPanel, padding: 22, borderRadius: 12,
+  border: `1px solid ${C.border}`,
 }
 const cardHeader: React.CSSProperties = {
-  marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid #f1f5f9',
+  marginBottom: 16, paddingBottom: 14, borderBottom: `1px solid ${C.border}`,
 }
-const cardTitle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: '#1e293b' }
-const cardSub: React.CSSProperties = { fontSize: 12, color: '#64748b', marginTop: 3 }
+const cardTitle: React.CSSProperties = { fontSize: 14, fontWeight: 600, color: C.ink }
+const cardSub: React.CSSProperties = { fontSize: 12, color: C.muted, marginTop: 4 }
 
 const selectStyle: React.CSSProperties = {
-  padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
-  fontSize: 13, background: '#fff', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+  padding: '10px 12px',
+  border: `1px solid ${C.border}`,
+  borderRadius: 8,
+  fontSize: 13,
+  background: C.bgPanel2,
+  color: C.ink,
+  fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
 }
+
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 12px', border: '1px solid #e5e7eb',
-  borderRadius: 8, fontSize: 13, fontFamily: 'inherit', outline: 'none',
+  width: '100%',
+  padding: '10px 12px',
+  border: `1px solid ${C.border}`,
+  borderRadius: 8, fontSize: 13,
+  background: C.bgPanel2,
+  color: C.ink,
+  fontFamily: 'inherit', outline: 'none',
 }
 
 const toggleBtn = (active: boolean): React.CSSProperties => ({
-  padding: '8px 14px', background: active ? '#2D3A6B' : 'transparent',
-  color: active ? '#fff' : '#64748b', border: 'none', borderRadius: 6,
+  padding: '8px 16px',
+  background: active
+    ? `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`
+    : 'transparent',
+  color: active ? '#fff' : C.ink2,
+  border: 'none', borderRadius: 7,
   fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
   transition: 'all 0.15s',
+  boxShadow: active ? `0 2px 8px ${C.accent}40` : 'none',
 })
 
 const tagStyle = (cor: string): React.CSSProperties => ({
-  fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 3,
-  background: `${cor}15`, color: cor, letterSpacing: 0.04,
+  fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 4,
+  background: `${cor}18`,
+  color: cor,
+  letterSpacing: 0.04,
+  border: `1px solid ${cor}30`,
 })
 
 const iconBtn = (cor: string): React.CSSProperties => ({
-  width: 28, height: 28, background: 'transparent',
-  border: `1px solid ${cor}33`, color: cor, borderRadius: 5,
+  width: 30, height: 30, background: 'transparent',
+  border: `1px solid ${cor}40`, color: cor, borderRadius: 6,
   fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  transition: 'all 0.15s',
 })
