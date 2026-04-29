@@ -18,6 +18,31 @@ interface Props {
   onAtualizarLista: () => Promise<void>
 }
 
+// ============================================================
+// PALETA DARK PREMIUM AZUL
+// ============================================================
+const C = {
+  bg: '#0a0f1f',
+  bgPanel: '#0f1830',
+  bgPanel2: '#152340',
+  bgPanel3: '#1c2d50',
+  border: '#1e2d4f',
+  borderStrong: '#2a3d68',
+  ink: '#e8edf7',
+  ink2: '#aab5cc',
+  muted: '#6b7896',
+  muted2: '#475066',
+  accent: '#4a9eff',
+  accent2: '#6db3ff',
+  accent3: '#2a7fd9',
+  gold: '#d4b86a',
+  red: '#f87171',
+  amber: '#fbbf24',
+  green: '#3ecf8e',
+  violet: '#a78bfa',
+  teal: '#14b8a6',
+}
+
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
 const fmtNum = (n: number) => n.toLocaleString('pt-BR')
@@ -148,23 +173,32 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.6)',
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.75)',
+      backdropFilter: 'blur(4px)',
       zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 16, overflowY: 'auto',
     }}>
       <form onSubmit={submit} style={{
-        background: '#fff', borderRadius: 12, width: '100%', maxWidth: 780,
-        maxHeight: '92vh', overflowY: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif",
+        background: C.bgPanel, borderRadius: 12, width: '100%', maxWidth: 780,
+        maxHeight: '92vh', overflowY: 'auto',
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        color: C.ink,
+        border: `1px solid ${C.borderStrong}`,
+        boxShadow: `0 20px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.accent}30`,
       }}>
         <div style={{
-          padding: '18px 22px', borderBottom: '1px solid #e5e7eb',
-          position: 'sticky', top: 0, background: '#fff', zIndex: 1,
+          padding: '18px 22px', borderBottom: `1px solid ${C.border}`,
+          position: 'sticky', top: 0, background: C.bgPanel, zIndex: 1,
         }}>
-          <h2 style={{ margin: 0, fontSize: 18, color: '#2D3A6B' }}>
+          <h2 style={{
+            margin: 0, fontSize: 18, color: C.ink,
+            fontWeight: 700, letterSpacing: '-0.01em',
+          }}>
             {contrato ? 'Editar contrato' : 'Novo contrato manual'}
           </h2>
           {contrato?.dataEncerramento && (
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>
               Encerrado em {fmtData(contrato.dataEncerramento)}
             </div>
           )}
@@ -245,14 +279,17 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
           {arquivoUrl && (
             <div style={{
-              padding: 12, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8,
+              padding: 14,
+              background: `${C.accent}10`,
+              border: `1px solid ${C.accent}40`,
+              borderRadius: 8,
               display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
             }}>
-              <span style={{ fontSize: 20 }}>📄</span>
+              <span style={{ fontSize: 22 }}>📄</span>
               <div style={{ flex: 1, minWidth: 160 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#0c4a6e' }}>{arquivoNome || 'contrato.pdf'}</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.accent2 }}>{arquivoNome || 'contrato.pdf'}</div>
                 {arquivoSize > 0 && (
-                  <div style={{ fontSize: 11, color: '#0369a1' }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>
+                  <div style={{ fontSize: 11, color: C.ink2, marginTop: 2 }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>
                 )}
               </div>
               <button type="button" onClick={visualizarArquivo} style={linkStyle}>Abrir PDF</button>
@@ -261,23 +298,35 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
           {/* ITENS VIGENTES */}
           {itensAtuais.length > 0 && (
-            <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{
+              background: C.bgPanel2,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8, overflow: 'hidden',
+            }}>
               <div style={{
-                padding: '10px 14px', background: '#f1f5f9',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8,
-                borderBottom: '1px solid #e5e7eb',
+                padding: '12px 14px',
+                background: C.bgPanel3,
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                flexWrap: 'wrap', gap: 8,
+                borderBottom: `1px solid ${C.border}`,
               }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 700, color: C.ink2,
+                    letterSpacing: 0.4, textTransform: 'uppercase',
+                  }}>
                     ITENS VIGENTES ({itensAtuais.length})
                   </div>
-                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
                     {aditamentos.length > 0
-                      ? 'Estado após o último aditamento. Para editar, faça um novo aditamento ou altere os aditamentos existentes.'
+                      ? 'Estado após o último aditamento. Para editar, faça um novo aditamento.'
                       : 'Itens do contrato original.'}
                   </div>
                 </div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#047857' }}>
+                <div style={{
+                  fontSize: 14, fontWeight: 700, color: C.green,
+                  fontFamily: 'monospace',
+                }}>
                   {fmtReal(totalItens)}
                 </div>
               </div>
@@ -288,15 +337,16 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
           {/* HISTÓRICO DE ADITAMENTOS */}
           {contrato?.id && (
             <div style={{
-              marginTop: 8, paddingTop: 18, borderTop: '1px solid #e5e7eb',
+              marginTop: 8, paddingTop: 18,
+              borderTop: `1px solid ${C.border}`,
               display: 'flex', flexDirection: 'column', gap: 12,
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#2D3A6B' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: C.accent2 }}>
                     Histórico de aditamentos
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>
                     {aditamentos.length === 0
                       ? 'Nenhum termo de aditamento registrado.'
                       : `${aditamentos.length} ${aditamentos.length === 1 ? 'aditamento registrado' : 'aditamentos registrados'}.`}
@@ -304,9 +354,11 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                 </div>
                 {!adicionandoAditamento && !jaEncerrado && (
                   <button type="button" onClick={() => setAdicionandoAditamento(true)} style={{
-                    padding: '8px 14px', background: '#10b981', color: '#fff',
-                    border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                    padding: '8px 16px',
+                    background: `linear-gradient(135deg, ${C.green} 0%, #10b981 100%)`,
+                    color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
                     cursor: 'pointer', fontFamily: 'inherit',
+                    boxShadow: `0 4px 12px ${C.green}30`,
                   }}>+ Novo aditamento</button>
                 )}
               </div>
@@ -318,28 +370,42 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                     const aberto = aditExpandidos.has(ad.id)
                     return (
                       <div key={ad.id} style={{
-                        background: '#fafbff', border: '1px solid #e0e7ff',
-                        borderLeft: `4px solid ${cor}`, borderRadius: 8, overflow: 'hidden',
+                        background: C.bgPanel2,
+                        border: `1px solid ${C.border}`,
+                        borderLeft: `3px solid ${cor}`,
+                        borderRadius: 8, overflow: 'hidden',
                       }}>
                         <div style={{ padding: 12, display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
                           <div style={{ flex: 1, minWidth: 200 }}>
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                               <span style={{
                                 fontSize: 10, fontWeight: 700, color: '#fff',
-                                background: cor, padding: '2px 7px', borderRadius: 4, letterSpacing: 0.3,
+                                background: cor, padding: '3px 8px', borderRadius: 4,
+                                letterSpacing: 0.4, boxShadow: `0 2px 6px ${cor}40`,
                               }}>{ad.numero}º TA · {rotuloTipoAditamento(ad.tipo)}</span>
-                              <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{fmtData(ad.data)}</span>
+                              <span style={{
+                                fontSize: 12, color: C.ink2, fontWeight: 600,
+                                fontFamily: 'monospace',
+                              }}>{fmtData(ad.data)}</span>
                               {ad.percentualReajuste != null && (
-                                <span style={{ fontSize: 11, color: '#1e40af', fontWeight: 600 }}>
+                                <span style={{
+                                  fontSize: 11, color: C.accent2, fontWeight: 600,
+                                  background: `${C.accent}15`,
+                                  padding: '2px 8px', borderRadius: 4,
+                                  border: `1px solid ${C.accent}40`,
+                                }}>
                                   {ad.percentualReajuste.toFixed(2).replace('.', ',')}% {ad.indiceReajuste || ''}
                                 </span>
                               )}
                             </div>
                             {ad.observacoes && (
-                              <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>{ad.observacoes}</div>
+                              <div style={{ fontSize: 12, color: C.ink2, marginTop: 6 }}>{ad.observacoes}</div>
                             )}
                             {ad.novoValorTotal != null && (
-                              <div style={{ fontSize: 12, color: '#047857', fontWeight: 600, marginTop: 4 }}>
+                              <div style={{
+                                fontSize: 12, color: C.green, fontWeight: 600,
+                                marginTop: 6, fontFamily: 'monospace',
+                              }}>
                                 Valor: {fmtReal(ad.novoValorTotal)}
                                 {ad.novaDataVencimento && <> • Vencimento: {fmtData(ad.novaDataVencimento)}</>}
                               </div>
@@ -347,15 +413,15 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                           </div>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             {Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0 && (
-                              <button type="button" onClick={() => toggleExpandirAd(ad.id)} style={miniBtn('#64748b')}>
+                              <button type="button" onClick={() => toggleExpandirAd(ad.id)} style={miniBtn(C.ink2)}>
                                 {aberto ? '▲ Ocultar' : `▼ Ver ${ad.itensResultantes.length} itens`}
                               </button>
                             )}
-                            <button type="button" onClick={() => excluirAditamento(ad)} style={miniBtn('#b91c1c')}>Excluir</button>
+                            <button type="button" onClick={() => excluirAditamento(ad)} style={miniBtn(C.red)}>Excluir</button>
                           </div>
                         </div>
                         {aberto && Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0 && (
-                          <div style={{ borderTop: '1px solid #e0e7ff', background: '#fff' }}>
+                          <div style={{ borderTop: `1px solid ${C.border}`, background: C.bgPanel }}>
                             <TabelaItens itens={ad.itensResultantes} />
                           </div>
                         )}
@@ -377,39 +443,48 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
 
           {contrato?.id && !jaEncerrado && (
             <div style={{
-              marginTop: 4, padding: 14, background: '#fef2f2',
-              border: '1px solid #fecaca', borderRadius: 8,
+              marginTop: 4, padding: 14,
+              background: `${C.red}10`,
+              border: `1px solid ${C.red}40`,
+              borderLeft: `3px solid ${C.red}`,
+              borderRadius: 8,
             }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#991b1b', marginBottom: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.red, marginBottom: 4 }}>
                 Encerrar contrato
               </div>
-              <div style={{ fontSize: 12, color: '#b91c1c', marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: C.ink2, marginBottom: 12 }}>
                 Marca como encerrado e remove da lista principal. Continua acessível pelo filtro "Encerrados".
               </div>
               <button type="button" onClick={encerrarContrato} style={{
-                padding: '8px 14px', background: '#dc2626', color: '#fff',
-                border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
+                padding: '9px 16px',
+                background: `linear-gradient(135deg, ${C.red} 0%, #dc2626 100%)`,
+                color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
                 cursor: 'pointer', fontFamily: 'inherit',
+                boxShadow: `0 4px 12px ${C.red}30`,
               }}>🔒 Encerrar este contrato</button>
             </div>
           )}
         </div>
 
         <div style={{
-          padding: '14px 22px', borderTop: '1px solid #e5e7eb',
+          padding: '14px 22px', borderTop: `1px solid ${C.border}`,
           display: 'flex', justifyContent: 'flex-end', gap: 10,
-          position: 'sticky', bottom: 0, background: '#fff',
+          position: 'sticky', bottom: 0, background: C.bgPanel,
         }}>
           <button type="button" onClick={onCancelar} style={{
-            padding: '10px 18px', background: '#fff', color: '#64748b',
-            border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, fontWeight: 600,
+            padding: '10px 18px', background: C.bgPanel3, color: C.ink2,
+            border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, fontWeight: 600,
             cursor: 'pointer', fontFamily: 'inherit',
           }}>Cancelar</button>
           <button type="submit" disabled={salvando} style={{
-            padding: '10px 20px',
-            background: salvando ? '#94a3b8' : '#2D3A6B',
-            color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+            padding: '10px 22px',
+            background: salvando
+              ? C.bgPanel3
+              : `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+            color: salvando ? C.muted : '#fff',
+            border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
             cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+            boxShadow: salvando ? 'none' : `0 4px 12px ${C.accent}40`,
           }}>
             {salvando ? 'Salvando...' : 'Salvar'}
           </button>
@@ -520,39 +595,53 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
 
   return (
     <div style={{
-      padding: 14, background: '#f0fdf4', border: '1px solid #bbf7d0',
-      borderRadius: 8, display: 'grid', gap: 12,
+      padding: 16,
+      background: `${C.green}08`,
+      border: `1px solid ${C.green}40`,
+      borderLeft: `3px solid ${C.green}`,
+      borderRadius: 8,
+      display: 'grid', gap: 12,
     }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#166534' }}>Novo termo de aditamento</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.green }}>Novo termo de aditamento</div>
 
       {!arquivoUrl ? (
         <div>
           <input type="file" accept="application/pdf,.pdf"
             onChange={e => { const f = e.target.files?.[0]; if (f) uploadEExtrair(f) }}
             disabled={enviando || extraindo}
-            style={{ fontSize: 13, fontFamily: 'inherit' }} />
-          {enviando && <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>Enviando...</div>}
-          {extraindo && <div style={{ fontSize: 12, color: '#1d4ed8', marginTop: 6 }}>🔍 Analisando aditamento com IA...</div>}
-          {erro && <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 6 }}>{erro}</div>}
+            style={{
+              fontSize: 13, fontFamily: 'inherit',
+              color: C.ink2,
+            }} />
+          {enviando && <div style={{ fontSize: 12, color: C.ink2, marginTop: 6 }}>Enviando...</div>}
+          {extraindo && <div style={{ fontSize: 12, color: C.accent2, marginTop: 6 }}>🔍 Analisando aditamento com IA...</div>}
+          {erro && <div style={{ fontSize: 12, color: C.red, marginTop: 6 }}>{erro}</div>}
         </div>
       ) : (
         <div style={{
-          padding: 10, background: '#fff', border: '1px solid #bbf7d0', borderRadius: 6,
+          padding: 10,
+          background: C.bgPanel,
+          border: `1px solid ${C.green}40`,
+          borderRadius: 6,
           display: 'flex', alignItems: 'center', gap: 8,
         }}>
-          <span style={{ fontSize: 16 }}>📎</span>
+          <span style={{ fontSize: 18 }}>📎</span>
           <div style={{ flex: 1, fontSize: 12 }}>
-            <div style={{ fontWeight: 600, color: '#166534' }}>{arquivoNome}</div>
-            {arquivoSize > 0 && <div style={{ color: '#64748b' }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>}
+            <div style={{ fontWeight: 600, color: C.green }}>{arquivoNome}</div>
+            {arquivoSize > 0 && <div style={{ color: C.muted, marginTop: 2 }}>{(arquivoSize / 1024 / 1024).toFixed(2)} MB</div>}
           </div>
           <button type="button" onClick={() => {
             setArquivoUrl(''); setArquivoNome(''); setArquivoSize(0); setMensagemIA('')
-          }} style={miniBtn('#b91c1c')}>Trocar</button>
+          }} style={miniBtn(C.red)}>Trocar</button>
         </div>
       )}
 
       {mensagemIA && (
-        <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: 8, borderRadius: 6 }}>{mensagemIA}</div>
+        <div style={{
+          fontSize: 12, color: C.amber,
+          background: `${C.amber}10`, border: `1px solid ${C.amber}40`,
+          padding: 10, borderRadius: 6,
+        }}>{mensagemIA}</div>
       )}
 
       <div style={grid2}>
@@ -594,8 +683,17 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
       </Campo>
 
       {itensResultantes.length > 0 && (
-        <div style={{ background: '#fff', border: '1px solid #bbf7d0', borderRadius: 6, overflow: 'hidden' }}>
-          <div style={{ padding: '8px 12px', background: '#f0fdf4', fontSize: 11, fontWeight: 700, color: '#166534', letterSpacing: 0.3 }}>
+        <div style={{
+          background: C.bgPanel,
+          border: `1px solid ${C.green}40`,
+          borderRadius: 6, overflow: 'hidden',
+        }}>
+          <div style={{
+            padding: '8px 12px',
+            background: `${C.green}10`,
+            fontSize: 11, fontWeight: 700, color: C.green,
+            letterSpacing: 0.4, textTransform: 'uppercase',
+          }}>
             ITENS RESULTANTES · {itensResultantes.length}
           </div>
           <TabelaItens itens={itensResultantes} />
@@ -603,20 +701,26 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
       )}
 
       {(novaDataVencimento || novoValorTotal) && (
-        <div style={{ padding: 10, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, display: 'grid', gap: 4 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>
+        <div style={{
+          padding: 12,
+          background: C.bgPanel,
+          border: `1px solid ${C.border}`,
+          borderRadius: 6,
+          display: 'grid', gap: 6,
+        }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.ink2, marginBottom: 4 }}>
             Aplicar ao contrato principal:
           </div>
           {novaDataVencimento && (
             <label style={checkboxStyle}>
               <input type="checkbox" checked={aplicarVencimento} onChange={e => setAplicarVencimento(e.target.checked)} />
-              Atualizar vencimento para <strong>{fmtData(novaDataVencimento)}</strong>
+              Atualizar vencimento para <strong style={{ color: C.ink, fontFamily: 'monospace' }}>{fmtData(novaDataVencimento)}</strong>
             </label>
           )}
           {novoValorTotal && (
             <label style={checkboxStyle}>
               <input type="checkbox" checked={aplicarValor} onChange={e => setAplicarValor(e.target.checked)} />
-              Atualizar valor total para <strong>{fmtReal(Number(novoValorTotal.replace(',', '.')))}</strong>
+              Atualizar valor total para <strong style={{ color: C.green, fontFamily: 'monospace' }}>{fmtReal(Number(novoValorTotal.replace(',', '.')))}</strong>
             </label>
           )}
         </div>
@@ -624,16 +728,20 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" onClick={onCancelar} style={{
-          padding: '8px 14px', background: '#fff', color: '#64748b',
-          border: '1px solid #e5e7eb', borderRadius: 6, fontSize: 13, fontWeight: 600,
+          padding: '8px 14px', background: C.bgPanel3, color: C.ink2,
+          border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 13, fontWeight: 600,
           cursor: 'pointer', fontFamily: 'inherit',
         }}>Cancelar</button>
         <button type="button" onClick={salvar} disabled={salvando || enviando || extraindo || !arquivoUrl || !data} style={{
-          padding: '8px 14px',
-          background: salvando || enviando || extraindo || !arquivoUrl || !data ? '#94a3b8' : '#10b981',
-          color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600,
+          padding: '8px 16px',
+          background: (salvando || enviando || extraindo || !arquivoUrl || !data)
+            ? C.bgPanel3
+            : `linear-gradient(135deg, ${C.green} 0%, #10b981 100%)`,
+          color: (salvando || enviando || extraindo || !arquivoUrl || !data) ? C.muted : '#fff',
+          border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600,
           cursor: salvando || enviando || extraindo || !arquivoUrl || !data ? 'not-allowed' : 'pointer',
           fontFamily: 'inherit',
+          boxShadow: (salvando || enviando || extraindo || !arquivoUrl || !data) ? 'none' : `0 4px 12px ${C.green}30`,
         }}>{salvando ? 'Salvando...' : 'Salvar aditamento'}</button>
       </div>
     </div>
@@ -646,7 +754,10 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
   <div style={{ overflowX: 'auto' }}>
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
-        <tr style={{ background: '#fafafa', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+        <tr style={{
+          background: C.bgPanel2, color: C.muted,
+          fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4,
+        }}>
           <th style={thStyle}>#</th>
           <th style={thStyle}>Descrição</th>
           <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
@@ -657,13 +768,13 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
       </thead>
       <tbody>
         {itens.map((it, idx) => (
-          <tr key={it.id || idx} style={{ borderTop: '1px solid #f1f5f9' }}>
-            <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
-            <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
-            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+          <tr key={it.id || idx} style={{ borderTop: `1px solid ${C.border}` }}>
+            <td style={{ ...tdStyle, color: C.muted, fontFamily: 'monospace' }}>{String(idx + 1).padStart(2, '0')}</td>
+            <td style={{ ...tdStyle, fontWeight: 600, color: C.ink }}>{it.descricao}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
             <td style={tdStyle}>{it.unidade || '—'}</td>
-            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
-            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: C.ink, fontFamily: 'monospace' }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
           </tr>
         ))}
       </tbody>
@@ -673,15 +784,21 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: 'block' }}>
-    <div style={{ fontSize: 11, color: '#374151', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <div style={{
+      fontSize: 11, color: C.ink2, fontWeight: 600, marginBottom: 5,
+      textTransform: 'uppercase', letterSpacing: 0.4,
+    }}>{label}</div>
     {children}
   </label>
 )
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 11px', border: '1px solid #e5e7eb',
+  width: '100%', padding: '10px 12px',
+  border: `1px solid ${C.border}`,
   borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none',
-  boxSizing: 'border-box', background: '#fff',
+  boxSizing: 'border-box',
+  background: C.bgPanel2,
+  color: C.ink,
 }
 
 const grid2: React.CSSProperties = {
@@ -689,9 +806,12 @@ const grid2: React.CSSProperties = {
 }
 
 const linkStyle: React.CSSProperties = {
-  fontSize: 12, color: '#0369a1', fontWeight: 600,
-  background: 'transparent', border: 'none', cursor: 'pointer',
-  fontFamily: 'inherit', padding: 0, textDecoration: 'underline',
+  fontSize: 12, color: C.accent, fontWeight: 600,
+  background: 'transparent',
+  border: `1px solid ${C.accent}40`,
+  borderRadius: 6, padding: '6px 12px',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
 }
 
 const miniBtn = (cor: string): React.CSSProperties => ({
@@ -702,13 +822,13 @@ const miniBtn = (cor: string): React.CSSProperties => ({
 
 const checkboxStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
-  fontSize: 12, color: '#374151', cursor: 'pointer',
+  fontSize: 12, color: C.ink2, cursor: 'pointer',
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '7px 10px', textAlign: 'left', fontWeight: 600,
+  padding: '8px 10px', textAlign: 'left', fontWeight: 600,
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '7px 10px', color: '#334155',
+  padding: '8px 10px', color: C.ink2,
 }
