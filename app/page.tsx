@@ -1,495 +1,585 @@
-import Link from 'next/link'
+'use client'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import * as XLSX from 'xlsx'
+import { Extrato } from '@/lib/types'
+import Upload from '@/components/Upload'
+import ResumoGeral from '@/components/ResumoGeral'
+import TabelaAlertas from '@/components/TabelaAlertas'
+import DetalhesPosto from '@/components/DetalhesPosto'
+import AnaliseVeiculo from '@/components/AnaliseVeiculo'
+import AnalisePrecoCombustivel from '@/components/AnalisePrecoCombustivel'
+import AlertasAtipicos from '@/components/AlertasAtipicos'
+import AnalisePosto from '@/components/AnalisePosto'
+import PrecoAtual from '@/components/PrecoAtual'
+import Confronto from '@/components/Confronto'
+import GerenciarFrota from '@/components/GerenciarFrota'
+import AbastecimentosTerceiros from '@/components/AbastecimentosTerceiros'
+import ControleExtratos from '@/components/ControleExtratos'
 
-export default function Home() {
+type Aba = 'resumo' | 'postos' | 'alertas' | 'atipicos' | 'posto' | 'ranking' | 'preco' | 'precoatual' | 'eficiencia' | 'veiculo' | 'historico' | 'confronto' | 'frota' | 'terceiros' | 'controle'
+
+interface DuplicataInfo {
+  extratoExistente: {
+    id: string
+    nome: string
+    periodo: string
+    totalValor: number
+    dataUpload: string
+  }
+  formData: FormData
+}
+
+const fmt = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+// ============================================================
+// PALETA DARK PREMIUM AZUL (espelha globals.css)
+// ============================================================
+const C = {
+  bg: '#0a0f1f',
+  bgPanel: '#0f1830',
+  bgPanel2: '#152340',
+  bgPanel3: '#1c2d50',
+  border: '#1e2d4f',
+  borderStrong: '#2a3d68',
+  ink: '#e8edf7',
+  ink2: '#aab5cc',
+  muted: '#6b7896',
+  accent: '#4a9eff',
+  accent2: '#6db3ff',
+  accent3: '#2a7fd9',
+  gold: '#d4b86a',
+  red: '#f87171',
+  amber: '#fbbf24',
+  green: '#3ecf8e',
+  violet: '#a78bfa',
+}
+
+export default function Dashboard() {
+  const [extratos, setExtratos] = useState<Extrato[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [processando, setProcessando] = useState(false)
+  const [abaAtiva, setAbaAtiva] = useState<Aba>('resumo')
+  const [extratoSelecionado, setExtratoSelecionado] = useState<string>('todos')
+  const [duplicataInfo, setDuplicataInfo] = useState<DuplicataInfo | null>(null)
+  const [progresso, setProgresso] = useState<{ atual: number; total: number; nomeArquivo: string } | null>(null)
+
+  const buscarExtratos = useCallback(async () => {
+    const res = await fetch('/api/extratos')
+    const data = await res.json()
+    setExtratos(data)
+    setCarregando(false)
+  }, [])
+
+  useEffect(() => { buscarExtratos() }, [buscarExtratos])
+
+  const enviarForm = async (form: FormData, forcar = false): Promise<boolean> => {
+    if (forcar) form.set('forcarSalvar', 'true')
+    const res = await fetch('/api/processar', { method: 'POST', body: form })
+    const data = await res.json()
+    if (data.duplicata) {
+      setDuplicataInfo({ extratoExistente: data.extratoExistente, formData: form })
+      return false
+    }
+    if (data.sucesso) {
+      await buscarExtratos()
+      return true
+    }
+    alert('Erro ao processar: ' + (data.error || 'Tente novamente'))
+    return false
+  }
+
+  const filaRef = useRef<File[]>([])
+  const processandoFilaRef = useRef(false)
+
+  const processarArquivo = async (arquivo: File): Promise<void> => {
+    const isExcel = arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls')
+    try {
+      if (isExcel) {
+        const buf = await arquivo.arrayBuffer()
+        const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+        const dadosAbas = wb.SheetNames.map(nome => ({
+          nome,
+          dados: XLSX.utils.sheet_to_json(wb.Sheets[nome], { header: 1, defval: null })
+        }))
+        const form = new FormData()
+        form.append('excel', JSON.stringify({ arquivo: arquivo.name, abas: dadosAbas }))
+        await enviarForm(form)
+      } else {
+        const form = new FormData()
+        form.append('pdf', arquivo)
+        await enviarForm(form)
+      }
+    } catch {
+      alert('Falha ao processar "' + arquivo.name + '". Continuando...')
+    }
+  }
+
+  const processarFila = async () => {
+    if (processandoFilaRef.current) return
+    processandoFilaRef.current = true
+    setProcessando(true)
+    const total = filaRef.current.length
+    let atual = 0
+    while (filaRef.current.length > 0) {
+      const arquivo = filaRef.current.shift()!
+      atual++
+      setProgresso({ atual, total, nomeArquivo: arquivo.name })
+      await processarArquivo(arquivo)
+    }
+    setProcessando(false)
+    setProgresso(null)
+    processandoFilaRef.current = false
+  }
+
+  const handleUpload = (arquivo: File) => {
+    filaRef.current.push(arquivo)
+    if (!processandoFilaRef.current) processarFila()
+  }
+
+  const handleConfirmarDuplicata = async () => {
+    if (!duplicataInfo) return
+    setDuplicataInfo(null)
+    setProcessando(true)
+    try {
+      await enviarForm(duplicataInfo.formData, true)
+    } finally {
+      setProcessando(false)
+    }
+  }
+
+  const handleCancelarDuplicata = () => setDuplicataInfo(null)
+
+  const handleDeletar = async (id: string) => {
+    if (!confirm('Remover este extrato do histórico?')) return
+    await fetch('/api/extratos', { method: 'DELETE', body: JSON.stringify({ id }), headers: { 'Content-Type': 'application/json' } })
+    await buscarExtratos()
+  }
+
+  const [renomeando, setRenomeando] = useState(false)
+  const [novoNome, setNovoNome] = useState('')
+  const [reprocessando, setReprocessando] = useState(false)
+
+  const iniciarRenomear = () => {
+    const e = extratos.find(x => x.id === extratoSelecionado)
+    if (!e) return
+    setNovoNome(e.postos[0]?.nome || e.periodo || e.arquivo)
+    setRenomeando(true)
+  }
+
+  const handleRenomear = async () => {
+    if (!novoNome.trim()) return
+    await fetch('/api/extratos', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: extratoSelecionado, nome: novoNome.trim() })
+    })
+    await buscarExtratos()
+    setRenomeando(false)
+  }
+
+  const handleReprocessar = async () => {
+    if (!confirm('Reprocessar este extrato com a frota atual? Os status das placas serão atualizados.')) return
+    setReprocessando(true)
+    try {
+      await fetch('/api/reprocessar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: extratoSelecionado })
+      })
+      await buscarExtratos()
+    } finally {
+      setReprocessando(false)
+    }
+  }
+
+  const extratosVisiveis = extratoSelecionado === 'todos'
+    ? extratos
+    : extratos.filter(e => e.id === extratoSelecionado)
+
+  const totalGeral = extratosVisiveis.reduce((s, e) => s + e.totalValor, 0)
+  const totalLitros = extratosVisiveis.reduce((s, e) => s + e.totalLitros, 0)
+  const todosLancamentos = extratosVisiveis.flatMap(e => e.postos.flatMap(p => p.lancamentos))
+  const todosPostos = extratosVisiveis.flatMap(e => e.postos)
+
+  const totalTerceiros = todosLancamentos.filter(l => l.grupo === 'Abastecimentos de Terceiros/Vales').length
+
+  const alertasAgregados = {
+    confirmadaValor: extratosVisiveis.reduce((s, e) => s + e.alertas.confirmadaValor, 0),
+    provalValor: extratosVisiveis.reduce((s, e) => s + e.alertas.provalValor, 0),
+    naoIdentificadaValor: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificadaValor, 0),
+    confirmada: extratosVisiveis.reduce((s, e) => s + e.alertas.confirmada, 0),
+    provavel: extratosVisiveis.reduce((s, e) => s + e.alertas.provavel, 0),
+    naoIdentificada: extratosVisiveis.reduce((s, e) => s + e.alertas.naoIdentificada, 0),
+  }
+
+  const hoje = new Date()
+  const mesAtual = hoje.getMonth()
+  const anoAtual = hoje.getFullYear()
+
+  const faltandoMesesEncerrados = (() => {
+    try {
+      const salvo = typeof window !== 'undefined' ? localStorage.getItem('controle_postos') : null
+      const POSTOS_PADRAO = [
+        { id: '1', chave: 'SKINA ITALIANOS', frequencia: 'semanal' },
+        { id: '2', chave: 'POSTO TIAGO', frequencia: 'semanal' },
+        { id: '3', chave: 'PRAIA DE SAO FRANCISCO', frequencia: 'quinzenal' },
+        { id: '4', chave: 'COOPERATIVA DOS CAFEICULTORES', frequencia: 'quinzenal' },
+        { id: '5', chave: 'MOCAFOR', frequencia: 'quinzenal' },
+        { id: '6', chave: 'IRMAOS MIGUEL', frequencia: 'quinzenal' },
+        { id: '7', chave: 'ITAPIRENSE', frequencia: 'quinzenal' },
+        { id: '8', chave: 'JL AGUAI', frequencia: 'quinzenal' },
+        { id: '9', chave: 'ABASTECE RIO CLARO', frequencia: 'quinzenal' },
+        { id: '10', chave: 'RVM MOGI', frequencia: 'quinzenal' },
+        { id: '11', chave: 'SAO BENEDITO', frequencia: 'mensal' },
+        { id: '12', chave: 'TANQUE AGUAS', frequencia: 'esporadico' },
+      ]
+      const postos = salvo ? JSON.parse(salvo) : POSTOS_PADRAO
+      const esperadoMes: Record<string, number> = { semanal: 4, quinzenal: 2, mensal: 1, esporadico: 0 }
+
+      const mesVerif = mesAtual === 0 ? 11 : mesAtual - 1
+      const anoVerif = mesAtual === 0 ? anoAtual - 1 : anoAtual
+
+      const extratosMesAnterior = extratos.filter(e => {
+        const parts = e.periodo.split(' a ')[0].match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+        if (!parts) return false
+        let ano = parseInt(parts[3]); if (ano < 100) ano += ano < 50 ? 2000 : 1900
+        const mes = parseInt(parts[2]) - 1
+        const primeiroDia = new Date(anoVerif, mesVerif, 1)
+        const ultimoDia = new Date(anoVerif, mesVerif + 1, 0)
+        const dataInicio = new Date(ano, mes, parseInt(parts[1]))
+        return dataInicio <= ultimoDia && dataInicio >= primeiroDia
+      })
+
+      const salvoJust = typeof window !== 'undefined' ? localStorage.getItem('controle_justificativas') : null
+      const justificativas = salvoJust ? JSON.parse(salvoJust) : {}
+
+      return postos.filter((p: any) => {
+        if (p.frequencia === 'esporadico') return false
+        const chaveJust = `controle_just__${p.id}__${anoVerif}_${mesVerif}`
+        if (justificativas[chaveJust]) return false
+        const recebido = extratosMesAnterior.filter((e: Extrato) =>
+          e.postos.some(ep => ep.nome.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').includes(
+            p.chave.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          ))
+        ).length
+        return recebido < esperadoMes[p.frequencia]
+      }).length
+    } catch { return 0 }
+  })()
+
+  const abas: { id: Aba; label: string; badge?: number | string; vermelho?: boolean; ambar?: boolean; separadorAntes?: boolean }[] = [
+    { id: 'resumo',     label: 'Resumo' },
+    { id: 'posto',      label: 'Pesquisa por Posto' },
+    { id: 'veiculo',    label: 'Pesquisa por Veículo' },
+    { id: 'confronto',  label: 'Confronto', vermelho: true },
+    { id: 'alertas',    label: 'Placas Divergentes', separadorAntes: true, badge: alertasAgregados.naoIdentificada > 0 ? alertasAgregados.naoIdentificada : undefined },
+    { id: 'terceiros',  label: 'Terceiros/Vales', badge: totalTerceiros > 0 ? totalTerceiros : undefined, ambar: true },
+    { id: 'postos',     label: 'Extratos Detalhados', separadorAntes: true, badge: todosPostos.length },
+    { id: 'precoatual', label: 'Preço Vigente' },
+    { id: 'atipicos',   label: 'Atípicos' },
+    { id: 'preco',      label: 'Alerta de Preços' },
+  ]
+
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+    <div className="app">
+      <header className="header">
+        <div className="header-inner">
+          <div className="logo">
+            <img src="/logo.png" alt="ETCO Tur" className="logo-img" />
+            <div className="logo-divider" />
+            <div className="logo-text">
+              <div className="logo-title">Gestão de Frota</div>
+              <div className="logo-sub">Controle de combustível</div>
+            </div>
+          </div>
+          <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
+          <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <a href="/dp" style={{
+              padding: '0.5rem 1rem', fontSize: 12, fontWeight: 600,
+              background: 'rgba(74,158,255,0.10)',
+              color: C.ink,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6,
+              fontFamily: 'inherit', whiteSpace: 'nowrap',
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.background = 'rgba(74,158,255,0.20)'
+              e.currentTarget.style.borderColor = `${C.accent}60`
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.background = 'rgba(74,158,255,0.10)'
+              e.currentTarget.style.borderColor = C.border
+            }}
+            >👥 Dep. Pessoal</a>
 
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+            <button onClick={() => setAbaAtiva('frota')} style={{
+              padding: '0.5rem 1rem', fontSize: 12, fontWeight: 600,
+              background: abaAtiva === 'frota'
+                ? `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`
+                : 'rgba(74,158,255,0.10)',
+              color: abaAtiva === 'frota' ? '#0a0f1f' : C.ink,
+              border: `1px solid ${abaAtiva === 'frota' ? C.accent : C.border}`,
+              borderRadius: 8,
+              cursor: 'pointer', fontFamily: 'inherit',
+              transition: 'all 0.15s',
+              boxShadow: abaAtiva === 'frota' ? `0 4px 12px ${C.accent}40` : 'none',
+            }}>🚌 Frota</button>
 
-        .hub-root {
-          min-height: 100vh;
-          background: #0f1623;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          font-family: 'Plus Jakarta Sans', sans-serif;
-          padding: 2rem;
-          position: relative;
-          overflow: hidden;
-        }
+            <Upload onUpload={handleUpload} processando={processando} progresso={progresso ?? undefined} />
+          </div>
+        </div>
+      </header>
 
-        /* Grade de fundo sutil */
-        .hub-root::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          background-image:
-            linear-gradient(rgba(74,171,219,0.04) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(74,171,219,0.04) 1px, transparent 1px);
-          background-size: 48px 48px;
-          pointer-events: none;
-        }
+      <main className="main">
+        <div className="filtro-bar">
+          <label className="filtro-label">Período:</label>
+          <select className="filtro-select" value={extratoSelecionado} onChange={e => setExtratoSelecionado(e.target.value)}>
+            <option value="todos">Todos os extratos</option>
+            {extratos.map(e => (
+              <option key={e.id} value={e.id}>
+                {e.postos[0]?.nome} — {e.periodo || e.arquivo} ({new Date(e.dataUpload).toLocaleDateString('pt-BR')})
+              </option>
+            ))}
+          </select>
+          {extratoSelecionado !== 'todos' && (
+            <>
+              {renomeando ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <input
+                    value={novoNome}
+                    onChange={e => setNovoNome(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleRenomear(); if (e.key === 'Escape') setRenomeando(false) }}
+                    autoFocus
+                    style={{
+                      padding: '0.4rem 0.8rem', fontSize: 13, borderRadius: 6,
+                      border: `2px solid ${C.accent}`, fontFamily: 'inherit',
+                      background: C.bgPanel2, color: C.ink, minWidth: 260,
+                      outline: 'none',
+                    }}
+                  />
+                  <button onClick={handleRenomear} style={{
+                    padding: '0.4rem 0.95rem', fontSize: 12, fontWeight: 700,
+                    background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+                    color: '#0a0f1f', border: 'none',
+                    borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit',
+                    boxShadow: `0 2px 8px ${C.accent}40`,
+                  }}>Salvar</button>
+                  <button onClick={() => setRenomeando(false)} style={{
+                    padding: '0.4rem 0.75rem', fontSize: 12, fontWeight: 600,
+                    background: 'transparent', color: C.ink2,
+                    border: `1px solid ${C.border}`, borderRadius: 6,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}>Cancelar</button>
+                </div>
+              ) : (
+                <button className="btn-renomear" onClick={iniciarRenomear}>✏️ Renomear</button>
+              )}
+              <button className="btn-deletar" onClick={() => handleDeletar(extratoSelecionado)}>
+                Remover extrato
+              </button>
+              <button onClick={handleReprocessar} disabled={reprocessando} style={{
+                padding: '0.5rem 0.875rem',
+                border: `1px solid ${reprocessando ? C.border : 'rgba(62,207,142,0.40)'}`,
+                borderRadius: 8,
+                background: reprocessando ? C.bgPanel3 : 'rgba(62,207,142,0.10)',
+                fontSize: 13, color: reprocessando ? C.muted : C.green,
+                cursor: reprocessando ? 'not-allowed' : 'pointer',
+                fontFamily: 'inherit', fontWeight: 500,
+                transition: 'all 0.15s', whiteSpace: 'nowrap',
+              }}
+              onMouseEnter={e => {
+                if (!reprocessando) {
+                  e.currentTarget.style.background = 'rgba(62,207,142,0.20)'
+                  e.currentTarget.style.borderColor = 'rgba(62,207,142,0.60)'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!reprocessando) {
+                  e.currentTarget.style.background = 'rgba(62,207,142,0.10)'
+                  e.currentTarget.style.borderColor = 'rgba(62,207,142,0.40)'
+                }
+              }}>
+                {reprocessando ? '⟳ Reprocessando...' : '⟳ Reprocessar frota'}
+              </button>
+            </>
+          )}
 
-        /* Brilho central */
-        .hub-root::after {
-          content: '';
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -60%);
-          width: 600px;
-          height: 600px;
-          background: radial-gradient(circle, rgba(45,58,107,0.4) 0%, transparent 70%);
-          pointer-events: none;
-        }
+          <div style={{ marginLeft: 'auto' }}>
+            <button
+              onClick={() => setAbaAtiva('controle')}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '0.5rem 1rem', fontSize: 12, fontWeight: 700,
+                background: abaAtiva === 'controle'
+                  ? `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`
+                  : C.bgPanel2,
+                color: abaAtiva === 'controle' ? '#0a0f1f' : C.accent2,
+                border: `1.5px solid ${abaAtiva === 'controle' ? C.accent : C.accent + '60'}`,
+                borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit',
+                transition: 'all 0.15s',
+                whiteSpace: 'nowrap',
+                boxShadow: abaAtiva === 'controle' ? `0 4px 12px ${C.accent}40` : 'none',
+              }}
+            >
+              📋 Controle de Lançamentos
+              {faltandoMesesEncerrados > 0 && (
+                <span style={{
+                  background: C.red,
+                  color: '#0a0f1f',
+                  borderRadius: 10, fontSize: 10, fontWeight: 800,
+                  padding: '1px 7px', lineHeight: 1.6,
+                }}>{faltandoMesesEncerrados}</span>
+              )}
+            </button>
+          </div>
+        </div>
 
-        .hub-inner {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 3rem;
-          width: 100%;
-          max-width: 1280px;
-        }
+        {carregando ? (
+          <div className="estado-vazio">Carregando dados...</div>
+        ) : extratos.length === 0 ? (
+          <div className="estado-vazio">
+            <div className="estado-icone">↑</div>
+            <div className="estado-titulo">Nenhum extrato carregado</div>
+            <div className="estado-desc">Faça o upload do primeiro PDF para visualizar o dashboard</div>
+          </div>
+        ) : (
+          <>
+            <div className="abas">
+              {abas.map(aba => (
+                <span key={aba.id} style={{ display: 'contents' }}>
+                  {aba.separadorAntes && (
+                    <span style={{ width: 1, background: C.border, margin: '4px 4px', flexShrink: 0 }} />
+                  )}
+                  <button
+                    className={`aba ${abaAtiva === aba.id ? 'aba-ativa' : ''}`}
+                    onClick={() => setAbaAtiva(aba.id)}
+                    style={
+                      aba.ambar && abaAtiva !== aba.id
+                        ? { color: C.amber }
+                        : aba.ambar && abaAtiva === aba.id
+                        ? {
+                            color: '#0a0f1f',
+                            background: `linear-gradient(135deg, ${C.amber} 0%, #f59e0b 100%)`,
+                            border: `1px solid ${C.amber}`,
+                            boxShadow: `0 2px 8px ${C.amber}40`,
+                          }
+                        : aba.vermelho && abaAtiva !== aba.id
+                        ? { color: C.red }
+                        : aba.vermelho && abaAtiva === aba.id
+                        ? {
+                            color: '#0a0f1f',
+                            background: `linear-gradient(135deg, ${C.red} 0%, #dc2626 100%)`,
+                            border: `1px solid ${C.red}`,
+                            boxShadow: `0 2px 8px ${C.red}40`,
+                          }
+                        : {}
+                    }
+                  >
+                    {aba.label}
+                    {aba.badge !== undefined && aba.badge !== 0 && (
+                      <span className="aba-badge">{aba.badge}</span>
+                    )}
+                  </button>
+                </span>
+              ))}
+            </div>
 
-        /* Cabeçalho */
-        .hub-header {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 1rem;
-          text-align: center;
-        }
+            {abaAtiva === 'resumo'     && <ResumoGeral totalValor={totalGeral} totalLitros={totalLitros} totalVeiculos={new Set(todosLancamentos.map(l => l.placaLida)).size} alertas={alertasAgregados} lancamentos={todosLancamentos} extratos={extratos} />}
+            {abaAtiva === 'posto'      && <AnalisePosto extratos={extratos} />}
+            {abaAtiva === 'veiculo'    && <AnaliseVeiculo extratos={extratos} />}
+            {abaAtiva === 'confronto'  && <Confronto extratos={extratos} />}
+            {abaAtiva === 'alertas'    && <TabelaAlertas lancamentos={todosLancamentos} extratos={extratos} />}
+            {abaAtiva === 'terceiros'  && <AbastecimentosTerceiros extratos={extratosVisiveis} />}
+            {abaAtiva === 'postos'     && <div className="postos-grid">{todosPostos.map((posto, i) => <DetalhesPosto key={i} posto={posto} />)}</div>}
+            {abaAtiva === 'precoatual' && <PrecoAtual extratos={extratos} />}
+            {abaAtiva === 'atipicos'   && <AlertasAtipicos extratos={extratosVisiveis} />}
+            {abaAtiva === 'preco'      && <AnalisePrecoCombustivel extratos={extratosVisiveis} />}
+            {abaAtiva === 'controle'   && <ControleExtratos extratos={extratos} />}
+            {abaAtiva === 'frota'      && <GerenciarFrota />}
+          </>
+        )}
+      </main>
 
-        .hub-logo-wrap {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .hub-logo {
-          height: 64px;
-          width: auto;
-          object-fit: contain;
-          filter: drop-shadow(0 0 12px rgba(74,171,219,0.3));
-        }
-
-        .hub-logo-divider {
-          width: 1px;
-          height: 40px;
-          background: rgba(255,255,255,0.15);
-        }
-
-        .hub-logo-text {
-          display: flex;
-          flex-direction: column;
-          text-align: left;
-        }
-
-        .hub-logo-title {
-          font-size: 17px;
-          font-weight: 700;
-          color: white;
-          letter-spacing: -0.01em;
-          line-height: 1.2;
-        }
-
-        .hub-logo-sub {
-          font-size: 12px;
-          color: #4AABDB;
-          font-weight: 500;
-          letter-spacing: 0.04em;
-          margin-top: 2px;
-        }
-
-        .hub-tagline {
-          font-size: 13px;
-          color: rgba(255,255,255,0.3);
-          font-weight: 500;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-        }
-
-        /* Cards dos sistemas */
-        .hub-cards {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 1.25rem;
-          width: 100%;
-        }
-
-        .hub-card {
-          position: relative;
-          display: flex;
-          flex-direction: column;
-          gap: 1.25rem;
-          padding: 2rem;
-          border-radius: 16px;
-          border: 1px solid rgba(255,255,255,0.08);
-          background: rgba(255,255,255,0.03);
-          text-decoration: none;
-          transition: all 0.25s ease;
-          overflow: hidden;
-          cursor: pointer;
-        }
-
-        .hub-card::before {
-          content: '';
-          position: absolute;
-          inset: 0;
-          opacity: 0;
-          transition: opacity 0.25s ease;
-          border-radius: 16px;
-        }
-
-        .hub-card-combustivel::before {
-          background: linear-gradient(135deg, rgba(45,58,107,0.6) 0%, rgba(74,171,219,0.15) 100%);
-        }
-
-        .hub-card-dp::before {
-          background: linear-gradient(135deg, rgba(16,140,100,0.4) 0%, rgba(52,211,153,0.12) 100%);
-        }
-
-        .hub-card-contratos::before {
-          background: linear-gradient(135deg, rgba(109,40,217,0.5) 0%, rgba(167,139,250,0.12) 100%);
-        }
-
-        .hub-card-gestao::before {
-          background: linear-gradient(135deg, rgba(180,83,9,0.5) 0%, rgba(251,191,36,0.12) 100%);
-        }
-
-        .hub-card-em-breve::before {
-          background: linear-gradient(135deg, rgba(60,60,80,0.4) 0%, rgba(100,100,120,0.1) 100%);
-        }
-
-        .hub-card:hover::before { opacity: 1; }
-
-        .hub-card:hover {
-          border-color: rgba(255,255,255,0.16);
-          transform: translateY(-3px);
-          box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        }
-
-        .hub-card-em-breve {
-          cursor: default;
-          opacity: 0.5;
-        }
-        .hub-card-em-breve:hover {
-          transform: none;
-          box-shadow: none;
-          border-color: rgba(255,255,255,0.08);
-        }
-
-        .hub-card-top {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-        }
-
-        .hub-card-icon {
-          width: 48px;
-          height: 48px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 22px;
-          flex-shrink: 0;
-        }
-
-        .hub-card-combustivel .hub-card-icon {
-          background: rgba(74,171,219,0.15);
-          border: 1px solid rgba(74,171,219,0.2);
-        }
-
-        .hub-card-dp .hub-card-icon {
-          background: rgba(52,211,153,0.15);
-          border: 1px solid rgba(52,211,153,0.2);
-        }
-
-        .hub-card-contratos .hub-card-icon {
-          background: rgba(167,139,250,0.15);
-          border: 1px solid rgba(167,139,250,0.25);
-        }
-
-        .hub-card-gestao .hub-card-icon {
-          background: rgba(251,191,36,0.15);
-          border: 1px solid rgba(251,191,36,0.25);
-        }
-
-        .hub-card-em-breve .hub-card-icon {
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.08);
-        }
-
-        .hub-card-badge {
-          font-size: 10px;
-          font-weight: 700;
-          letter-spacing: 0.06em;
-          text-transform: uppercase;
-          padding: 3px 8px;
-          border-radius: 20px;
-        }
-
-        .hub-card-combustivel .hub-card-badge {
-          background: rgba(74,171,219,0.15);
-          color: #4AABDB;
-          border: 1px solid rgba(74,171,219,0.25);
-        }
-
-        .hub-card-dp .hub-card-badge {
-          background: rgba(52,211,153,0.15);
-          color: #34d399;
-          border: 1px solid rgba(52,211,153,0.25);
-        }
-
-        .hub-card-contratos .hub-card-badge {
-          background: rgba(167,139,250,0.18);
-          color: #c4b5fd;
-          border: 1px solid rgba(167,139,250,0.3);
-        }
-
-        .hub-card-gestao .hub-card-badge {
-          background: rgba(251,191,36,0.18);
-          color: #fbbf24;
-          border: 1px solid rgba(251,191,36,0.3);
-        }
-
-        .hub-card-em-breve .hub-card-badge {
-          background: rgba(255,255,255,0.05);
-          color: rgba(255,255,255,0.3);
-          border: 1px solid rgba(255,255,255,0.08);
-        }
-
-        .hub-card-body {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 0.5rem;
-          flex: 1;
-        }
-
-        .hub-card-title {
-          font-size: 18px;
-          font-weight: 700;
-          color: white;
-          letter-spacing: -0.01em;
-          line-height: 1.2;
-        }
-
-        .hub-card-desc {
-          font-size: 13px;
-          color: rgba(255,255,255,0.45);
-          line-height: 1.6;
-          font-weight: 400;
-        }
-
-        .hub-card-footer {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          padding-top: 1rem;
-          border-top: 1px solid rgba(255,255,255,0.06);
-        }
-
-        .hub-card-features {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-        }
-
-        .hub-card-feature {
-          font-size: 10px;
-          font-weight: 600;
-          color: rgba(255,255,255,0.3);
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.07);
-          border-radius: 6px;
-          padding: 2px 7px;
-          letter-spacing: 0.02em;
-        }
-
-        .hub-card-arrow {
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          border: 1px solid rgba(255,255,255,0.1);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: rgba(255,255,255,0.4);
-          transition: all 0.2s ease;
-          flex-shrink: 0;
-        }
-
-        .hub-card:hover .hub-card-arrow {
-          color: white;
-          border-color: rgba(255,255,255,0.3);
-          background: rgba(255,255,255,0.06);
-        }
-
-        /* Rodapé */
-        .hub-footer {
-          font-size: 11px;
-          color: rgba(255,255,255,0.15);
-          font-weight: 500;
-          letter-spacing: 0.04em;
-        }
-
-        @media (max-width: 1180px) {
-          .hub-cards { grid-template-columns: repeat(2, 1fr); }
-        }
-
-        @media (max-width: 640px) {
-          .hub-cards { grid-template-columns: 1fr; }
-          .hub-logo { height: 48px; }
-          .hub-card { padding: 1.5rem; }
-          .hub-card-title { font-size: 16px; }
-        }
-      `}</style>
-
-      <div className="hub-root">
-        <div className="hub-inner">
-
-          {/* Cabeçalho */}
-          <div className="hub-header">
-            <div className="hub-logo-wrap">
-              <img src="/logo.png" alt="ETCO Tur" className="hub-logo" />
-              <div className="hub-logo-divider" />
-              <div className="hub-logo-text">
-                <div className="hub-logo-title">ETCO Empresa de Turismo</div>
-                <div className="hub-logo-sub">e Transporte Coletivo Ltda</div>
+      {/* ── Modal de duplicata DARK ── */}
+      {duplicataInfo && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.75)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, padding: '1rem',
+        }}>
+          <div style={{
+            background: C.bgPanel,
+            borderRadius: 16, padding: '2rem',
+            maxWidth: 460, width: '100%',
+            border: `1px solid ${C.borderStrong}`,
+            boxShadow: `0 20px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.amber}30`,
+            color: C.ink,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: '1.25rem' }}>
+              <div style={{
+                width: 44, height: 44, borderRadius: 12,
+                background: `${C.amber}15`,
+                border: `1px solid ${C.amber}40`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 22, flexShrink: 0,
+              }}>⚠️</div>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 16, color: C.ink }}>Extrato possivelmente duplicado</div>
+                <div style={{ fontSize: 13, color: C.ink2, marginTop: 3 }}>Este extrato parece já ter sido lançado</div>
               </div>
             </div>
-            <div className="hub-tagline">Selecione o sistema</div>
+            <div style={{
+              background: C.bgPanel2,
+              border: `1px solid ${C.border}`,
+              borderRadius: 10, padding: '1rem 1.1rem', marginBottom: '1rem',
+            }}>
+              <div style={{
+                fontSize: 10, fontWeight: 700, color: C.muted,
+                textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8,
+              }}>
+                Extrato já salvo
+              </div>
+              <div style={{ fontWeight: 600, color: C.ink, fontSize: 14, marginBottom: 6 }}>
+                {duplicataInfo.extratoExistente.nome}
+              </div>
+              <div style={{
+                fontSize: 13, color: C.ink2,
+                display: 'flex', flexWrap: 'wrap', gap: '4px 16px',
+              }}>
+                <span>📅 <span style={{ fontFamily: 'DM Mono, monospace' }}>{duplicataInfo.extratoExistente.periodo}</span></span>
+                <span style={{ color: C.green, fontFamily: 'DM Mono, monospace' }}>💰 {fmt(duplicataInfo.extratoExistente.totalValor)}</span>
+                <span style={{ color: C.muted }}>
+                  Enviado em <span style={{ fontFamily: 'DM Mono, monospace' }}>{new Date(duplicataInfo.extratoExistente.dataUpload).toLocaleDateString('pt-BR')}</span>
+                </span>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: C.ink2, marginBottom: '1.5rem', lineHeight: 1.5 }}>
+              O sistema identificou um extrato do <strong style={{ color: C.ink }}>mesmo posto</strong>, com <strong style={{ color: C.ink }}>período idêntico</strong> e <strong style={{ color: C.ink }}>valor total similar</strong> já cadastrado. Deseja salvar mesmo assim?
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={handleCancelarDuplicata} style={{
+                padding: '0.65rem 1.25rem', fontSize: 13, fontWeight: 600,
+                background: C.bgPanel3, color: C.ink2,
+                border: `1px solid ${C.border}`, borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}>Cancelar</button>
+              <button onClick={handleConfirmarDuplicata} style={{
+                padding: '0.65rem 1.4rem', fontSize: 13, fontWeight: 700,
+                background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+                color: '#0a0f1f',
+                border: 'none', borderRadius: 8,
+                cursor: 'pointer', fontFamily: 'inherit',
+                boxShadow: `0 4px 12px ${C.accent}40`,
+              }}>Salvar mesmo assim</button>
+            </div>
           </div>
-
-          {/* Cards */}
-          <div className="hub-cards">
-
-            {/* Abastecimentos */}
-            <Link href="/dashboard" className="hub-card hub-card-combustivel">
-              <div className="hub-card-top">
-                <div className="hub-card-icon">⛽</div>
-                <span className="hub-card-badge">Ativo</span>
-              </div>
-              <div className="hub-card-body">
-                <div className="hub-card-title">Gestão de Combustível</div>
-                <div className="hub-card-desc">
-                  Controle de abastecimentos da frota, análise de extratos por posto, alertas de placas e confronto de viagens.
-                </div>
-              </div>
-              <div className="hub-card-footer">
-                <div className="hub-card-features">
-                  <span className="hub-card-feature">Extratos PDF/Excel</span>
-                  <span className="hub-card-feature">Frota</span>
-                  <span className="hub-card-feature">Alertas</span>
-                  <span className="hub-card-feature">Confronto</span>
-                </div>
-                <div className="hub-card-arrow">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            {/* Departamento Pessoal */}
-            <Link href="/dp" className="hub-card hub-card-dp">
-              <div className="hub-card-top">
-                <div className="hub-card-icon">👥</div>
-                <span className="hub-card-badge">Em construção</span>
-              </div>
-              <div className="hub-card-body">
-                <div className="hub-card-title">Departamento Pessoal</div>
-                <div className="hub-card-desc">
-                  Gestão de colaboradores, folha de pagamento, férias, controle de ponto e documentação da equipe.
-                </div>
-              </div>
-              <div className="hub-card-footer">
-                <div className="hub-card-features">
-                  <span className="hub-card-feature">Colaboradores</span>
-                  <span className="hub-card-feature">Folha</span>
-                  <span className="hub-card-feature">Férias</span>
-                  <span className="hub-card-feature">Ponto</span>
-                </div>
-                <div className="hub-card-arrow">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            {/* Contratos */}
-            <Link href="/contratos" className="hub-card hub-card-contratos">
-              <div className="hub-card-top">
-                <div className="hub-card-icon">📋</div>
-                <span className="hub-card-badge">🔒 Restrito</span>
-              </div>
-              <div className="hub-card-body">
-                <div className="hub-card-title">Gestão de Contratos</div>
-                <div className="hub-card-desc">
-                  Acompanhamento de contratos vigentes com prefeituras, alertas de vencimento e acesso rápido aos documentos em PDF.
-                </div>
-              </div>
-              <div className="hub-card-footer">
-                <div className="hub-card-features">
-                  <span className="hub-card-feature">Prefeituras</span>
-                  <span className="hub-card-feature">Vencimentos</span>
-                  <span className="hub-card-feature">PDFs</span>
-                  <span className="hub-card-feature">Alertas</span>
-                </div>
-                <div className="hub-card-arrow">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-            {/* Gestão Operacional */}
-            <Link href="/gestao" className="hub-card hub-card-gestao">
-              <div className="hub-card-top">
-                <div className="hub-card-icon">📈</div>
-                <span className="hub-card-badge">🔒 Restrito</span>
-              </div>
-              <div className="hub-card-body">
-                <div className="hub-card-title">Gestão Operacional</div>
-                <div className="hub-card-desc">
-                  Visão consolidada de receita, custos e margem por base operacional, integrando faturamento, combustível e folha.
-                </div>
-              </div>
-              <div className="hub-card-footer">
-                <div className="hub-card-features">
-                  <span className="hub-card-feature">Receita</span>
-                  <span className="hub-card-feature">Margem</span>
-                  <span className="hub-card-feature">Por base</span>
-                  <span className="hub-card-feature">Encargos</span>
-                </div>
-                <div className="hub-card-arrow">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </div>
-              </div>
-            </Link>
-
-          </div>
-
-          <div className="hub-footer">ETCO Tur · Sistema de Gestão Interno</div>
         </div>
-      </div>
-    </>
+      )}
+    </div>
   )
 }
