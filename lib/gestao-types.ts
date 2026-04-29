@@ -95,7 +95,10 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Casa Branca',
     folhaCidades: ['Casa Branca'],
     postos: ['Jose Militão de Melo Filho'],
-    faturamentoLinhas: [],
+    // ← Adicionado 'Casa Branca' (e variante uppercase) — a fonte de
+    //   faturamento traz a linha como "CASA BRANCA"; sem isso, a linha
+    //   aparece no banner de órfãos.
+    faturamentoLinhas: ['Casa Branca', 'CASA BRANCA'],
     observacao: 'Faturamento recebido em outra conta — margem não reflete realidade',
   },
   {
