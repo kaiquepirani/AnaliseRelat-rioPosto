@@ -3,7 +3,16 @@
 // ──────────────────────────────────────────────────────────────────────
 
 export const ANO_GESTAO = 2026
+
+// Multiplicador de encargos sociais sobre a folha líquida.
+// Simula INSS, FGTS, férias e 13º — aproximação do custo real de pessoal.
 export const MULTIPLICADOR_ENCARGOS = 1.7
+
+// Alíquota agregada de impostos sobre receita.
+// Aproximação que cobre PIS/COFINS, ISS, IRPJ/CSLL no regime aplicável.
+// Aplicada uniformemente a todas as bases (decisão gerencial — abr/2026).
+export const ALIQUOTA_IMPOSTOS = 0.13                       // 13%
+export const FATOR_RECEITA_LIQUIDA = 1 - ALIQUOTA_IMPOSTOS  // 0.87
 
 export interface BaseOperacional {
   id: string
@@ -95,9 +104,6 @@ export const BASES_PADRAO: BaseOperacional[] = [
     nome: 'Casa Branca',
     folhaCidades: ['Casa Branca'],
     postos: ['Jose Militão de Melo Filho'],
-    // ← Adicionado 'Casa Branca' (e variante uppercase) — a fonte de
-    //   faturamento traz a linha como "CASA BRANCA"; sem isso, a linha
-    //   aparece no banner de órfãos.
     faturamentoLinhas: ['Casa Branca', 'CASA BRANCA'],
     observacao: 'Faturamento recebido em outra conta — margem não reflete realidade',
   },
@@ -135,11 +141,6 @@ export const IGNORAR = {
 // ──────────────────────────────────────────────────────────────────────
 // Vínculos manuais de postos a bases
 // ──────────────────────────────────────────────────────────────────────
-//
-// Salvos no Redis (key 'gestao:vinculos:postos'). Quando o usuário vincula
-// um posto a uma base pelo dashboard, esse vínculo SOBRESCREVE o matching
-// tolerante padrão. Indexado pelo nome do posto NORMALIZADO (sem acento +
-// uppercase) pra ser case/acento-insensível ao comparar entre extratos.
 
 export type VinculosPostos = { [nomeNormalizado: string]: string }
 
@@ -164,7 +165,6 @@ export const encontrarBaseDoPosto = (
   vinculos?: VinculosPostos,
 ): BaseOperacional | null => {
   if (!nomePosto) return null
-  // 1. Vínculo manual sobrescreve tudo
   if (vinculos) {
     const chave = chaveVinculoPosto(nomePosto)
     const baseId = vinculos[chave]
@@ -174,7 +174,6 @@ export const encontrarBaseDoPosto = (
       }
     }
   }
-  // 2. Matching tolerante padrão (BASES_PADRAO[].postos)
   for (let i = 0; i < bases.length; i++) {
     if (matchTolerante(nomePosto, bases[i].postos)) return bases[i]
   }
@@ -326,11 +325,9 @@ interface InputConsolidacao {
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
   if (!data || typeof data !== 'string') return { ano: null, mes: null }
 
-  // 1. AAAA-MM (ISO)
   let m = data.match(/^(\d{4})-(\d{1,2})/)
   if (m) return { ano: parseInt(m[1], 10), mes: parseInt(m[2], 10) - 1 }
 
-  // 2. DD/MM/AAAA ou DD/MM/AA (BR com barra) — aceita ano de 2 ou 4 dígitos
   m = data.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
   if (m) {
     let ano = parseInt(m[3], 10)
@@ -338,7 +335,6 @@ const parseAnoMes = (data: string): { ano: number | null; mes: number | null } =
     return { ano, mes: parseInt(m[2], 10) - 1 }
   }
 
-  // 3. DD-MM-AAAA ou DD-MM-AA (BR com hífen)
   m = data.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})/)
   if (m) {
     let ano = parseInt(m[3], 10)
@@ -346,10 +342,6 @@ const parseAnoMes = (data: string): { ano: number | null; mes: number | null } =
     return { ano, mes: parseInt(m[2], 10) - 1 }
   }
 
-  // SEM fallback pra new Date(string): o JS interpreta DD/MM/AA (que falhou
-  // nas regex acima) como MM/DD/YY (formato americano), espalhando
-  // lançamentos por meses errados. Datas em formatos estranhos são
-  // descartadas com segurança.
   return { ano: null, mes: null }
 }
 
@@ -366,8 +358,6 @@ const extrairPostos = (ext: any): any[] => {
   return []
 }
 
-// Extrai a data de um lançamento, tentando vários nomes de campo possíveis.
-// No formato real do projeto ETCO, o campo é "emissao".
 const extrairDataLanc = (lanc: any): string => {
   if (!lanc) return ''
   return String(lanc.emissao || lanc.data || lanc.dataEmissao || lanc.dataAbastecimento || '')
@@ -412,7 +402,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Faturamento ─────
   let qtdLinhasFat = 0
   if (faturamento && faturamento.porAno && faturamento.porAno[ano]) {
     const dadosAno = faturamento.porAno[ano]
@@ -444,9 +433,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Combustível ─────
-  // Aplica vínculos manuais (vinculosPostos) ANTES do matching tolerante padrão
-  // — vínculo manual tem prioridade absoluta.
   for (let i = 0; i < extratos.length; i++) {
     const ext = extratos[i]
     if (!ext) continue
@@ -479,7 +465,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
-  // ───── Folha (Pagamentos do DP) ─────
   let qtdPagAno = 0
   for (let i = 0; i < pagamentos.length; i++) {
     const p = pagamentos[i]
@@ -511,7 +496,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     porBase[baseEncontrada.id].totalFolhaLiquida += v
   }
 
-  // ───── Detectar órfãos ─────
   const todosPostosNaFonte: { [n: string]: true } = {}
   for (let i = 0; i < extratos.length; i++) {
     const postosArr = extrairPostos(extratos[i])
@@ -548,7 +532,6 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     if (!cidadesFolhaUsadas[c] && !ehIgnorado(c, IGNORAR.folhaCidades)) folhaCidadesOrfas.push(c)
   })
 
-  // ───── Totais ─────
   const totaisPorMes = arrZeros()
   let totalReceita = 0, totalCombustivel = 0, totalFolhaLiquida = 0
   bases.forEach(b => {
