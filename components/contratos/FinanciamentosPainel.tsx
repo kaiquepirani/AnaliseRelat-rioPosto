@@ -245,31 +245,40 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
   }
 
   // ============ Wrapper com fundo dark ============
-  // Como o painel pai (PainelContratos) tem fundo claro, encapsulamos tudo
-  // num container dark que "sobreescreve" visualmente esse trecho.
-  const wrapperStyle: React.CSSProperties = {
+  // Trick: usamos position fixed pra pintar o fundo da tela INTEIRA atrás do main,
+  // e position relative pro conteúdo ficar centralizado igual aos outros painéis.
+  const fundoFixo: React.CSSProperties = {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
     background: C.bg,
-    margin: '-24px -24px 0',  // estende até as bordas do main
-    padding: '24px',
-    minHeight: 'calc(100vh - 100px)',
-    color: C.ink,
-    fontFamily: "'Plus Jakarta Sans', sans-serif",
     backgroundImage: `
       radial-gradient(ellipse 800px 600px at 20% -10%, rgba(74,158,255,0.06), transparent 60%),
       radial-gradient(ellipse 600px 400px at 90% 110%, rgba(212,184,106,0.04), transparent 60%)
     `,
+    pointerEvents: 'none',
+    zIndex: 0,
+  }
+  const wrapperStyle: React.CSSProperties = {
+    position: 'relative',
+    zIndex: 1,
+    color: C.ink,
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    minHeight: 'calc(100vh - 200px)',
   }
 
   if (carregando) {
     return (
-      <div style={wrapperStyle}>
-        <div style={{
-          padding: 60, textAlign: 'center', color: C.ink2,
-          background: C.bgPanel, borderRadius: 12, border: `1px solid ${C.border}`,
-        }}>
-          Carregando financiamentos...
+      <>
+        <div style={fundoFixo} />
+        <div style={wrapperStyle}>
+          <div style={{
+            padding: 60, textAlign: 'center', color: C.ink2,
+            background: C.bgPanel, borderRadius: 12, border: `1px solid ${C.border}`,
+          }}>
+            Carregando financiamentos...
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
@@ -280,7 +289,9 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
   const novosCount = lista.filter(f => f.novoContrato).length
 
   return (
-    <div style={wrapperStyle}>
+    <>
+      <div style={fundoFixo} />
+      <div style={wrapperStyle}>
       {/* Toggle de vista */}
       <div style={{
         display: 'flex', gap: 8, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap',
@@ -495,7 +506,8 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
           onSalvar={salvar}
         />
       )}
-    </div>
+      </div>
+    </>
   )
 }
 
