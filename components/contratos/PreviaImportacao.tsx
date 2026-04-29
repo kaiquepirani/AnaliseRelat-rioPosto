@@ -14,6 +14,31 @@ interface Props {
   onConfirmar: (dadosFinais: { contrato: any; aditamentos: any[] }) => Promise<void>
 }
 
+// ============================================================
+// PALETA DARK PREMIUM AZUL
+// ============================================================
+const C = {
+  bg: '#0a0f1f',
+  bgPanel: '#0f1830',
+  bgPanel2: '#152340',
+  bgPanel3: '#1c2d50',
+  border: '#1e2d4f',
+  borderStrong: '#2a3d68',
+  ink: '#e8edf7',
+  ink2: '#aab5cc',
+  muted: '#6b7896',
+  muted2: '#475066',
+  accent: '#4a9eff',
+  accent2: '#6db3ff',
+  accent3: '#2a7fd9',
+  gold: '#d4b86a',
+  red: '#f87171',
+  amber: '#fbbf24',
+  green: '#3ecf8e',
+  violet: '#a78bfa',
+  teal: '#14b8a6',
+}
+
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
 const fmtNum = (n: number) => n.toLocaleString('pt-BR')
@@ -82,33 +107,44 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.7)',
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.78)',
+      backdropFilter: 'blur(4px)',
       zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: 16, overflowY: 'auto',
     }}>
       <div style={{
-        background: '#fff', borderRadius: 12, width: '100%', maxWidth: 900,
-        maxHeight: '92vh', overflowY: 'auto', fontFamily: "'Plus Jakarta Sans', sans-serif",
+        background: C.bgPanel, borderRadius: 12, width: '100%', maxWidth: 900,
+        maxHeight: '92vh', overflowY: 'auto',
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+        color: C.ink,
+        border: `1px solid ${C.borderStrong}`,
+        boxShadow: `0 20px 80px rgba(0,0,0,0.6), 0 0 0 1px ${C.violet}30`,
       }}>
         {/* Cabeçalho */}
         <div style={{
-          padding: '18px 22px', borderBottom: '1px solid #e5e7eb',
-          position: 'sticky', top: 0, background: '#fff', zIndex: 1,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap',
+          padding: '18px 22px', borderBottom: `1px solid ${C.border}`,
+          position: 'sticky', top: 0, background: C.bgPanel, zIndex: 1,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          gap: 12, flexWrap: 'wrap',
         }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 18, color: '#2D3A6B' }}>
+            <h2 style={{
+              margin: 0, fontSize: 18, color: C.ink,
+              fontWeight: 700, letterSpacing: '-0.01em',
+            }}>
               ✨ Prévia da importação
             </h2>
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: C.ink2, marginTop: 4 }}>
               Revise os dados extraídos pela IA e edite o que precisar antes de salvar.
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             <span style={{
-              fontSize: 11, fontWeight: 700, color: '#7c3aed',
-              background: '#f5f3ff', border: '1px solid #ddd6fe',
-              padding: '4px 10px', borderRadius: 4, letterSpacing: 0.3,
+              fontSize: 11, fontWeight: 700, color: C.violet,
+              background: `${C.violet}15`,
+              border: `1px solid ${C.violet}40`,
+              padding: '5px 12px', borderRadius: 4, letterSpacing: 0.4,
             }}>
               1 CONTRATO + {aditamentos.length} {aditamentos.length === 1 ? 'ADITAMENTO' : 'ADITAMENTOS'}
             </span>
@@ -117,30 +153,56 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
 
         {/* Resumo em destaque */}
         <div style={{
-          margin: 22, padding: 16, background: '#f0fdf4',
-          border: '1px solid #bbf7d0', borderRadius: 10,
-          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12,
+          margin: 22, padding: 18,
+          background: `${C.green}08`,
+          border: `1px solid ${C.green}40`,
+          borderLeft: `3px solid ${C.green}`,
+          borderRadius: 10,
+          display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14,
+          position: 'relative', overflow: 'hidden',
         }}>
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+            background: `linear-gradient(90deg, transparent, ${C.green}80 50%, transparent)`,
+          }} />
           <div>
-            <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>CONTRATANTE</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#047857', marginTop: 2 }}>
+            <div style={{
+              fontSize: 10, color: C.green, fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: 0.5,
+            }}>CONTRATANTE</div>
+            <div style={{
+              fontSize: 14, fontWeight: 700, color: C.ink,
+              marginTop: 4,
+            }}>
               {contrato?.contratante || contrato?.cliente || '—'}
             </div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>VALOR ATUAL</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#047857', marginTop: 2 }}>
+            <div style={{
+              fontSize: 10, color: C.green, fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: 0.5,
+            }}>VALOR ATUAL</div>
+            <div style={{
+              fontSize: 16, fontWeight: 700, color: C.green,
+              marginTop: 4, fontFamily: 'monospace', letterSpacing: '-0.025em',
+            }}>
               {fmtReal(totalAtual)}
             </div>
             {totalOriginal > 0 && totalOriginal !== totalAtual && (
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+              <div style={{ fontSize: 11, color: C.muted, marginTop: 2, fontFamily: 'monospace' }}>
                 original: {fmtReal(totalOriginal)}
               </div>
             )}
           </div>
           <div>
-            <div style={{ fontSize: 11, color: '#166534', fontWeight: 600 }}>VENCIMENTO VIGENTE</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#047857', marginTop: 2 }}>
+            <div style={{
+              fontSize: 10, color: C.green, fontWeight: 600,
+              textTransform: 'uppercase', letterSpacing: 0.5,
+            }}>VENCIMENTO VIGENTE</div>
+            <div style={{
+              fontSize: 14, fontWeight: 700, color: C.ink,
+              marginTop: 4, fontFamily: 'monospace',
+            }}>
               {fmtData(ultimoAd?.novaDataVencimento || contrato?.dataVencimento)}
             </div>
           </div>
@@ -149,15 +211,22 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
         {/* CONTRATO ORIGINAL */}
         <div style={{ padding: '0 22px' }}>
           <div style={{
-            fontSize: 13, fontWeight: 700, color: '#1e293b',
-            padding: '8px 0', borderBottom: '2px solid #2D3A6B',
-            marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8,
+            fontSize: 13, fontWeight: 700, color: C.ink,
+            padding: '10px 0', borderBottom: `2px solid ${C.accent}`,
+            marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
           }}>
             <span style={{
-              fontSize: 10, background: '#2D3A6B', color: '#fff',
-              padding: '3px 8px', borderRadius: 4, letterSpacing: 0.3,
+              fontSize: 10,
+              background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+              color: '#fff',
+              padding: '4px 10px', borderRadius: 4, letterSpacing: 0.4,
+              boxShadow: `0 2px 8px ${C.accent}40`,
             }}>CONTRATO ORIGINAL</span>
-            {contrato?.dataInicio && <span style={{ fontSize: 12, color: '#64748b', fontWeight: 500 }}>Assinado em {fmtData(contrato.dataInicio)}</span>}
+            {contrato?.dataInicio && (
+              <span style={{ fontSize: 12, color: C.ink2, fontWeight: 500 }}>
+                Assinado em <span style={{ fontFamily: 'monospace', color: C.ink }}>{fmtData(contrato.dataInicio)}</span>
+              </span>
+            )}
           </div>
 
           <div style={{ display: 'grid', gap: 12 }}>
@@ -220,10 +289,18 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
 
             {/* Itens originais */}
             {Array.isArray(contrato.itens) && contrato.itens.length > 0 && (
-              <div style={{ background: '#fafafa', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{
+                background: C.bgPanel2,
+                border: `1px solid ${C.border}`,
+                borderRadius: 8, overflow: 'hidden',
+              }}>
                 <div style={{
-                  padding: '10px 14px', background: '#f1f5f9', fontSize: 12, fontWeight: 700,
-                  color: '#334155', borderBottom: '1px solid #e5e7eb',
+                  padding: '12px 14px',
+                  background: C.bgPanel3,
+                  fontSize: 11, fontWeight: 700,
+                  color: C.ink2,
+                  borderBottom: `1px solid ${C.border}`,
+                  letterSpacing: 0.4, textTransform: 'uppercase',
                 }}>
                   ITENS ORIGINAIS ({contrato.itens.length})
                 </div>
@@ -237,13 +314,16 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
         {aditamentos.length > 0 && (
           <div style={{ padding: '28px 22px 0' }}>
             <div style={{
-              fontSize: 13, fontWeight: 700, color: '#1e293b',
-              padding: '8px 0', borderBottom: '2px solid #7c3aed',
-              marginBottom: 12,
+              fontSize: 13, fontWeight: 700, color: C.ink,
+              padding: '10px 0', borderBottom: `2px solid ${C.violet}`,
+              marginBottom: 14,
             }}>
               <span style={{
-                fontSize: 10, background: '#7c3aed', color: '#fff',
-                padding: '3px 8px', borderRadius: 4, letterSpacing: 0.3,
+                fontSize: 10,
+                background: `linear-gradient(135deg, ${C.violet} 0%, #7c3aed 100%)`,
+                color: '#fff',
+                padding: '4px 10px', borderRadius: 4, letterSpacing: 0.4,
+                boxShadow: `0 2px 8px ${C.violet}40`,
               }}>{aditamentos.length} TERMO{aditamentos.length > 1 ? 'S' : ''} DE ADITAMENTO</span>
             </div>
 
@@ -253,53 +333,71 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
                 const aberto = expandidos.has(idx)
                 return (
                   <div key={idx} style={{
-                    background: '#fafbff', border: `1px solid #e0e7ff`,
-                    borderLeft: `4px solid ${corTipo}`, borderRadius: 8, overflow: 'hidden',
+                    background: C.bgPanel2,
+                    border: `1px solid ${C.border}`,
+                    borderLeft: `3px solid ${corTipo}`,
+                    borderRadius: 8, overflow: 'hidden',
                   }}>
                     <div style={{
-                      padding: '12px 16px', display: 'flex', justifyContent: 'space-between',
+                      padding: '14px 16px', display: 'flex', justifyContent: 'space-between',
                       alignItems: 'center', gap: 10, flexWrap: 'wrap',
                     }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                           <span style={{
                             fontSize: 11, fontWeight: 700, color: '#fff',
-                            background: corTipo, padding: '3px 8px', borderRadius: 4, letterSpacing: 0.3,
+                            background: corTipo, padding: '3px 10px', borderRadius: 4,
+                            letterSpacing: 0.4, boxShadow: `0 2px 6px ${corTipo}40`,
                           }}>{idx + 1}º TA · {rotuloTipoAditamento(ad.tipo || 'misto')}</span>
-                          {ad.data && <span style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>{fmtData(ad.data)}</span>}
+                          {ad.data && (
+                            <span style={{
+                              fontSize: 12, color: C.ink2, fontWeight: 600,
+                              fontFamily: 'monospace',
+                            }}>{fmtData(ad.data)}</span>
+                          )}
                           {ad.percentualReajuste != null && (
                             <span style={{
-                              fontSize: 11, fontWeight: 600, color: '#1e40af',
-                              background: '#eff6ff', border: '1px solid #bfdbfe',
-                              padding: '2px 8px', borderRadius: 4,
+                              fontSize: 11, fontWeight: 600, color: C.accent2,
+                              background: `${C.accent}15`,
+                              border: `1px solid ${C.accent}40`,
+                              padding: '3px 10px', borderRadius: 4,
                             }}>
                               {Number(ad.percentualReajuste).toFixed(2).replace('.', ',')}% {ad.indiceReajuste || ''}
                             </span>
                           )}
                         </div>
                         {ad.observacoes && (
-                          <div style={{ fontSize: 12, color: '#475569', marginTop: 4 }}>{ad.observacoes}</div>
+                          <div style={{ fontSize: 12, color: C.ink2, marginTop: 6 }}>{ad.observacoes}</div>
                         )}
                         {ad.novoValorTotal != null && (
-                          <div style={{ fontSize: 13, color: '#047857', fontWeight: 600, marginTop: 4 }}>
+                          <div style={{
+                            fontSize: 13, color: C.green, fontWeight: 600,
+                            marginTop: 6, fontFamily: 'monospace',
+                          }}>
                             Novo valor total: {fmtReal(Number(ad.novoValorTotal))}
-                            {ad.novaDataVencimento && <> • Novo vencimento: {fmtData(ad.novaDataVencimento)}</>}
+                            {ad.novaDataVencimento && (
+                              <span style={{ color: C.ink2 }}> • Novo vencimento: {fmtData(ad.novaDataVencimento)}</span>
+                            )}
                           </div>
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: 6 }}>
-                        <button type="button" onClick={() => toggleExpandir(idx)} style={miniBtn('#64748b')}>
+                        <button type="button" onClick={() => toggleExpandir(idx)} style={miniBtn(C.ink2)}>
                           {aberto ? '▲ Fechar' : '▼ Editar'}
                         </button>
-                        <button type="button" onClick={() => removerAditamento(idx)} style={miniBtn('#b91c1c')}>
+                        <button type="button" onClick={() => removerAditamento(idx)} style={miniBtn(C.red)}>
                           Remover
                         </button>
                       </div>
                     </div>
 
                     {aberto && (
-                      <div style={{ padding: '0 16px 16px', borderTop: '1px solid #e0e7ff', background: '#fff' }}>
-                        <div style={{ display: 'grid', gap: 10, paddingTop: 12 }}>
+                      <div style={{
+                        padding: '0 16px 16px',
+                        borderTop: `1px solid ${C.border}`,
+                        background: C.bgPanel,
+                      }}>
+                        <div style={{ display: 'grid', gap: 10, paddingTop: 14 }}>
                           <div style={grid2}>
                             <Campo label="Data de assinatura">
                               <input type="date" value={ad.data || ''}
@@ -349,11 +447,15 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
 
                     {/* Itens resultantes */}
                     {Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0 && (
-                      <div style={{ background: '#fff', borderTop: '1px solid #e0e7ff' }}>
+                      <div style={{
+                        background: C.bgPanel,
+                        borderTop: `1px solid ${C.border}`,
+                      }}>
                         <div style={{
-                          padding: '8px 14px', fontSize: 11, fontWeight: 700,
-                          color: '#334155', background: '#f8fafc', letterSpacing: 0.3,
-                          borderBottom: '1px solid #f1f5f9',
+                          padding: '10px 14px', fontSize: 11, fontWeight: 700,
+                          color: C.ink2, background: C.bgPanel3,
+                          letterSpacing: 0.4, textTransform: 'uppercase',
+                          borderBottom: `1px solid ${C.border}`,
                         }}>
                           ESTADO APÓS ESTE ADITAMENTO · {ad.itensResultantes.length} {ad.itensResultantes.length === 1 ? 'ITEM' : 'ITENS'}
                         </div>
@@ -369,20 +471,26 @@ export default function PreviaImportacao({ dados, onCancelar, onConfirmar }: Pro
 
         {/* Rodapé com botões */}
         <div style={{
-          padding: '16px 22px', borderTop: '1px solid #e5e7eb', marginTop: 22,
+          padding: '16px 22px',
+          borderTop: `1px solid ${C.border}`,
+          marginTop: 22,
           display: 'flex', justifyContent: 'flex-end', gap: 10,
-          position: 'sticky', bottom: 0, background: '#fff',
+          position: 'sticky', bottom: 0, background: C.bgPanel,
         }}>
           <button type="button" onClick={onCancelar} disabled={salvando} style={{
-            padding: '10px 18px', background: '#fff', color: '#64748b',
-            border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, fontWeight: 600,
+            padding: '10px 18px', background: C.bgPanel3, color: C.ink2,
+            border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 14, fontWeight: 600,
             cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
           }}>Cancelar</button>
           <button type="button" onClick={confirmar} disabled={salvando} style={{
-            padding: '10px 20px',
-            background: salvando ? '#94a3b8' : '#047857',
-            color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700,
+            padding: '10px 22px',
+            background: salvando
+              ? C.bgPanel3
+              : `linear-gradient(135deg, ${C.green} 0%, #047857 100%)`,
+            color: salvando ? C.muted : '#fff',
+            border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700,
             cursor: salvando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+            boxShadow: salvando ? 'none' : `0 4px 12px ${C.green}40`,
           }}>
             {salvando ? 'Salvando...' : `✓ Confirmar e salvar${aditamentos.length > 0 ? ` (1 contrato + ${aditamentos.length} ${aditamentos.length === 1 ? 'aditamento' : 'aditamentos'})` : ''}`}
           </button>
@@ -396,7 +504,10 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
   <div style={{ overflowX: 'auto' }}>
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
-        <tr style={{ background: '#fafafa', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+        <tr style={{
+          background: C.bgPanel2, color: C.muted,
+          fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4,
+        }}>
           <th style={thStyle}>#</th>
           <th style={thStyle}>Descrição</th>
           <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
@@ -407,13 +518,13 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
       </thead>
       <tbody>
         {itens.map((it, idx) => (
-          <tr key={idx} style={{ borderTop: '1px solid #f1f5f9' }}>
-            <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
-            <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
-            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+          <tr key={idx} style={{ borderTop: `1px solid ${C.border}` }}>
+            <td style={{ ...tdStyle, color: C.muted, fontFamily: 'monospace' }}>{String(idx + 1).padStart(2, '0')}</td>
+            <td style={{ ...tdStyle, fontWeight: 600, color: C.ink }}>{it.descricao}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
             <td style={tdStyle}>{it.unidade || '—'}</td>
-            <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
-            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+            <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: C.ink, fontFamily: 'monospace' }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
           </tr>
         ))}
       </tbody>
@@ -423,15 +534,21 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
 
 const Campo = ({ label, children }: { label: string; children: React.ReactNode }) => (
   <label style={{ display: 'block' }}>
-    <div style={{ fontSize: 11, color: '#374151', fontWeight: 600, marginBottom: 4 }}>{label}</div>
+    <div style={{
+      fontSize: 11, color: C.ink2, fontWeight: 600, marginBottom: 5,
+      textTransform: 'uppercase', letterSpacing: 0.4,
+    }}>{label}</div>
     {children}
   </label>
 )
 
 const inputStyle: React.CSSProperties = {
-  width: '100%', padding: '9px 11px', border: '1px solid #e5e7eb',
+  width: '100%', padding: '10px 12px',
+  border: `1px solid ${C.border}`,
   borderRadius: 6, fontSize: 13, fontFamily: 'inherit', outline: 'none',
-  boxSizing: 'border-box', background: '#fff',
+  boxSizing: 'border-box',
+  background: C.bgPanel2,
+  color: C.ink,
 }
 
 const grid2: React.CSSProperties = {
@@ -439,15 +556,15 @@ const grid2: React.CSSProperties = {
 }
 
 const miniBtn = (cor: string): React.CSSProperties => ({
-  padding: '5px 10px', background: 'transparent', color: cor,
+  padding: '5px 12px', background: 'transparent', color: cor,
   border: `1px solid ${cor}40`, borderRadius: 5, fontSize: 11, fontWeight: 600,
   cursor: 'pointer', fontFamily: 'inherit',
 })
 
 const thStyle: React.CSSProperties = {
-  padding: '7px 10px', textAlign: 'left', fontWeight: 600,
+  padding: '8px 10px', textAlign: 'left', fontWeight: 600,
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '7px 10px', color: '#334155',
+  padding: '8px 10px', color: C.ink2,
 }
