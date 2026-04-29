@@ -18,7 +18,9 @@ interface Props {
   onLogout: () => void
 }
 
-// Paleta dark premium (espelha src/lib/theme.ts)
+// ============================================================
+// PALETA DARK PREMIUM AZUL
+// ============================================================
 const C = {
   bg: '#0a0f1f',
   bgPanel: '#0f1830',
@@ -30,10 +32,16 @@ const C = {
   ink: '#e8edf7',
   ink2: '#aab5cc',
   muted: '#6b7896',
+  muted2: '#475066',
   accent: '#4a9eff',
   accent2: '#6db3ff',
   accent3: '#2a7fd9',
   gold: '#d4b86a',
+  red: '#f87171',
+  amber: '#fbbf24',
+  green: '#3ecf8e',
+  violet: '#a78bfa',
+  teal: '#14b8a6',
 }
 
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -47,13 +55,14 @@ const fmtData = (iso: string | undefined) => {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
+// Cores dark para situação dos contratos
 const corSituacao = (s: ContratoComAlerta['situacao']) => {
-  if (s === 'vencido')       return { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' }
-  if (s === 'vencendo')      return { bg: '#fffbeb', border: '#fde68a', text: '#b45309' }
-  if (s === 'vencendo_60')   return { bg: '#fefce8', border: '#fde047', text: '#854d0e' }
-  if (s === 'em_renovacao')  return { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' }
-  if (s === 'encerrado')     return { bg: '#f3f4f6', border: '#e5e7eb', text: '#4b5563' }
-  return { bg: '#ecfdf5', border: '#a7f3d0', text: '#047857' }
+  if (s === 'vencido')       return { bg: `${C.red}15`,    border: `${C.red}40`,    text: C.red }
+  if (s === 'vencendo')      return { bg: `${C.amber}15`,  border: `${C.amber}40`,  text: C.amber }
+  if (s === 'vencendo_60')   return { bg: `${C.gold}15`,   border: `${C.gold}40`,   text: C.gold }
+  if (s === 'em_renovacao')  return { bg: `${C.accent}15`, border: `${C.accent}40`, text: C.accent2 }
+  if (s === 'encerrado')     return { bg: C.bgPanel2,      border: C.border,        text: C.muted }
+  return { bg: `${C.green}15`, border: `${C.green}40`, text: C.green }
 }
 
 const rotuloSituacao = (s: ContratoComAlerta['situacao']) => {
@@ -329,6 +338,26 @@ export default function PainelContratos({ token, onLogout }: Props) {
     await carregar()
   }
 
+  // Wrapper dark estendido (só para a aba contratos)
+  const fundoFixo: React.CSSProperties = {
+    position: 'fixed',
+    top: 0, left: 0, right: 0, bottom: 0,
+    background: C.bg,
+    backgroundImage: `
+      radial-gradient(ellipse 800px 600px at 20% -10%, rgba(74,158,255,0.06), transparent 60%),
+      radial-gradient(ellipse 600px 400px at 90% 110%, rgba(212,184,106,0.04), transparent 60%)
+    `,
+    pointerEvents: 'none',
+    zIndex: 0,
+  }
+  const wrapperStyle: React.CSSProperties = {
+    position: 'relative',
+    zIndex: 1,
+    color: C.ink,
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    minHeight: 'calc(100vh - 200px)',
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -351,7 +380,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
         borderBottom: `1px solid ${C.border}`,
         position: 'relative',
       }}>
-        {/* Linha de luz dourada sutil no rodapé do header */}
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
           background: `linear-gradient(90deg, transparent, ${C.gold}40 50%, transparent)`,
@@ -421,122 +449,152 @@ export default function PainelContratos({ token, onLogout }: Props) {
           <FaturamentoPainel token={token} onLogout={onLogout} />
         ) : abaAtiva === 'financiamentos' ? (
           <FinanciamentosPainel token={token} onLogout={onLogout} />
-        ) : carregando ? (
-          <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
-            Carregando...
-          </div>
         ) : abaAtiva === 'resumo' ? (
-          <ResumoContratos contratos={contratos} />
+          carregando ? (
+            <div style={{
+              padding: 60, textAlign: 'center', color: C.ink2,
+              background: C.bgPanel, borderRadius: 12,
+              border: `1px solid ${C.border}`,
+            }}>Carregando...</div>
+          ) : (
+            <ResumoContratos contratos={contratos} />
+          )
         ) : (
+          // ============ ABA CONTRATOS — DARK ============
           <>
-            {kpis.vencendo > 0 && (
-              <AlertaTopo cor="#f59e0b" bg="#fffbeb" borda="#fde68a" textoCor="#92400e"
-                emoji="⚠️"
-                titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
-                sub="Revise e providencie a renovação antes do vencimento." />
-            )}
-            {kpis.vencendo60 > 0 && (
-              <AlertaTopo cor="#eab308" bg="#fefce8" borda="#fde047" textoCor="#854d0e"
-                emoji="📅"
-                titulo={`${kpis.vencendo60 === 1 ? '1 contrato vence' : `${kpis.vencendo60} contratos vencem`} entre 31 e 60 dias`}
-                sub="Comece a planejar a renovação ou nova licitação com antecedência." />
-            )}
-            {kpis.vencidos > 0 && (
-              <AlertaTopo cor="#dc2626" bg="#fef2f2" borda="#fecaca" textoCor="#991b1b"
-                emoji="🚨"
-                titulo={`${kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}`}
-                sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
-            )}
+            <div style={fundoFixo} />
+            <div style={wrapperStyle}>
+              {carregando ? (
+                <div style={{
+                  padding: 60, textAlign: 'center', color: C.ink2,
+                  background: C.bgPanel, borderRadius: 12,
+                  border: `1px solid ${C.border}`,
+                }}>Carregando...</div>
+              ) : (
+                <>
+                  {kpis.vencendo > 0 && (
+                    <AlertaTopo cor={C.amber}
+                      emoji="⚠️"
+                      titulo={`${kpis.vencendo === 1 ? '1 contrato vence' : `${kpis.vencendo} contratos vencem`} nos próximos 30 dias`}
+                      sub="Revise e providencie a renovação antes do vencimento." />
+                  )}
+                  {kpis.vencendo60 > 0 && (
+                    <AlertaTopo cor={C.gold}
+                      emoji="📅"
+                      titulo={`${kpis.vencendo60 === 1 ? '1 contrato vence' : `${kpis.vencendo60} contratos vencem`} entre 31 e 60 dias`}
+                      sub="Comece a planejar a renovação ou nova licitação com antecedência." />
+                  )}
+                  {kpis.vencidos > 0 && (
+                    <AlertaTopo cor={C.red}
+                      emoji="🚨"
+                      titulo={`${kpis.vencidos === 1 ? '1 contrato está vencido' : `${kpis.vencidos} contratos estão vencidos`}`}
+                      sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
+                  )}
 
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-              gap: 14, marginBottom: 20,
-            }}>
-              <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor="#2D3A6B"
-                onClick={() => aplicarFiltroCard('vigentes_todos')}
-                ativo={filtroSituacao === 'vigentes_todos'} />
-              <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor="#f59e0b"
-                onClick={() => aplicarFiltroCard('vencendo')}
-                ativo={filtroSituacao === 'vencendo'} />
-              <KPI titulo="Vencendo em 60 dias" valor={String(kpis.vencendo60)} cor="#eab308"
-                onClick={() => aplicarFiltroCard('vencendo_60')}
-                ativo={filtroSituacao === 'vencendo_60'} />
-              <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor="#dc2626"
-                onClick={() => aplicarFiltroCard('vencido')}
-                ativo={filtroSituacao === 'vencido'} />
-              <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor="#4AABDB" />
+                  {/* KPIs */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                    gap: 14, marginBottom: 20,
+                  }}>
+                    <KPI titulo="Contratos vigentes" valor={String(kpis.vigentes)} cor={C.accent}
+                      onClick={() => aplicarFiltroCard('vigentes_todos')}
+                      ativo={filtroSituacao === 'vigentes_todos'} />
+                    <KPI titulo="Vencendo em 30 dias" valor={String(kpis.vencendo)} cor={C.amber}
+                      onClick={() => aplicarFiltroCard('vencendo')}
+                      ativo={filtroSituacao === 'vencendo'} />
+                    <KPI titulo="Vencendo em 60 dias" valor={String(kpis.vencendo60)} cor={C.gold}
+                      onClick={() => aplicarFiltroCard('vencendo_60')}
+                      ativo={filtroSituacao === 'vencendo_60'} />
+                    <KPI titulo="Vencidos" valor={String(kpis.vencidos)} cor={C.red}
+                      onClick={() => aplicarFiltroCard('vencido')}
+                      ativo={filtroSituacao === 'vencido'} />
+                    <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor={C.green} highlight />
+                  </div>
+
+                  {/* Filtros */}
+                  <div style={{
+                    background: C.bgPanel, padding: 14, borderRadius: 12,
+                    display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
+                    marginBottom: 16, border: `1px solid ${C.border}`,
+                  }}>
+                    <input
+                      placeholder="Buscar por contratante, número, cidade..."
+                      value={busca} onChange={e => setBusca(e.target.value)}
+                      style={{
+                        flex: '1 1 220px', padding: '10px 12px',
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
+                        background: C.bgPanel2, color: C.ink,
+                      }}
+                    />
+                    <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyleDark}>
+                      <option value="ativos">Ativos (padrão)</option>
+                      <option value="todos">Todos</option>
+                      <option value="vigentes_todos">Vigentes (todos)</option>
+                      <option value="vigente">Vigentes (sem alerta)</option>
+                      <option value="vencendo">Vencendo (30d)</option>
+                      <option value="vencendo_60">A vencer (31-60d)</option>
+                      <option value="vencido">Vencidos</option>
+                      <option value="em_renovacao">Em renovação</option>
+                      <option value="encerrado">Encerrados</option>
+                    </select>
+                    <select value={filtroCidade} onChange={e => setFiltroCidade(e.target.value)} style={selectStyleDark}>
+                      <option value="">Todas as cidades</option>
+                      {cidades.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+
+                    <input ref={inputImportRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
+                      onChange={e => { const f = e.target.files?.[0]; if (f) importarPDF(f) }} />
+                    <button onClick={() => inputImportRef.current?.click()} disabled={importando} style={{
+                      padding: '10px 16px',
+                      background: importando
+                        ? C.bgPanel3
+                        : `linear-gradient(135deg, ${C.violet} 0%, #7c3aed 100%)`,
+                      color: importando ? C.muted : '#fff',
+                      border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                      cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
+                      minWidth: 180,
+                      boxShadow: importando ? 'none' : `0 4px 12px ${C.violet}40`,
+                    }}>
+                      {importando ? `✨ ${statusImport || 'Processando...'}` : '✨ Importar PDF (IA)'}
+                    </button>
+                    <button onClick={abrirNovo} style={{
+                      padding: '10px 16px',
+                      background: `linear-gradient(135deg, ${C.accent} 0%, ${C.accent3} 100%)`,
+                      color: '#fff',
+                      border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'inherit',
+                      boxShadow: `0 4px 12px ${C.accent}40`,
+                    }}>+ Novo manual</button>
+                  </div>
+
+                  {filtrados.length === 0 ? (
+                    <div style={{
+                      padding: 40, textAlign: 'center', color: C.ink2,
+                      background: C.bgPanel, borderRadius: 12,
+                      border: `1px solid ${C.border}`,
+                    }}>
+                      {contratos.length === 0
+                        ? 'Nenhum contrato cadastrado. Clique em "✨ Importar PDF (IA)" para começar.'
+                        : 'Nenhum contrato encontrado com esses filtros.'}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {filtrados.map(c => (
+                        <CardContrato
+                          key={c.id} contrato={c} token={token}
+                          expandido={expandidos.has(c.id)}
+                          onToggle={() => toggleExpandido(c.id)}
+                          onEditar={() => abrirEdicao(c)}
+                          onExcluir={() => excluir(c)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
-
-            <div style={{
-              background: '#fff', padding: 14, borderRadius: 12,
-              display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
-              marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-            }}>
-              <input
-                placeholder="Buscar por contratante, número, cidade..."
-                value={busca} onChange={e => setBusca(e.target.value)}
-                style={{
-                  flex: '1 1 220px', padding: '10px 12px', border: '1px solid #e5e7eb',
-                  borderRadius: 8, fontSize: 14, fontFamily: 'inherit', outline: 'none',
-                }}
-              />
-              <select value={filtroSituacao} onChange={e => setFiltroSituacao(e.target.value as FiltroSituacao)} style={selectStyle}>
-                <option value="ativos">Ativos (padrão)</option>
-                <option value="todos">Todos</option>
-                <option value="vigentes_todos">Vigentes (todos)</option>
-                <option value="vigente">Vigentes (sem alerta)</option>
-                <option value="vencendo">Vencendo (30d)</option>
-                <option value="vencendo_60">A vencer (31-60d)</option>
-                <option value="vencido">Vencidos</option>
-                <option value="em_renovacao">Em renovação</option>
-                <option value="encerrado">Encerrados</option>
-              </select>
-              <select value={filtroCidade} onChange={e => setFiltroCidade(e.target.value)} style={selectStyle}>
-                <option value="">Todas as cidades</option>
-                {cidades.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-
-              <input ref={inputImportRef} type="file" accept="application/pdf,.pdf" style={{ display: 'none' }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) importarPDF(f) }} />
-              <button onClick={() => inputImportRef.current?.click()} disabled={importando} style={{
-                padding: '10px 16px',
-                background: importando ? '#94a3b8' : '#7c3aed', color: '#fff',
-                border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
-                cursor: importando ? 'not-allowed' : 'pointer', fontFamily: 'inherit',
-                minWidth: 180,
-              }}>
-                {importando ? `✨ ${statusImport || 'Processando...'}` : '✨ Importar PDF (IA)'}
-              </button>
-              <button onClick={abrirNovo} style={{
-                padding: '10px 16px', background: '#2D3A6B', color: '#fff',
-                border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600,
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}>+ Novo manual</button>
-            </div>
-
-            {filtrados.length === 0 ? (
-              <div style={{
-                padding: 40, textAlign: 'center', color: '#64748b',
-                background: '#fff', borderRadius: 12,
-              }}>
-                {contratos.length === 0
-                  ? 'Nenhum contrato cadastrado. Clique em "✨ Importar PDF (IA)" para começar.'
-                  : 'Nenhum contrato encontrado com esses filtros.'}
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gap: 6 }}>
-                {filtrados.map(c => (
-                  <CardContrato
-                    key={c.id} contrato={c} token={token}
-                    expandido={expandidos.has(c.id)}
-                    onToggle={() => toggleExpandido(c.id)}
-                    onEditar={() => abrirEdicao(c)}
-                    onExcluir={() => excluir(c)}
-                  />
-                ))}
-              </div>
-            )}
           </>
         )}
       </main>
@@ -589,6 +647,7 @@ const BotaoAba = ({ ativo, onClick, icone, label }: {
   </button>
 )
 
+// ============ CardContrato DARK ============
 const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExcluir }: {
   contrato: ContratoComAlerta
   token: string
@@ -610,47 +669,51 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
 
   return (
     <div style={{
-      background: '#fff', borderRadius: 8,
-      borderLeft: `4px solid ${cor.text}`,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-      opacity: contrato.situacao === 'encerrado' ? 0.65 : 1,
+      background: C.bgPanel, borderRadius: 8,
+      border: `1px solid ${C.border}`,
+      borderLeft: `3px solid ${cor.text}`,
+      opacity: contrato.situacao === 'encerrado' ? 0.55 : 1,
       overflow: 'hidden',
+      transition: 'all 0.15s',
     }}>
       <div onClick={onToggle} style={{
         display: 'flex', alignItems: 'center', gap: 12,
-        padding: '10px 14px', cursor: 'pointer',
+        padding: '12px 14px', cursor: 'pointer',
         flexWrap: 'wrap',
       }}>
         <span style={{
-          fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
+          fontSize: 9, fontWeight: 700, letterSpacing: 0.4,
           background: cor.bg, color: cor.text, border: `1px solid ${cor.border}`,
-          padding: '2px 6px', borderRadius: 3, flexShrink: 0,
+          padding: '3px 7px', borderRadius: 3, flexShrink: 0,
         }}>{rotuloSituacao(contrato.situacao)}</span>
 
         <div style={{ flex: 1, minWidth: 200 }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#1e293b' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: C.ink }}>
               {contrato.cidade || '—'}
             </span>
-            <span style={{ fontSize: 12, color: '#475569' }}>
+            <span style={{ fontSize: 12, color: C.ink2 }}>
               {contrato.contratante || contrato.cliente}
             </span>
             {contrato.numero && (
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>· Nº {contrato.numero}</span>
+              <span style={{ fontSize: 11, color: C.muted }}>· Nº {contrato.numero}</span>
             )}
           </div>
           {objetoCurto && (
-            <div style={{ fontSize: 11, color: '#64748b', marginTop: 2, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 3, lineHeight: 1.4 }}>
               {objetoCurto}
             </div>
           )}
         </div>
 
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: cor.text }}>
+          <div style={{
+            fontSize: 13, fontWeight: 700, color: cor.text,
+            fontFamily: 'monospace',
+          }}>
             {fmtData(contrato.situacao === 'encerrado' && contrato.dataEncerramento ? contrato.dataEncerramento : contrato.dataVencimento)}
           </div>
-          <div style={{ fontSize: 10, color: '#64748b' }}>
+          <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>
             {contrato.situacao === 'vencido'
               ? `Venceu há ${Math.abs(contrato.diasRestantes)}d`
               : contrato.situacao === 'encerrado'
@@ -661,24 +724,30 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
           </div>
         </div>
 
-        <span style={{ fontSize: 11, color: '#94a3b8', flexShrink: 0 }}>
+        <span style={{ fontSize: 11, color: C.muted, flexShrink: 0 }}>
           {expandido ? '▲' : '▼'}
         </span>
       </div>
 
       {expandido && (
-        <div style={{ padding: '12px 14px', borderTop: '1px solid #f1f5f9', background: '#fafbfd' }}>
+        <div style={{
+          padding: '14px', borderTop: `1px solid ${C.border}`,
+          background: C.bgPanel2,
+        }}>
 
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <div style={{
+            fontSize: 12, color: C.ink2, marginBottom: 12,
+            display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
+          }}>
             <span>{contrato.tipoServico}</span>
             {contrato.cnpjContratante && <span>· CNPJ {contrato.cnpjContratante}</span>}
             <span style={{
-              fontSize: 10, fontWeight: 600, color: '#7c3aed',
-              background: '#f5f3ff', border: '1px solid #ddd6fe',
-              padding: '1px 6px', borderRadius: 3,
+              fontSize: 10, fontWeight: 600, color: C.violet,
+              background: `${C.violet}15`, border: `1px solid ${C.violet}40`,
+              padding: '2px 8px', borderRadius: 3,
             }}>{rotuloAditamentoAtual(contrato)}</span>
             {ultimoAd && (
-              <span style={{ color: corTipoAditamento(ultimoAd.tipo), fontWeight: 600 }}>
+              <span style={{ color: C.accent2, fontWeight: 600, fontSize: 11 }}>
                 · {ultimoAd.numero}º TA ({rotuloTipoAditamento(ultimoAd.tipo)})
                 {ultimoAd.percentualReajuste != null && ` ${ultimoAd.percentualReajuste.toFixed(2).replace('.', ',')}% ${ultimoAd.indiceReajuste || ''}`}
               </span>
@@ -687,28 +756,36 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
 
           {contrato.objeto && (
             <div style={{
-              fontSize: 12, color: '#475569',
-              background: '#fff', padding: 10, borderRadius: 6,
-              border: '1px solid #e5e7eb', marginBottom: 10,
+              fontSize: 12, color: C.ink2,
+              background: C.bgPanel, padding: 12, borderRadius: 6,
+              border: `1px solid ${C.border}`, marginBottom: 12, lineHeight: 1.5,
             }}>
-              <strong>Objeto:</strong> {contrato.objeto}
+              <strong style={{ color: C.ink }}>Objeto:</strong> {contrato.objeto}
             </div>
           )}
 
           <div style={{
             display: 'flex', alignItems: 'center',
             justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-            padding: '8px 12px', background: '#f0fdf4',
-            border: '1px solid #bbf7d0', borderRadius: 6, marginBottom: 10,
+            padding: '10px 14px',
+            background: `${C.green}10`,
+            border: `1px solid ${C.green}30`,
+            borderRadius: 6, marginBottom: 12,
           }}>
             <div>
-              <div style={{ fontSize: 10, color: '#166534', fontWeight: 600, letterSpacing: 0.3 }}>VALOR TOTAL ATUAL</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</div>
+              <div style={{
+                fontSize: 10, color: C.green, fontWeight: 600, letterSpacing: 0.4,
+                textTransform: 'uppercase',
+              }}>VALOR TOTAL ATUAL</div>
+              <div style={{
+                fontSize: 18, fontWeight: 700, color: C.green,
+                marginTop: 4, fontFamily: 'monospace', letterSpacing: '-0.02em',
+              }}>{fmtReal(totalAtual)}</div>
             </div>
             {contrato.valorTotalOriginal != null && contrato.valorTotalOriginal !== totalAtual && (
-              <div style={{ textAlign: 'right', fontSize: 11, color: '#64748b' }}>
+              <div style={{ textAlign: 'right', fontSize: 11, color: C.ink2 }}>
                 <div>Valor original: {fmtReal(contrato.valorTotalOriginal)}</div>
-                <div style={{ color: '#047857', fontWeight: 600 }}>
+                <div style={{ color: C.green, fontWeight: 600, marginTop: 2 }}>
                   +{fmtReal(totalAtual - contrato.valorTotalOriginal)} ({(((totalAtual / contrato.valorTotalOriginal) - 1) * 100).toFixed(2).replace('.', ',')}%)
                 </div>
               </div>
@@ -718,7 +795,7 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {contrato.arquivoUrl && (
               <a href={contrato.arquivoUrl} target="_blank" rel="noreferrer" style={{
-                ...acaoStyle('#4AABDB'),
+                ...acaoStyle(C.accent),
                 display: 'inline-flex', alignItems: 'center',
               }}>
                 📄 PDF
@@ -726,32 +803,45 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
             )}
             {itens.length > 0 && (
               <button onClick={(e) => { e.stopPropagation() }} style={{
-                ...acaoStyle('#047857'),
+                ...acaoStyle(C.green),
                 cursor: 'default',
               }}>
                 {itens.length} {itens.length === 1 ? 'item' : 'itens'}
               </button>
             )}
-            <button onClick={(e) => { e.stopPropagation(); onEditar() }} style={acaoStyle('#2D3A6B')}>Editar</button>
+            <button onClick={(e) => { e.stopPropagation(); onEditar() }} style={acaoStyle(C.accent3)}>Editar</button>
             <button onClick={(e) => { e.stopPropagation(); onExcluir() }} style={{
-              ...acaoStyle('#dc2626'),
-              background: 'transparent', color: '#dc2626', border: '1px solid #fecaca',
+              padding: '8px 14px',
+              background: 'transparent', color: C.red,
+              border: `1px solid ${C.red}40`,
+              borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'inherit',
             }}>Excluir</button>
           </div>
 
           {itens.length > 0 && (
-            <div style={{ marginTop: 12, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
+            <div style={{
+              marginTop: 14,
+              background: C.bgPanel,
+              border: `1px solid ${C.border}`,
+              borderRadius: 6, overflow: 'hidden',
+            }}>
               <div style={{
-                padding: '8px 12px', background: '#f1f5f9',
-                fontSize: 11, fontWeight: 700, color: '#334155',
-                borderBottom: '1px solid #e5e7eb',
+                padding: '9px 12px',
+                background: C.bgPanel3,
+                fontSize: 11, fontWeight: 700, color: C.ink2,
+                borderBottom: `1px solid ${C.border}`,
+                letterSpacing: 0.4, textTransform: 'uppercase',
               }}>
                 ITENS / ROTAS VIGENTES ({itens.length})
               </div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.3 }}>
+                    <tr style={{
+                      background: C.bgPanel2, color: C.muted,
+                      fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4,
+                    }}>
                       <th style={thStyle}>#</th>
                       <th style={thStyle}>Descrição</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Qtd</th>
@@ -762,18 +852,21 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
                   </thead>
                   <tbody>
                     {itens.map((it, idx) => (
-                      <tr key={it.id} style={{ borderTop: '1px solid #f1f5f9' }}>
-                        <td style={tdStyle}>{String(idx + 1).padStart(2, '0')}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>{it.descricao}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
+                      <tr key={it.id} style={{ borderTop: `1px solid ${C.border}` }}>
+                        <td style={{ ...tdStyle, color: C.muted, fontFamily: 'monospace' }}>{String(idx + 1).padStart(2, '0')}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: C.ink }}>{it.descricao}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.quantidade != null ? fmtNum(it.quantidade) : '—'}</td>
                         <td style={tdStyle}>{it.unidade || '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
-                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
+                        <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, fontFamily: 'monospace', color: C.ink }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
                       </tr>
                     ))}
-                    <tr style={{ background: '#f0fdf4', borderTop: '2px solid #bbf7d0' }}>
-                      <td style={{ ...tdStyle, fontWeight: 700, color: '#047857' }} colSpan={5}>TOTAL GERAL</td>
-                      <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 700, color: '#047857' }}>{fmtReal(totalAtual)}</td>
+                    <tr style={{ background: `${C.green}10`, borderTop: `2px solid ${C.green}40` }}>
+                      <td style={{ ...tdStyle, fontWeight: 700, color: C.green }} colSpan={5}>TOTAL GERAL</td>
+                      <td style={{
+                        ...tdStyle, textAlign: 'right', fontWeight: 700, color: C.green,
+                        fontFamily: 'monospace', letterSpacing: '-0.02em',
+                      }}>{fmtReal(totalAtual)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -786,28 +879,34 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
   )
 }
 
-const AlertaTopo = ({ cor, bg, borda, textoCor, emoji, titulo, sub }: {
-  cor: string; bg: string; borda: string; textoCor: string; emoji: string; titulo: string; sub: string
+// ============ AlertaTopo DARK ============
+const AlertaTopo = ({ cor, emoji, titulo, sub }: {
+  cor: string; emoji: string; titulo: string; sub: string
 }) => (
   <div style={{
-    marginBottom: 14, padding: '14px 18px', background: bg,
-    border: `1px solid ${borda}`, borderLeft: `4px solid ${cor}`, borderRadius: 8,
-    display: 'flex', alignItems: 'center', gap: 12,
+    marginBottom: 14, padding: '14px 18px',
+    background: `${cor}10`,
+    border: `1px solid ${cor}30`,
+    borderLeft: `3px solid ${cor}`,
+    borderRadius: 8,
+    display: 'flex', alignItems: 'center', gap: 14,
   }}>
-    <span style={{ fontSize: 24 }}>{emoji}</span>
+    <span style={{ fontSize: 22 }}>{emoji}</span>
     <div>
-      <div style={{ fontWeight: 700, color: textoCor }}>{titulo}</div>
-      <div style={{ fontSize: 13, color: textoCor, opacity: 0.8, marginTop: 2 }}>{sub}</div>
+      <div style={{ fontWeight: 700, color: cor, fontSize: 14 }}>{titulo}</div>
+      <div style={{ fontSize: 12, color: C.ink2, marginTop: 3 }}>{sub}</div>
     </div>
   </div>
 )
 
-const KPI = ({ titulo, valor, cor, onClick, ativo }: {
+// ============ KPI DARK ============
+const KPI = ({ titulo, valor, cor, onClick, ativo, highlight }: {
   titulo: string
   valor: string
   cor: string
   onClick?: () => void
   ativo?: boolean
+  highlight?: boolean
 }) => {
   const clicavel = !!onClick
   return (
@@ -823,54 +922,74 @@ const KPI = ({ titulo, valor, cor, onClick, ativo }: {
       } : undefined}
       onMouseEnter={(e) => {
         if (clicavel && !ativo) {
-          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.08)'
           e.currentTarget.style.transform = 'translateY(-1px)'
+          e.currentTarget.style.borderColor = `${cor}60`
         }
       }}
       onMouseLeave={(e) => {
         if (clicavel && !ativo) {
-          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
           e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.borderColor = C.border
         }
       }}
       style={{
-        background: ativo ? '#fafbfd' : '#fff',
-        padding: 16,
+        background: ativo
+          ? `linear-gradient(135deg, ${C.bgPanel2} 0%, ${C.bgPanel} 100%)`
+          : highlight
+            ? `linear-gradient(135deg, ${C.bgPanel2} 0%, ${C.bgPanel} 100%)`
+            : C.bgPanel,
+        padding: 18,
         borderRadius: 12,
-        borderTop: `${ativo ? 4 : 3}px solid ${cor}`,
+        border: `1px solid ${ativo ? cor : C.border}`,
+        borderTop: `${ativo ? 3 : 2}px solid ${cor}`,
         boxShadow: ativo
-          ? `0 0 0 2px ${cor}, 0 4px 12px rgba(0,0,0,0.08)`
-          : '0 1px 3px rgba(0,0,0,0.05)',
+          ? `0 0 0 1px ${cor}, 0 4px 16px ${cor}25`
+          : highlight
+            ? `0 4px 20px ${cor}20`
+            : 'none',
         cursor: clicavel ? 'pointer' : 'default',
         transition: 'all 0.15s',
         userSelect: 'none',
         outline: 'none',
         position: 'relative',
+        overflow: 'hidden',
       }}
     >
+      {(highlight || ativo) && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, height: 1,
+          background: `linear-gradient(90deg, transparent, ${cor}80 50%, transparent)`,
+        }} />
+      )}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8,
       }}>
-        <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+        <div style={{
+          fontSize: 10, color: C.muted, fontWeight: 600,
+          textTransform: 'uppercase', letterSpacing: 0.5,
+        }}>
           {titulo}
         </div>
         {ativo && (
           <span style={{
             fontSize: 9, fontWeight: 700, letterSpacing: 0.3,
-            background: cor, color: '#fff',
-            padding: '2px 6px', borderRadius: 3,
+            background: cor, color: '#0a0f1f',
+            padding: '2px 7px', borderRadius: 3,
             whiteSpace: 'nowrap',
           }}>● FILTRADO</span>
         )}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: cor, marginTop: 6 }}>{valor}</div>
+      <div style={{
+        fontSize: 22, fontWeight: 700, color: cor, marginTop: 8,
+        fontFamily: 'monospace', letterSpacing: '-0.025em',
+      }}>{valor}</div>
       {clicavel && !ativo && (
-        <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 6 }}>
           clique para filtrar
         </div>
       )}
       {ativo && (
-        <div style={{ fontSize: 10, color: cor, marginTop: 4, fontWeight: 600 }}>
+        <div style={{ fontSize: 10, color: cor, marginTop: 6, fontWeight: 600 }}>
           clique novamente para limpar
         </div>
       )}
@@ -878,7 +997,7 @@ const KPI = ({ titulo, valor, cor, onClick, ativo }: {
   )
 }
 
-// Header button DARK
+// ============ Estilos compartilhados ============
 const headerBtn: React.CSSProperties = {
   background: 'rgba(74,158,255,0.10)',
   color: C.ink,
@@ -891,21 +1010,29 @@ const headerBtn: React.CSSProperties = {
   transition: 'all 0.15s',
 }
 
-const selectStyle: React.CSSProperties = {
-  padding: '10px 12px', border: '1px solid #e5e7eb', borderRadius: 8,
-  fontSize: 14, background: '#fff', fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
+const selectStyleDark: React.CSSProperties = {
+  padding: '10px 12px',
+  border: `1px solid ${C.border}`,
+  borderRadius: 8,
+  fontSize: 13,
+  background: C.bgPanel2,
+  color: C.ink,
+  fontFamily: 'inherit', outline: 'none', cursor: 'pointer',
 }
 
 const acaoStyle = (cor: string): React.CSSProperties => ({
-  padding: '8px 14px', background: cor, color: '#fff', border: 'none',
+  padding: '8px 14px',
+  background: `linear-gradient(135deg, ${cor} 0%, ${cor}cc 100%)`,
+  color: '#fff', border: 'none',
   borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
   textDecoration: 'none', fontFamily: 'inherit',
+  boxShadow: `0 2px 8px ${cor}30`,
 })
 
 const thStyle: React.CSSProperties = {
-  padding: '8px 12px', textAlign: 'left', fontWeight: 600,
+  padding: '10px 12px', textAlign: 'left', fontWeight: 600,
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '8px 12px', color: '#334155',
+  padding: '9px 12px', color: C.ink2,
 }
