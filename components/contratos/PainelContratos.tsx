@@ -18,6 +18,24 @@ interface Props {
   onLogout: () => void
 }
 
+// Paleta dark premium (espelha src/lib/theme.ts)
+const C = {
+  bg: '#0a0f1f',
+  bgPanel: '#0f1830',
+  bgPanel2: '#152340',
+  bgPanel3: '#1c2d50',
+  bgHeader: '#0d1428',
+  border: '#1e2d4f',
+  borderStrong: '#2a3d68',
+  ink: '#e8edf7',
+  ink2: '#aab5cc',
+  muted: '#6b7896',
+  accent: '#4a9eff',
+  accent2: '#6db3ff',
+  accent3: '#2a7fd9',
+  gold: '#d4b86a',
+}
+
 const fmtReal = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const fmtReal4 = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 4 })
 const fmtNum = (n: number) => n.toLocaleString('pt-BR')
@@ -134,7 +152,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
     }
   }, [contratosComAlerta])
 
-  // toggle: se já está com o filtro alvo, volta pra 'ativos' (default)
   const aplicarFiltroCard = (alvo: FiltroSituacao) => {
     setFiltroSituacao(prev => prev === alvo ? 'ativos' : alvo)
   }
@@ -183,7 +200,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
         return
       }
 
-      // Compressão automática se passar de ~3.8 MB
       let arquivoFinal = file
       const LIMITE_VERCEL = 3.8 * 1024 * 1024
 
@@ -218,7 +234,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
         }
       }
 
-      // Upload pro Blob
       setStatusImport('Enviando...')
       const fdUp = new FormData()
       fdUp.append('file', arquivoFinal)
@@ -232,7 +247,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
       }
       const upData = await rUp.json()
 
-      // Chama a IA
       setStatusImport('Analisando com IA...')
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 70000)
@@ -316,30 +330,79 @@ export default function PainelContratos({ token, onLogout }: Props) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f4f6fb', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div style={{
+      minHeight: '100vh',
+      background: '#f4f6fb',
+      fontFamily: "'Plus Jakarta Sans', sans-serif",
+    }}>
+      {/* ============ HEADER DARK PREMIUM ============ */}
       <header style={{
-        background: '#2D3A6B', padding: '16px 24px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexWrap: 'wrap', gap: 12,
+        background: C.bgHeader,
+        backgroundImage: `
+          radial-gradient(ellipse 600px 300px at 10% 50%, rgba(74,158,255,0.10), transparent 60%),
+          radial-gradient(ellipse 400px 200px at 90% 50%, rgba(212,184,106,0.06), transparent 60%)
+        `,
+        padding: '18px 28px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 14,
+        borderBottom: `1px solid ${C.border}`,
+        position: 'relative',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        {/* Linha de luz dourada sutil no rodapé do header */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
+          background: `linear-gradient(90deg, transparent, ${C.gold}40 50%, transparent)`,
+        }} />
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, position: 'relative' }}>
           <Image src="/logo.png" alt="ETCO" width={48} height={48}
-            style={{ objectFit: 'contain', background: '#fff', borderRadius: 8, padding: 4 }} />
+            style={{
+              objectFit: 'contain',
+              background: '#fff',
+              borderRadius: 8,
+              padding: 4,
+              border: `1px solid ${C.border}`,
+            }} />
           <div>
-            <div style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Painel de Contratos</div>
-            <div style={{ color: '#a8b5d9', fontSize: 12 }}>Gestão de contratos vigentes</div>
+            <div style={{
+              color: C.ink,
+              fontSize: 18,
+              fontWeight: 700,
+              letterSpacing: '-0.01em',
+            }}>Painel de Contratos</div>
+            <div style={{
+              color: C.accent2,
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: 0.04,
+              marginTop: 2,
+              textTransform: 'uppercase',
+            }}>Gestão de contratos vigentes</div>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', position: 'relative' }}>
           <Link href="/" style={headerBtn}>← Início</Link>
-          <button onClick={onLogout} style={{ ...headerBtn, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Sair</button>
+          <button onClick={onLogout} style={{
+            ...headerBtn,
+            border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+          }}>Sair</button>
         </div>
       </header>
 
+      {/* ============ BARRA DE ABAS DARK ============ */}
       <div style={{
-        background: '#fff', borderBottom: '1px solid #e5e7eb',
-        padding: '0 24px', display: 'flex', gap: 4,
-        position: 'sticky', top: 0, zIndex: 10,
+        background: C.bgPanel,
+        borderBottom: `1px solid ${C.border}`,
+        padding: '0 28px',
+        display: 'flex',
+        gap: 4,
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
         overflowX: 'auto',
       }}>
         <BotaoAba ativo={abaAtiva === 'resumo'} onClick={() => setAbaAtiva('resumo')}
@@ -497,21 +560,30 @@ export default function PainelContratos({ token, onLogout }: Props) {
   )
 }
 
+// ============ BotaoAba DARK ============
 const BotaoAba = ({ ativo, onClick, icone, label }: {
   ativo: boolean; onClick: () => void; icone: string; label: string
 }) => (
   <button onClick={onClick} style={{
-    padding: '14px 20px',
-    background: 'transparent',
-    color: ativo ? '#2D3A6B' : '#64748b',
+    padding: '14px 22px',
+    background: ativo ? C.bgPanel2 : 'transparent',
+    color: ativo ? C.ink : C.ink2,
     border: 'none',
-    borderBottom: `3px solid ${ativo ? '#2D3A6B' : 'transparent'}`,
-    fontSize: 14, fontWeight: 600,
-    cursor: 'pointer', fontFamily: 'inherit',
-    display: 'flex', alignItems: 'center', gap: 8,
+    borderBottom: `2px solid ${ativo ? C.accent : 'transparent'}`,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
     transition: 'all 0.2s',
     whiteSpace: 'nowrap',
-  }}>
+    position: 'relative',
+  }}
+    onMouseEnter={(e) => { if (!ativo) e.currentTarget.style.color = C.ink }}
+    onMouseLeave={(e) => { if (!ativo) e.currentTarget.style.color = C.ink2 }}
+  >
     <span style={{ fontSize: 16 }}>{icone}</span>
     {label}
   </button>
@@ -806,9 +878,17 @@ const KPI = ({ titulo, valor, cor, onClick, ativo }: {
   )
 }
 
+// Header button DARK
 const headerBtn: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.12)', color: '#fff', padding: '8px 14px',
-  borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 600,
+  background: 'rgba(74,158,255,0.10)',
+  color: C.ink,
+  padding: '8px 16px',
+  borderRadius: 8,
+  textDecoration: 'none',
+  fontSize: 13,
+  fontWeight: 600,
+  border: `1px solid ${C.border}`,
+  transition: 'all 0.15s',
 }
 
 const selectStyle: React.CSSProperties = {
