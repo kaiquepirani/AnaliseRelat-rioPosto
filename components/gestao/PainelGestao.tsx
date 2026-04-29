@@ -10,7 +10,9 @@ import {
   BASES_PADRAO, consolidar, MULTIPLICADOR_ENCARGOS, ANO_GESTAO,
   ALIQUOTA_IMPOSTOS, FATOR_RECEITA_LIQUIDA,
   type ConsolidadoCompleto, type ConsolidadoBase, type VinculosPostos,
+  type LancamentoTerceirizacao,
 } from '@/lib/gestao-types'
+import TerceirizacaoModal from './TerceirizacaoModal'
 
 interface Props {
   token: string
@@ -39,27 +41,28 @@ const corBase = (nomeBase: string, todasBases: string[]): string => {
   return PALETA_BASES[idx % PALETA_BASES.length]
 }
 
-type Metrica = 'Receita' | 'Combustível' | 'Folha' | 'Margem' | 'Comparativo'
+type Metrica = 'Receita' | 'Combustível' | 'Folha' | 'Terceirização' | 'Margem' | 'Comparativo'
 type ModoFiltro = 'todos' | 'top5' | 'custom'
 
 const CORES_METRICA: { [k in Metrica]: string } = {
   Receita: '#10b981',
   'Combustível': '#dc2626',
   Folha: '#7c3aed',
+  'Terceirização': '#0ea5e9',
   Margem: '#2D3A6B',
   Comparativo: '#475569',
 }
 
-// Cor mais clara da Receita pra diferenciar Bruta de Líquida no gráfico
 const COR_RECEITA_LIQUIDA = '#6ee7b7'
+const COR_TERCEIRIZACAO = '#0ea5e9'
 
-// Tooltip customizado pro modo Comparativo (mostra a decomposição da receita)
 const TooltipComparativo = ({ active, payload, label, usaReceitaLiquida }: any) => {
   if (!active || !payload || payload.length === 0) return null
   const original = payload[0]?.payload || {}
   const receita = Number(original.Receita) || 0
   const combustivel = Number(original['Combustível']) || 0
   const folha = Number(original.Folha) || 0
+  const terc = Number(original['Terceirização']) || 0
   const margem = Number(original.Margem) || 0
   const margemPct = Number(original['Margem %']) || 0
 
@@ -68,7 +71,7 @@ const TooltipComparativo = ({ active, payload, label, usaReceitaLiquida }: any) 
       background: '#fff', border: '1px solid #e2e8f0',
       borderRadius: 8, padding: '10px 12px', fontSize: 12,
       boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
-      minWidth: 220,
+      minWidth: 240,
     }}>
       <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13, color: '#1e293b' }}>{label}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '4px 16px', alignItems: 'baseline' }}>
@@ -80,6 +83,12 @@ const TooltipComparativo = ({ active, payload, label, usaReceitaLiquida }: any) 
         <span style={{ color: '#dc2626' }}>{fmtReal(combustivel)}</span>
         <span style={{ color: '#7c3aed' }}>− Folha</span>
         <span style={{ color: '#7c3aed' }}>{fmtReal(folha)}</span>
+        {terc > 0 && (
+          <>
+            <span style={{ color: COR_TERCEIRIZACAO }}>− Terceirização</span>
+            <span style={{ color: COR_TERCEIRIZACAO }}>{fmtReal(terc)}</span>
+          </>
+        )}
         <span style={{ color: margem >= 0 ? '#047857' : '#dc2626', fontWeight: 700, borderTop: '1px solid #f1f5f9', paddingTop: 4 }}>= Margem</span>
         <strong style={{ color: margem >= 0 ? '#047857' : '#dc2626', borderTop: '1px solid #f1f5f9', paddingTop: 4 }}>{fmtReal(margem)}</strong>
         <span style={{ color: '#f59e0b' }}>Margem %</span>
@@ -93,9 +102,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [comEncargos, setComEncargos] = useState(true)
-  // ← NOVO: toggle de receita líquida (-13% impostos)
   const [usaReceitaLiquida, setUsaReceitaLiquida] = useState(false)
   const [consolidado, setConsolidado] = useState<ConsolidadoCompleto | null>(null)
+  const [mostrandoTerceirizacao, setMostrandoTerceirizacao] = useState(false)
 
   const [metrica, setMetrica] = useState<Metrica>('Receita')
   const [modoFiltro, setModoFiltro] = useState<ModoFiltro>('todos')
@@ -107,11 +116,12 @@ export default function PainelGestao({ token, onLogout }: Props) {
     setCarregando(true)
     setErro(null)
     try {
-      const [resFat, resExt, resPag, resVinc] = await Promise.all([
+      const [resFat, resExt, resPag, resVinc, resTerc] = await Promise.all([
         fetch('/api/faturamento', { headers }),
         fetch('/api/extratos', { headers }),
         fetch('/api/dp/pagamentos', { headers }),
         fetch('/api/vinculos-postos', { headers }),
+        fetch('/api/gestao/terceirizacao', { headers }),  // ← NOVO
       ])
 
       if (resFat.status === 401) { onLogout(); return }
@@ -120,6 +130,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
       const extratos = resExt.ok ? await resExt.json() : []
       const pagamentos = resPag.ok ? await resPag.json() : []
       const vinculosPostos: VinculosPostos = resVinc.ok ? await resVinc.json() : {}
+      const terceirizacao: LancamentoTerceirizacao[] = resTerc.ok ? await resTerc.json() : []
 
       const cons = consolidar({
         ano: ANO_GESTAO,
@@ -128,6 +139,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
         pagamentos: Array.isArray(pagamentos) ? pagamentos : [],
         bases: BASES_PADRAO,
         vinculosPostos,
+        terceirizacao: Array.isArray(terceirizacao) ? terceirizacao : [],
       })
       setConsolidado(cons)
     } catch (e: any) {
@@ -140,7 +152,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
   useEffect(() => { carregar() }, [carregar])
 
   const fator = comEncargos ? MULTIPLICADOR_ENCARGOS : 1
-  // ← NOVO: fator que aplica abatimento de impostos quando toggle está ativo
   const fatorReceita = usaReceitaLiquida ? FATOR_RECEITA_LIQUIDA : 1
 
   const valorBaseMes = (base: ConsolidadoBase, mesIdx: number, met: Metrica): number => {
@@ -148,25 +159,28 @@ export default function PainelGestao({ token, onLogout }: Props) {
     if (met === 'Receita') return m.receita * fatorReceita
     if (met === 'Combustível') return m.combustivel
     if (met === 'Folha') return m.folhaLiquida * fator
-    return (m.receita * fatorReceita) - m.combustivel - (m.folhaLiquida * fator)
+    if (met === 'Terceirização') return m.terceirizacao
+    return (m.receita * fatorReceita) - m.combustivel - (m.folhaLiquida * fator) - m.terceirizacao
   }
 
   const valorBaseTotal = (base: ConsolidadoBase, met: Metrica): number => {
     if (met === 'Receita') return base.totalReceita * fatorReceita
     if (met === 'Combustível') return base.totalCombustivel
     if (met === 'Folha') return base.totalFolhaLiquida * fator
+    if (met === 'Terceirização') return base.totalTerceirizacao
     if (met === 'Comparativo') return base.totalReceita * fatorReceita
-    return (base.totalReceita * fatorReceita) - base.totalCombustivel - (base.totalFolhaLiquida * fator)
+    return (base.totalReceita * fatorReceita) - base.totalCombustivel - (base.totalFolhaLiquida * fator) - base.totalTerceirizacao
   }
 
   const kpis = useMemo(() => {
     if (!consolidado) return null
     const t = consolidado.totaisGerais
     const folha = t.totalFolhaLiquida * fator
+    const terc = t.totalTerceirizacao
     const receitaBruta = t.totalReceita
     const receitaLiquida = receitaBruta * FATOR_RECEITA_LIQUIDA
     const receitaUsada = usaReceitaLiquida ? receitaLiquida : receitaBruta
-    const margem = receitaUsada - t.totalCombustivel - folha
+    const margem = receitaUsada - t.totalCombustivel - folha - terc
     const margemPct = receitaUsada > 0 ? (margem / receitaUsada) * 100 : 0
     return {
       receitaBruta,
@@ -174,10 +188,12 @@ export default function PainelGestao({ token, onLogout }: Props) {
       receita: receitaUsada,
       combustivel: t.totalCombustivel,
       folha,
+      terceirizacao: terc,
       margem,
       margemPct,
       pctCombustivel: receitaUsada > 0 ? (t.totalCombustivel / receitaUsada) * 100 : 0,
       pctFolha: receitaUsada > 0 ? (folha / receitaUsada) * 100 : 0,
+      pctTerceirizacao: receitaUsada > 0 ? (terc / receitaUsada) * 100 : 0,
     }
   }, [consolidado, fator, usaReceitaLiquida])
 
@@ -204,7 +220,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     return consolidado.bases.filter(b => basesAtivas.has(b.baseNome))
   }, [consolidado, modoFiltro, top5BasesNomes, basesAtivas])
 
-  // ─── Gráfico empilhado normal (Combustível, Folha, Margem) ───
   const dadosGraficoEmpilhado = useMemo(() => {
     if (!consolidado) return []
     return NOMES_MESES.map((mes, i) => {
@@ -223,10 +238,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
     })
   }, [consolidado, metrica, modoFiltro, basesParaGrafico, fator, fatorReceita])
 
-  // ─── Dados pro gráfico de Receita (sempre Bruta + Líquida lado a lado) ───
-  // Quando metrica === 'Receita', renderizamos um BarChart agrupado mostrando
-  // a receita BRUTA e a LÍQUIDA simultaneamente, independente do toggle.
-  // O toggle controla apenas a margem operacional.
   const dadosGraficoReceitaDupla = useMemo(() => {
     if (!consolidado) return []
     return NOMES_MESES.map((mes, i) => {
@@ -251,20 +262,22 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
   const dadosComparativo = useMemo(() => {
     return NOMES_MESES.map((mes, i) => {
-      let receita = 0, combustivel = 0, folha = 0
+      let receita = 0, combustivel = 0, folha = 0, terc = 0
       for (let j = 0; j < basesParaSomar.length; j++) {
         const m = basesParaSomar[j].meses[i]
         receita += m.receita * fatorReceita
         combustivel += m.combustivel
         folha += m.folhaLiquida * fator
+        terc += m.terceirizacao
       }
-      const margem = receita - combustivel - folha
+      const margem = receita - combustivel - folha - terc
       const margemPct = receita > 0 ? (margem / receita) * 100 : 0
       return {
         mes,
         Receita: receita,
         'Combustível': combustivel,
         Folha: folha,
+        'Terceirização': terc,
         Margem: margem,
         'Margem %': margemPct,
       }
@@ -272,16 +285,17 @@ export default function PainelGestao({ token, onLogout }: Props) {
   }, [basesParaSomar, fator, fatorReceita])
 
   const totaisSelecionadas = useMemo(() => {
-    let receita = 0, combustivel = 0, folha = 0
+    let receita = 0, combustivel = 0, folha = 0, terc = 0
     for (let j = 0; j < basesParaSomar.length; j++) {
       const b = basesParaSomar[j]
       receita += b.totalReceita * fatorReceita
       combustivel += b.totalCombustivel
       folha += b.totalFolhaLiquida * fator
+      terc += b.totalTerceirizacao
     }
-    const margem = receita - combustivel - folha
+    const margem = receita - combustivel - folha - terc
     const margemPct = receita > 0 ? (margem / receita) * 100 : 0
-    return { receita, combustivel, folha, margem, margemPct, qtdBases: basesParaSomar.length }
+    return { receita, combustivel, folha, terc, margem, margemPct, qtdBases: basesParaSomar.length }
   }, [basesParaSomar, fator, fatorReceita])
 
   const toggleBase = (baseNome: string) => {
@@ -299,7 +313,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
       const receitaBruta = b.totalReceita
       const receitaLiq = receitaBruta * FATOR_RECEITA_LIQUIDA
       const receitaUsada = usaReceitaLiquida ? receitaLiq : receitaBruta
-      const margem = receitaUsada - b.totalCombustivel - folha
+      const margem = receitaUsada - b.totalCombustivel - folha - b.totalTerceirizacao
       const margemPct = receitaUsada > 0 ? (margem / receitaUsada) * 100 : null
       return { ...b, folha, receitaBruta, receitaLiq, receitaUsada, margem, margemPct }
     }).sort((a, b) => b.margem - a.margem)
@@ -333,7 +347,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
         const m = b.meses[i]
         const receitaMes = m.receita * fatorReceita
         const folha = m.folhaLiquida * fator
-        const margem = receitaMes - m.combustivel - folha
+        const margem = receitaMes - m.combustivel - folha - m.terceirizacao
         const pct = receitaMes > 0 ? (margem / receitaMes) * 100 : null
         linha[NOMES_MESES[i]] = pct == null ? 0 : parseFloat(pct.toFixed(1))
         receitaBase += receitaMes
@@ -365,7 +379,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
     if (!consolidado) return -1
     for (let i = 11; i >= 0; i--) {
       const m = consolidado.totaisPorMes[i]
-      if ((m.receita + m.combustivel + m.folhaLiquida) > 0) return i
+      if ((m.receita + m.combustivel + m.folhaLiquida + m.terceirizacao) > 0) return i
     }
     return -1
   }, [consolidado])
@@ -412,7 +426,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
       <main style={{ maxWidth: 1280, margin: '0 auto', padding: 24 }}>
 
-        {/* ───── BANNER COM 2 TOGGLES (Folha + Receita) ───── */}
+        {/* Banner com 2 toggles + indicador de margem */}
         <div style={{
           marginBottom: 16, padding: '14px 18px',
           background: '#fff',
@@ -421,7 +435,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
         }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Folha */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ minWidth: 100, fontSize: 12, fontWeight: 700, color: '#475569' }}>
                 💼 Folha:
@@ -433,12 +446,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 📊 × {MULTIPLICADOR_ENCARGOS} (com encargos)
               </button>
               <span style={{ fontSize: 11, color: '#94a3b8' }}>
-                {comEncargos
-                  ? '⚠️ Com encargos — diferente do DP'
-                  : '✓ Bate com o Departamento Pessoal'}
+                {comEncargos ? '⚠️ Com encargos — diferente do DP' : '✓ Bate com o Departamento Pessoal'}
               </span>
             </div>
-            {/* Receita */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
               <div style={{ minWidth: 100, fontSize: 12, fontWeight: 700, color: '#475569' }}>
                 💰 Receita:
@@ -455,14 +465,13 @@ export default function PainelGestao({ token, onLogout }: Props) {
                   : 'Receita bruta de impostos — total faturado'}
               </span>
             </div>
-            {/* Indicador de Margem (qual combinação está ativa) */}
             <div style={{
               fontSize: 11, color: '#475569', fontWeight: 600,
               padding: '6px 10px', background: '#f8fafc', borderRadius: 6,
               borderLeft: `3px solid ${(comEncargos && usaReceitaLiquida) ? '#dc2626' : '#94a3b8'}`,
             }}>
               <strong>Margem atual:</strong>{' '}
-              Receita {usaReceitaLiquida ? 'líquida' : 'bruta'} − Combustível − Folha {comEncargos ? `× ${MULTIPLICADOR_ENCARGOS}` : 'líquida'}
+              Receita {usaReceitaLiquida ? 'líquida' : 'bruta'} − Combustível − Folha {comEncargos ? `× ${MULTIPLICADOR_ENCARGOS}` : 'líquida'} − Terceirização
               {(comEncargos && usaReceitaLiquida) && (
                 <span style={{ marginLeft: 8, color: '#dc2626', fontWeight: 700 }}>
                   🎯 Margem real
@@ -472,12 +481,38 @@ export default function PainelGestao({ token, onLogout }: Props) {
           </div>
         </div>
 
+        {/* Barra de ações */}
         <div style={{
           background: '#fff', padding: 14, borderRadius: 12,
           boxShadow: '0 1px 3px rgba(0,0,0,0.05)', marginBottom: 16,
-          display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           flexWrap: 'wrap', gap: 12,
         }}>
+          {/* ← NOVO botão de terceirização */}
+          <button
+            onClick={() => setMostrandoTerceirizacao(true)}
+            style={{
+              padding: '8px 16px',
+              background: 'white',
+              color: '#0284c7',
+              border: '1.5px solid #0ea5e9',
+              borderRadius: 8, fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', fontFamily: 'inherit',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            🤝 + Lançamento de terceirização
+            {consolidado && consolidado.fontes.qtdLancamentosTerceirizacao > 0 && (
+              <span style={{
+                background: '#0ea5e9', color: 'white',
+                fontSize: 10, fontWeight: 700, padding: '1px 6px',
+                borderRadius: 10, marginLeft: 4,
+              }}>
+                {consolidado.fontes.qtdLancamentosTerceirizacao}
+              </span>
+            )}
+          </button>
+
           <button onClick={carregar} disabled={carregando} style={{
             padding: '8px 16px', background: carregando ? '#94a3b8' : '#10b981',
             color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600,
@@ -497,14 +532,14 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
         {carregando && !consolidado ? (
           <div style={{ padding: 60, textAlign: 'center', color: '#64748b', background: '#fff', borderRadius: 12 }}>
-            Carregando dados das 3 fontes...
+            Carregando dados das 4 fontes...
           </div>
         ) : consolidado && kpis ? (
           <>
-            {/* KPIs — agora mostra Receita Bruta + Líquida lado a lado */}
+            {/* KPIs — agora com Terceirização entre Folha e Margem */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
               gap: 12, marginBottom: 16,
             }}>
               <KPIReceita
@@ -520,8 +555,14 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 cor="#dc2626" icone="⛽" />
               <KPI titulo={`Custo folha${comEncargos ? ` (× ${MULTIPLICADOR_ENCARGOS})` : ' líquida'}`}
                 valor={fmtReal(kpis.folha)}
-                sub={`${fmtPctSimples(kpis.pctFolha)} da receita${comEncargos ? ' · com encargos' : ' · = DP'}`}
+                sub={`${fmtPctSimples(kpis.pctFolha)} da receita`}
                 cor="#7c3aed" icone="👥" />
+              <KPI titulo="Terceirização"
+                valor={kpis.terceirizacao > 0 ? fmtReal(kpis.terceirizacao) : '—'}
+                sub={kpis.terceirizacao > 0
+                  ? `${fmtPctSimples(kpis.pctTerceirizacao)} da receita`
+                  : 'sem lançamentos'}
+                cor={COR_TERCEIRIZACAO} icone="🤝" />
               <KPI titulo="Margem operacional"
                 valor={fmtReal(kpis.margem)}
                 sub={`${fmtPctSimples(kpis.margemPct)} da receita ${usaReceitaLiquida ? 'líquida' : 'bruta'}`}
@@ -566,7 +607,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, alignSelf: 'center', textTransform: 'uppercase', letterSpacing: 0.5, marginRight: 4 }}>
                   Métrica:
                 </span>
-                {(['Receita', 'Combustível', 'Folha', 'Margem', 'Comparativo'] as Metrica[]).map(m => {
+                {(['Receita', 'Combustível', 'Folha', 'Terceirização', 'Margem', 'Comparativo'] as Metrica[]).map(m => {
                   const isFolha = m === 'Folha'
                   return (
                     <button key={m} onClick={() => setMetrica(m)}
@@ -577,7 +618,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                       }}
                       title={isFolha && comEncargos ? `Folha mostrada com encargos (× ${MULTIPLICADOR_ENCARGOS})` : undefined}
                     >
-                      {m === 'Comparativo' ? '📊 Comparativo' : m}
+                      {m === 'Comparativo' ? '📊 Comparativo' : m === 'Terceirização' ? '🤝 Terceirização' : m}
                       {isFolha && comEncargos && (
                         <span style={{
                           position: 'absolute', right: 6, top: '50%', transform: 'translateY(-50%)',
@@ -618,7 +659,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 })}
               </div>
 
-              {/* Aviso quando métrica é Folha + ×1,7 */}
               {metrica === 'Folha' && comEncargos && (
                 <div style={{
                   marginBottom: 10, padding: '8px 12px',
@@ -634,7 +674,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 </div>
               )}
 
-              {/* Aviso da Receita comparada */}
               {metrica === 'Receita' && (
                 <div style={{
                   marginBottom: 10, padding: '8px 12px',
@@ -645,7 +684,21 @@ export default function PainelGestao({ token, onLogout }: Props) {
                   <span style={{ fontWeight: 700 }}>💡</span>
                   <span>
                     Comparando <strong>Receita Bruta</strong> (verde escuro) vs <strong>Receita Líquida</strong> (verde claro, após −{(ALIQUOTA_IMPOSTOS * 100).toFixed(0)}% de impostos).
-                    A diferença mostra a carga tributária estimada.
+                  </span>
+                </div>
+              )}
+
+              {metrica === 'Terceirização' && (
+                <div style={{
+                  marginBottom: 10, padding: '8px 12px',
+                  background: '#e0f2fe', borderLeft: '3px solid #0ea5e9',
+                  borderRadius: 4, fontSize: 11, color: '#075985',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}>
+                  <span style={{ fontWeight: 700 }}>🤝</span>
+                  <span>
+                    Custos de serviços terceirizados lançados manualmente.{' '}
+                    Use o botão <strong>&ldquo;+ Lançamento de terceirização&rdquo;</strong> acima para adicionar novos.
                   </span>
                 </div>
               )}
@@ -665,6 +718,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
                       <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} iconType="rect" />
                       <Bar yAxisId="left" dataKey="Combustível" stackId="custos" fill="#dc2626" />
                       <Bar yAxisId="left" dataKey="Folha" stackId="custos" fill="#7c3aed" />
+                      <Bar yAxisId="left" dataKey="Terceirização" stackId="custos" fill={COR_TERCEIRIZACAO} />
                       <Bar yAxisId="left" dataKey="Margem" stackId="custos" fill="#10b981" radius={[6, 6, 0, 0]}>
                         <LabelList dataKey="Receita" position="top" formatter={fmtRealK}
                           style={{ fontSize: 10, fill: '#334155', fontWeight: 700 }} />
@@ -675,7 +729,6 @@ export default function PainelGestao({ token, onLogout }: Props) {
                         activeDot={{ r: 6 }} />
                     </ComposedChart>
                   ) : metrica === 'Receita' ? (
-                    // ─── Gráfico de Receita: 2 barras agrupadas por mês ───
                     <BarChart data={dadosGraficoReceitaDupla} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                       <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
@@ -725,7 +778,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
 
               {metrica === 'Comparativo' && (
                 <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8', textAlign: 'center' }}>
-                  Cada barra mostra a decomposição da receita {usaReceitaLiquida ? 'líquida' : 'bruta'}: <span style={{ color: '#dc2626', fontWeight: 600 }}>Combustível</span> + <span style={{ color: '#7c3aed', fontWeight: 600 }}>Folha</span> + <span style={{ color: '#10b981', fontWeight: 600 }}>Margem</span>. O número no topo é a receita total. A linha <span style={{ color: '#f59e0b', fontWeight: 600 }}>laranja</span> é a margem em %.
+                  Cada barra mostra a decomposição da receita {usaReceitaLiquida ? 'líquida' : 'bruta'}: <span style={{ color: '#dc2626', fontWeight: 600 }}>Combustível</span> + <span style={{ color: '#7c3aed', fontWeight: 600 }}>Folha</span> + <span style={{ color: COR_TERCEIRIZACAO, fontWeight: 600 }}>Terceirização</span> + <span style={{ color: '#10b981', fontWeight: 600 }}>Margem</span>. O número no topo é a receita total. A linha <span style={{ color: '#f59e0b', fontWeight: 600 }}>laranja</span> é a margem em %.
                 </div>
               )}
 
@@ -760,7 +813,7 @@ export default function PainelGestao({ token, onLogout }: Props) {
               )}
             </Secao>
 
-            {/* Ranking de Margem % por Base */}
+            {/* Ranking de margem */}
             {dadosRankingMargem.dadosGrafico.length > 0 && (() => {
               const { dadosGrafico, mesesValidos, basesExcluidas, mediaGeralPct } = dadosRankingMargem
 
@@ -787,15 +840,13 @@ export default function PainelGestao({ token, onLogout }: Props) {
                 `(${periodo}) onde todas as bases têm receita e combustível · ` +
                 `Média ponderada: ${fmtPctSimples(mediaGeralPct)} · ` +
                 `Receita ${usaReceitaLiquida ? 'líquida' : 'bruta'} · ` +
-                `Folha ${comEncargos ? `× ${MULTIPLICADOR_ENCARGOS}` : 'líquida'}`
+                `Folha ${comEncargos ? `× ${MULTIPLICADOR_ENCARGOS}` : 'líquida'} · ` +
+                `Terceirização incluída`
 
               const alturaGrafico = Math.max(280, dadosGrafico.length * 50)
 
               return (
-                <Secao
-                  titulo="🏁 Margem % por base — comparativo mensal"
-                  sub={subtitulo}
-                >
+                <Secao titulo="🏁 Margem % por base — comparativo mensal" sub={subtitulo}>
                   <div style={{ width: '100%', height: alturaGrafico }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
@@ -918,9 +969,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
             )}
 
             <Secao titulo="🏢 Resultado por Base Operacional"
-              sub={`Ranqueado pela margem operacional absoluta · Receita ${usaReceitaLiquida ? `líquida (-${(ALIQUOTA_IMPOSTOS * 100).toFixed(0)}%)` : 'bruta'} · Folha ${comEncargos ? `× ${MULTIPLICADOR_ENCARGOS} (com encargos)` : 'líquida (= DP)'}`}>
+              sub={`Ranqueado pela margem operacional absoluta · Receita ${usaReceitaLiquida ? `líquida (-${(ALIQUOTA_IMPOSTOS * 100).toFixed(0)}%)` : 'bruta'} · Folha ${comEncargos ? `× ${MULTIPLICADOR_ENCARGOS} (com encargos)` : 'líquida (= DP)'} · Terceirização incluída`}>
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 900 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 1000 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', color: '#64748b', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.3 }}>
                       <th style={thStyle}>Base</th>
@@ -936,6 +987,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
                         Folha {comEncargos && (
                           <span style={{ color: '#f59e0b', fontWeight: 700 }}>×{MULTIPLICADOR_ENCARGOS}</span>
                         )}
+                      </th>
+                      <th style={{ ...thStyle, textAlign: 'right', color: COR_TERCEIRIZACAO }}>
+                        🤝 Terceirização
                       </th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Margem R$</th>
                       <th style={{ ...thStyle, textAlign: 'right' }}>Margem %</th>
@@ -973,6 +1027,9 @@ export default function PainelGestao({ token, onLogout }: Props) {
                           </td>
                           <td style={{ ...tdStyle, textAlign: 'right', color: '#7c3aed' }}>
                             {b.folha > 0 ? fmtRealK(b.folha) : '—'}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'right', color: COR_TERCEIRIZACAO, fontWeight: b.totalTerceirizacao > 0 ? 600 : 400 }}>
+                            {b.totalTerceirizacao > 0 ? fmtRealK(b.totalTerceirizacao) : '—'}
                           </td>
                           <td style={{
                             ...tdStyle, textAlign: 'right', fontWeight: 700,
@@ -1027,18 +1084,28 @@ export default function PainelGestao({ token, onLogout }: Props) {
               fontSize: 11, color: '#94a3b8', display: 'flex', flexWrap: 'wrap',
               justifyContent: 'space-between', gap: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
             }}>
-              <span>📦 {consolidado.fontes.qtdExtratos} extratos · {consolidado.fontes.qtdPagamentos} pagamentos em {ANO_GESTAO} · {consolidado.fontes.qtdLinhasFaturamento} linhas de faturamento</span>
+              <span>
+                📦 {consolidado.fontes.qtdExtratos} extratos · {consolidado.fontes.qtdPagamentos} pagamentos · {consolidado.fontes.qtdLinhasFaturamento} linhas faturamento · {consolidado.fontes.qtdLancamentosTerceirizacao} terceirizações em {ANO_GESTAO}
+              </span>
               <span>🕐 Atualizado: {new Date(consolidado.ultimaAtualizacao).toLocaleString('pt-BR')}</span>
             </div>
           </>
         ) : null}
 
       </main>
+
+      {/* Modal de terceirização */}
+      {mostrandoTerceirizacao && (
+        <TerceirizacaoModal
+          token={token}
+          onClose={() => setMostrandoTerceirizacao(false)}
+          onChange={() => { return carregar() }}
+        />
+      )}
     </div>
   )
 }
 
-// ─── KPI especial pra Receita: mostra Bruta + Líquida lado a lado ───
 const KPIReceita = ({
   titulo, bruta, liquida, aliquota, destacada, sub,
 }: {
