@@ -5,12 +5,9 @@
 export const ANO_GESTAO = 2026
 
 // Multiplicador de encargos sociais sobre a folha líquida.
-// Simula INSS, FGTS, férias e 13º — aproximação do custo real de pessoal.
 export const MULTIPLICADOR_ENCARGOS = 1.7
 
 // Alíquota agregada de impostos sobre receita.
-// Aproximação que cobre PIS/COFINS, ISS, IRPJ/CSLL no regime aplicável.
-// Aplicada uniformemente a todas as bases (decisão gerencial — abr/2026).
 export const ALIQUOTA_IMPOSTOS = 0.13                       // 13%
 export const FATOR_RECEITA_LIQUIDA = 1 - ALIQUOTA_IMPOSTOS  // 0.87
 
@@ -131,7 +128,6 @@ export const BASES_PADRAO: BaseOperacional[] = [
   },
 ]
 
-// Itens que devem ser ignorados (não somados em nenhuma base E não aparecem no banner de órfãos)
 export const IGNORAR = {
   postos: [] as string[],
   folhaCidades: [] as string[],
@@ -144,7 +140,6 @@ export const IGNORAR = {
 
 export type VinculosPostos = { [nomeNormalizado: string]: string }
 
-/** Normaliza nome de posto pra chave de vínculo (case + acento agnóstico) */
 export const chaveVinculoPosto = (nome: string): string => {
   if (!nome) return ''
   return nome
@@ -155,10 +150,6 @@ export const chaveVinculoPosto = (nome: string): string => {
     .trim()
 }
 
-/**
- * Encontra a base operacional de um posto.
- * Prioridade: vínculo manual > matching tolerante com BASES_PADRAO[].postos.
- */
 export const encontrarBaseDoPosto = (
   nomePosto: string,
   bases: BaseOperacional[],
@@ -264,6 +255,19 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Lançamentos de terceirização (vindos da nova API)
+// ──────────────────────────────────────────────────────────────────────
+
+export interface LancamentoTerceirizacao {
+  id: string
+  baseId: string
+  mesAno: string       // 'AAAA-MM'
+  nome: string
+  valor: number
+  createdAt: string
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Tipos de saída
 // ──────────────────────────────────────────────────────────────────────
 
@@ -271,6 +275,7 @@ export interface ValorMensal {
   receita: number
   combustivel: number
   folhaLiquida: number
+  terceirizacao: number  // ← NOVO
 }
 
 export interface ConsolidadoBase {
@@ -281,6 +286,7 @@ export interface ConsolidadoBase {
   totalReceita: number
   totalCombustivel: number
   totalFolhaLiquida: number
+  totalTerceirizacao: number  // ← NOVO
   temFolhaMapeada: boolean
   temPostoMapeado: boolean
   temFaturamentoMapeado: boolean
@@ -296,6 +302,7 @@ export interface ConsolidadoCompleto {
     totalReceita: number
     totalCombustivel: number
     totalFolhaLiquida: number
+    totalTerceirizacao: number  // ← NOVO
   }
   totaisPorMes: ValorMensal[]
   postosOrfaos: string[]
@@ -306,6 +313,7 @@ export interface ConsolidadoCompleto {
     qtdExtratos: number
     qtdPagamentos: number
     qtdLinhasFaturamento: number
+    qtdLancamentosTerceirizacao: number  // ← NOVO
   }
 }
 
@@ -320,6 +328,7 @@ interface InputConsolidacao {
   pagamentos: any[]
   bases: BaseOperacional[]
   vinculosPostos?: VinculosPostos
+  terceirizacao?: LancamentoTerceirizacao[]  // ← NOVO
 }
 
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
@@ -347,7 +356,9 @@ const parseAnoMes = (data: string): { ano: number | null; mes: number | null } =
 
 const arrZeros = (): ValorMensal[] => {
   const out: ValorMensal[] = []
-  for (let i = 0; i < 12; i++) out.push({ receita: 0, combustivel: 0, folhaLiquida: 0 })
+  for (let i = 0; i < 12; i++) {
+    out.push({ receita: 0, combustivel: 0, folhaLiquida: 0, terceirizacao: 0 })
+  }
   return out
 }
 
@@ -369,7 +380,7 @@ const ehIgnorado = (nome: string, listaIgnorar: string[]): boolean => {
 }
 
 export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
-  const { ano, faturamento, extratos, pagamentos, bases, vinculosPostos } = input
+  const { ano, faturamento, extratos, pagamentos, bases, vinculosPostos, terceirizacao } = input
 
   const porBase: { [id: string]: ConsolidadoBase } = {}
   bases.forEach(b => {
@@ -381,6 +392,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
       totalReceita: 0,
       totalCombustivel: 0,
       totalFolhaLiquida: 0,
+      totalTerceirizacao: 0,
       temFolhaMapeada: b.folhaCidades.length > 0,
       temPostoMapeado: b.postos.length > 0,
       temFaturamentoMapeado: b.faturamentoLinhas.length > 0,
@@ -402,6 +414,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
+  // ───── Faturamento ─────
   let qtdLinhasFat = 0
   if (faturamento && faturamento.porAno && faturamento.porAno[ano]) {
     const dadosAno = faturamento.porAno[ano]
@@ -433,6 +446,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
+  // ───── Combustível ─────
   for (let i = 0; i < extratos.length; i++) {
     const ext = extratos[i]
     if (!ext) continue
@@ -465,6 +479,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     }
   }
 
+  // ───── Folha (Pagamentos do DP) ─────
   let qtdPagAno = 0
   for (let i = 0; i < pagamentos.length; i++) {
     const p = pagamentos[i]
@@ -496,6 +511,35 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     porBase[baseEncontrada.id].totalFolhaLiquida += v
   }
 
+  // ───── Terceirização (lançamentos manuais) ──────────────────────────
+  let qtdTerc = 0
+  if (Array.isArray(terceirizacao)) {
+    for (let i = 0; i < terceirizacao.length; i++) {
+      const t = terceirizacao[i]
+      if (!t || !t.baseId || !t.mesAno) continue
+
+      // Filtra apenas lançamentos do ano corrente
+      const partesMes = String(t.mesAno).split('-')
+      if (partesMes.length < 2) continue
+      const anoLanc = parseInt(partesMes[0], 10)
+      if (anoLanc !== ano) continue
+      const mesIdx = parseInt(partesMes[1], 10) - 1
+      if (mesIdx < 0 || mesIdx > 11) continue
+
+      // Procura a base pelo id
+      const base = porBase[t.baseId]
+      if (!base) continue  // baseId inválido — ignora silenciosamente
+
+      const v = Number(t.valor) || 0
+      if (v <= 0) continue
+
+      base.meses[mesIdx].terceirizacao += v
+      base.totalTerceirizacao += v
+      qtdTerc++
+    }
+  }
+
+  // ───── Detectar órfãos ─────
   const todosPostosNaFonte: { [n: string]: true } = {}
   for (let i = 0; i < extratos.length; i++) {
     const postosArr = extrairPostos(extratos[i])
@@ -532,18 +576,21 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     if (!cidadesFolhaUsadas[c] && !ehIgnorado(c, IGNORAR.folhaCidades)) folhaCidadesOrfas.push(c)
   })
 
+  // ───── Totais ─────
   const totaisPorMes = arrZeros()
-  let totalReceita = 0, totalCombustivel = 0, totalFolhaLiquida = 0
+  let totalReceita = 0, totalCombustivel = 0, totalFolhaLiquida = 0, totalTerc = 0
   bases.forEach(b => {
     const cons = porBase[b.id]
     for (let m = 0; m < 12; m++) {
       totaisPorMes[m].receita += cons.meses[m].receita
       totaisPorMes[m].combustivel += cons.meses[m].combustivel
       totaisPorMes[m].folhaLiquida += cons.meses[m].folhaLiquida
+      totaisPorMes[m].terceirizacao += cons.meses[m].terceirizacao
     }
     totalReceita += cons.totalReceita
     totalCombustivel += cons.totalCombustivel
     totalFolhaLiquida += cons.totalFolhaLiquida
+    totalTerc += cons.totalTerceirizacao
   })
 
   const basesArr = bases.map(b => porBase[b.id])
@@ -551,7 +598,12 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   return {
     ano,
     bases: basesArr,
-    totaisGerais: { totalReceita, totalCombustivel, totalFolhaLiquida },
+    totaisGerais: {
+      totalReceita,
+      totalCombustivel,
+      totalFolhaLiquida,
+      totalTerceirizacao: totalTerc,
+    },
     totaisPorMes,
     postosOrfaos,
     folhaCidadesOrfas,
@@ -561,6 +613,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
       qtdExtratos: extratos.length,
       qtdPagamentos: qtdPagAno,
       qtdLinhasFaturamento: qtdLinhasFat,
+      qtdLancamentosTerceirizacao: qtdTerc,
     },
   }
 }
