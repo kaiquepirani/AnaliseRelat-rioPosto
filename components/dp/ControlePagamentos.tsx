@@ -92,7 +92,6 @@ function ModalHistorico({
   const totalAntecip = historico.reduce((s, h) => s + (h.antecipacao ?? 0), 0)
   const totalFolha   = historico.reduce((s, h) => s + (h.folha ?? 0), 0)
 
-  // Fechar com Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onFechar() }
     window.addEventListener('keydown', handler)
@@ -104,13 +103,10 @@ function ModalHistorico({
       style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}
       onClick={e => { if (e.target === e.currentTarget) onFechar() }}
     >
-      {/* Backdrop */}
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,20,40,0.55)', backdropFilter: 'blur(4px)' }} />
 
-      {/* Painel */}
       <div style={{ position: 'relative', background: 'var(--surface)', borderRadius: 16, width: '100%', maxWidth: 680, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
 
-        {/* Header do modal */}
         <div style={{ background: 'var(--navy)', padding: '1.25rem 1.5rem', display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 800, color: 'white', letterSpacing: '-0.01em' }}>{colaborador.nome}</div>
@@ -127,7 +123,6 @@ function ModalHistorico({
           <button onClick={onFechar} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', fontSize: 18, flexShrink: 0 }}>✕</button>
         </div>
 
-        {/* Cards de resumo */}
         <div style={{ padding: '1rem 1.5rem', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
           <div style={{ background: 'var(--surface)', borderRadius: 10, padding: '0.75rem', border: '1px solid var(--border)', textAlign: 'center' }}>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>Total recebido</div>
@@ -146,7 +141,6 @@ function ModalHistorico({
           </div>
         </div>
 
-        {/* Dados bancários */}
         {(colaborador.dadosBancarios.banco || colaborador.dadosBancarios.pix) && (
           <div style={{ padding: '0.75rem 1.5rem', background: '#f0fdf4', borderBottom: '1px solid #bbf7d0', display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: '#15803d', textTransform: 'uppercase', letterSpacing: '0.04em' }}>💳 Dados bancários</span>
@@ -156,7 +150,6 @@ function ModalHistorico({
           </div>
         )}
 
-        {/* Histórico */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {historico.length === 0 ? (
             <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-3)' }}>
@@ -224,8 +217,9 @@ export default function ControlePagamentos() {
   const [carregando, setCarregando] = useState(true)
   const [cidadeExpandida, setCidadeExpandida] = useState<Cidade | null>(null)
   const [colaboradorModal, setColaboradorModal] = useState<Colaborador | null>(null)
-  // ← NOVO: colaborador em edição de pagamento
   const [colaboradorEditando, setColaboradorEditando] = useState<Colaborador | null>(null)
+  // ← NOVO: toggle "mostrar inativos" (que nunca receberam pagamento em nenhum mês)
+  const [mostrarInativos, setMostrarInativos] = useState(false)
 
   const carregar = useCallback(async () => {
     setCarregando(true)
@@ -252,14 +246,46 @@ export default function ControlePagamentos() {
   const totalFolha   = fechFolha?.totalGeral ?? null
   const totalMes     = (totalAntecip ?? 0) + (totalFolha ?? 0)
 
+  // ← NOVO: conjunto de nomes (UPPERCASE) que TÊM pagamento em algum fechamento
+  // Se um colaborador NÃO está aqui, é fantasma (duplicata órfã, fantasma de cadastro, etc)
+  const nomesComHistorico = useMemo(() => {
+    const set = new Set<string>()
+    for (const f of fechamentos) {
+      const vpc = f.valorPorColaborador || {}
+      for (const [nome, valor] of Object.entries(vpc)) {
+        if (valor && valor > 0) {
+          set.add(nome.trim().toUpperCase())
+        }
+      }
+    }
+    return set
+  }, [fechamentos])
+
+  // ← NOVO: filtrar colaboradores ativos que têm histórico (a menos que toggle ON)
+  const colaboradoresVisiveis = useMemo(() => {
+    return colaboradores.filter(c => {
+      if (c.status !== 'ativo') return false
+      if (mostrarInativos) return true
+      // Mostra apenas se tem histórico de pagamento em algum mês
+      return nomesComHistorico.has(c.nome.trim().toUpperCase())
+    })
+  }, [colaboradores, nomesComHistorico, mostrarInativos])
+
+  // ← NOVO: contagem de fantasmas escondidos (pra mostrar no toggle)
+  const totalFantasmas = useMemo(() => {
+    return colaboradores.filter(c =>
+      c.status === 'ativo' && !nomesComHistorico.has(c.nome.trim().toUpperCase())
+    ).length
+  }, [colaboradores, nomesComHistorico])
+
   const porCidade = useMemo(() => {
     return CIDADES_ORDEM.map(cidade => {
-      const membros = colaboradores.filter(c => c.cidade === cidade && c.status === 'ativo')
+      const membros = colaboradoresVisiveis.filter(c => c.cidade === cidade)
       const antecip = fechAntecip?.totalPorCidade?.[cidade] ?? null
       const folha   = fechFolha?.totalPorCidade?.[cidade] ?? null
       return { cidade, membros, antecip, folha }
     }).filter(g => g.membros.length > 0 || g.antecip !== null || g.folha !== null)
-  }, [colaboradores, fechAntecip, fechFolha])
+  }, [colaboradoresVisiveis, fechAntecip, fechFolha])
 
   const mesesDisponiveis = useMemo(() => {
     const lista: string[] = []
@@ -274,7 +300,6 @@ export default function ControlePagamentos() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
-      {/* Modal histórico */}
       {colaboradorModal && (
         <ModalHistorico
           colaborador={colaboradorModal}
@@ -283,7 +308,6 @@ export default function ControlePagamentos() {
         />
       )}
 
-      {/* ← NOVO: Modal de edição de pagamento */}
       {colaboradorEditando && (
         <EditarPagamentoColaboradorModal
           colaboradorNome={colaboradorEditando.nome}
@@ -296,19 +320,42 @@ export default function ControlePagamentos() {
         />
       )}
 
-      {/* ── Seletor de mês ── */}
+      {/* ── Seletor de mês + toggle de inativos ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '0.875rem 1rem', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', boxShadow: 'var(--shadow-sm)' }}>
         <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase' as const, letterSpacing: '0.04em' }}>Competência:</label>
         <select value={mesAno} onChange={e => setMesAno(e.target.value)} style={{ ...inputStyle, fontSize: 13, fontWeight: 600 }}>
           {mesesDisponiveis.map(ma => <option key={ma} value={ma}>{labelMesAno(ma)}</option>)}
         </select>
 
+        {/* ← NOVO: toggle de fantasmas */}
+        {totalFantasmas > 0 && (
+          <button
+            onClick={() => setMostrarInativos(v => !v)}
+            title={mostrarInativos ? 'Ocultar colaboradores sem histórico de pagamento' : 'Mostrar colaboradores sem histórico de pagamento'}
+            style={{
+              padding: '0.4rem 0.75rem',
+              fontSize: 11,
+              fontWeight: 600,
+              borderRadius: 6,
+              border: `1px solid ${mostrarInativos ? '#fca5a5' : 'var(--border)'}`,
+              background: mostrarInativos ? '#fef2f2' : 'var(--bg)',
+              color: mostrarInativos ? '#dc2626' : 'var(--text-2)',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+            }}
+          >
+            {mostrarInativos ? '👁️ Ocultar' : '👻 Mostrar'} {totalFantasmas} sem histórico
+          </button>
+        )}
+
         <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-3)' }}>
           Antecipação: dia 20/{mesAno.split('-')[1]} · Complemento: dia 10/{String(parseInt(mesAno.split('-')[1]) % 12 + 1).padStart(2, '0')}
         </div>
       </div>
 
-      {/* ── Aviso sem dados ── */}
       {semDados && (
         <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '0.875rem 1rem', display: 'flex', gap: 10, alignItems: 'center', fontSize: 13, color: '#92400e' }}>
           <span style={{ fontSize: 18 }}>📂</span>
@@ -319,7 +366,6 @@ export default function ControlePagamentos() {
         </div>
       )}
 
-      {/* ── 3 Cards principais ── */}
       <div className="cards-grid">
         <div className="card" style={{ borderColor: totalAntecip ? '#fcd34d' : undefined }}>
           <div className="card-label">💰 Antecipação Salarial</div>
@@ -371,7 +417,6 @@ export default function ControlePagamentos() {
         </div>
       </div>
 
-      {/* ── Lista por cidade ── */}
       {carregando ? (
         <div className="estado-vazio">Carregando...</div>
       ) : porCidade.length === 0 ? (
@@ -388,7 +433,6 @@ export default function ControlePagamentos() {
           return (
             <div key={cidade} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
 
-              {/* Header cidade */}
               <div
                 style={{ padding: '0.875rem 1.25rem', display: 'flex', alignItems: 'center', gap: 12, cursor: membros.length > 0 ? 'pointer' : 'default' }}
                 onClick={() => membros.length > 0 && setCidadeExpandida(aberta ? null : cidade)}
@@ -422,10 +466,8 @@ export default function ControlePagamentos() {
                 )}
               </div>
 
-              {/* ── Tabela expandida com colunas antecipação + complemento + total ── */}
               {aberta && membros.length > 0 && (
                 <div style={{ borderTop: '1px solid var(--border)' }}>
-                  {/* Instrução sutil */}
                   <div style={{ padding: '0.5rem 1.25rem', background: 'var(--sky-light)', fontSize: 11, color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: 6, borderBottom: '1px solid var(--border)' }}>
                     <span>💡</span> Clique no nome para ver o histórico · clique em ✏️ para corrigir os valores deste mês
                   </div>
@@ -448,21 +490,33 @@ export default function ControlePagamentos() {
                         const totalColab   = (valorAntecip ?? 0) + (valorFolha ?? 0)
                         const temValorReal = valorAntecip !== null || valorFolha !== null
                         const podeEditar = !!(fechAntecip || fechFolha)
+                        // ← NOVO: marca visual quando colaborador é "fantasma" (sem histórico)
+                        const ehFantasma = !nomesComHistorico.has(nomeKey)
 
                         return (
                           <tr
                             key={c.id}
                             onClick={() => setColaboradorModal(c)}
-                            style={{ cursor: 'pointer' }}
+                            style={{
+                              cursor: 'pointer',
+                              opacity: ehFantasma ? 0.5 : 1,
+                              background: ehFantasma ? '#fafafa' : undefined,
+                            }}
                             title="Ver histórico completo"
                           >
                             <td>
-                              <div style={{ fontWeight: 600, fontSize: 13 }}>{c.nome}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontWeight: 600, fontSize: 13 }}>{c.nome}</span>
+                                {ehFantasma && (
+                                  <span style={{ fontSize: 9, fontWeight: 700, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 8, padding: '1px 6px' }}>
+                                    SEM HISTÓRICO
+                                  </span>
+                                )}
+                              </div>
                               {c.cpf && <div style={{ fontSize: 11, color: 'var(--text-3)', fontFamily: 'monospace' }}>{c.cpf}</div>}
                               {c.observacoes && <div style={{ fontSize: 11, color: 'var(--amber)', marginTop: 2 }}>⭐ {c.observacoes}</div>}
                             </td>
 
-                            {/* Antecipação */}
                             <td style={{ textAlign: 'right' }}>
                               {valorAntecip !== null ? (
                                 <div style={{ fontWeight: 700, fontSize: 13, color: '#d97706' }}>{fmt(valorAntecip)}</div>
@@ -471,7 +525,6 @@ export default function ControlePagamentos() {
                               )}
                             </td>
 
-                            {/* Complemento */}
                             <td style={{ textAlign: 'right' }}>
                               {valorFolha !== null ? (
                                 <div style={{ fontWeight: 700, fontSize: 13, color: '#16a34a' }}>{fmt(valorFolha)}</div>
@@ -480,7 +533,6 @@ export default function ControlePagamentos() {
                               )}
                             </td>
 
-                            {/* Total */}
                             <td style={{ textAlign: 'right' }}>
                               {temValorReal ? (
                                 <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--navy)' }}>{fmt(totalColab)}</div>
@@ -492,7 +544,6 @@ export default function ControlePagamentos() {
                               )}
                             </td>
 
-                            {/* Banco */}
                             <td style={{ fontSize: 12 }}>
                               {c.dadosBancarios?.banco && <div>{c.dadosBancarios.banco}</div>}
                               {c.dadosBancarios?.agencia && <div style={{ color: 'var(--text-3)' }}>Ag {c.dadosBancarios.agencia}{c.dadosBancarios.conta ? ` · C ${c.dadosBancarios.conta}` : ''}</div>}
@@ -500,7 +551,6 @@ export default function ControlePagamentos() {
                               {!c.dadosBancarios?.banco && !c.dadosBancarios?.pix && <span style={{ color: 'var(--text-3)' }}>—</span>}
                             </td>
 
-                            {/* ← NOVO: botão de editar */}
                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                               <button
                                 onClick={e => { e.stopPropagation(); if (podeEditar) setColaboradorEditando(c) }}
@@ -543,7 +593,6 @@ export default function ControlePagamentos() {
         })
       )}
 
-      {/* ── Rodapé total geral ── */}
       {totalMes > 0 && (
         <div style={{ background: 'var(--navy)', borderRadius: 12, padding: '1rem 1.5rem', display: 'flex', gap: 32, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, fontWeight: 600, flex: 1 }}>TOTAL GERAL — {labelMesAno(mesAno)}</div>
