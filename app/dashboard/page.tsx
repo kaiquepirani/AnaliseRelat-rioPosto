@@ -274,13 +274,13 @@ export default function Dashboard() {
           </div>
           <div className="logo-nome-cursivo">Abastecimentos Etco Tur</div>
           <div className="header-right" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <a href="/dp" style={{
+            <a href="/" style={{
               padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
               background: 'rgba(255,255,255,0.15)', color: 'white',
               border: '1px solid rgba(255,255,255,0.4)', borderRadius: 8,
               textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6,
               fontFamily: 'inherit', whiteSpace: 'nowrap',
-            }}>👥 Dep. Pessoal</a>
+            }}>← Início</a>
             <button onClick={() => setAbaAtiva('frota')} style={{
               padding: '0.45rem 1rem', fontSize: 12, fontWeight: 700,
               background: abaAtiva === 'frota' ? 'white' : 'rgba(255,255,255,0.15)',
