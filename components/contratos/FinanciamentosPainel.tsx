@@ -256,8 +256,16 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
   )
 
   // ============ Handlers ============
-  const abrirNovo = () => { setEmEdicao(null); setModalAberto(true) }
-  const abrirEdicao = (f: Financiamento) => { setEmEdicao(f); setModalAberto(true) }
+  const abrirNovo = () => {
+  carregarFrota()  // 🔄 recarrega frota ao abrir modal
+  setEmEdicao(null)
+  setModalAberto(true)
+}
+const abrirEdicao = (f: Financiamento) => {
+  carregarFrota()  // 🔄 recarrega frota ao abrir modal
+  setEmEdicao(f)
+  setModalAberto(true)
+}
 
   const salvar = async (dados: Partial<Financiamento>) => {
     const url = emEdicao ? `/api/financiamentos/${emEdicao.id}` : '/api/financiamentos'
