@@ -240,7 +240,19 @@ export default function FinanciamentosPainel({ token, onLogout }: Props) {
   const filtrados = useMemo(() => {
     const termo = busca.trim().toLowerCase()
     return [...lista]
-      .sort((a, b) => calcSaldoDevedor(b) - calcSaldoDevedor(a))
+      .sort((a, b) => {
+        // Quitados (100%) sempre no final
+        const pagasA = calcParcelasPagasAteHoje(a)
+        const pagasB = calcParcelasPagasAteHoje(b)
+        const quitadoA = pagasA >= a.totalParcelas
+        const quitadoB = pagasB >= b.totalParcelas
+        if (quitadoA && !quitadoB) return 1
+        if (!quitadoA && quitadoB) return -1
+        // Quitados entre si: por maior progresso
+        if (quitadoA && quitadoB) return calcProgressoPct(b) - calcProgressoPct(a)
+        // Não quitados: maior progresso primeiro (mais perto do fim em cima)
+        return calcProgressoPct(b) - calcProgressoPct(a)
+      })
       .filter(f =>
         (!filtroPlano || f.planoOrigem === filtroPlano) &&
         (!filtroCredor || f.fornecedor === filtroCredor) &&
