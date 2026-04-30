@@ -55,7 +55,6 @@ const fmtData = (iso: string | undefined) => {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
-// Cores dark para situação dos contratos
 const corSituacao = (s: ContratoComAlerta['situacao']) => {
   if (s === 'vencido')       return { bg: `${C.red}15`,    border: `${C.red}40`,    text: C.red }
   if (s === 'vencendo')      return { bg: `${C.amber}15`,  border: `${C.amber}40`,  text: C.amber }
@@ -232,7 +231,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
           }
 
           arquivoFinal = resultado.arquivoComprimido
-          console.log(`PDF comprimido: ${formatarTamanho(resultado.tamanhoOriginal)} → ${formatarTamanho(resultado.tamanhoFinal)} (-${(resultado.reducao * 100).toFixed(0)}%)`)
         } catch (errComp: any) {
           alert(
             `Falha ao comprimir o PDF.\n\n` +
@@ -338,7 +336,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
     await carregar()
   }
 
-  // Wrapper dark estendido (só para a aba contratos)
   const fundoFixo: React.CSSProperties = {
     position: 'fixed',
     top: 0, left: 0, right: 0, bottom: 0,
@@ -361,16 +358,18 @@ export default function PainelContratos({ token, onLogout }: Props) {
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#f4f6fb',
+      background: C.bg,
+      backgroundImage: `
+        radial-gradient(ellipse 800px 600px at 20% -10%, rgba(74,158,255,0.06), transparent 60%),
+        radial-gradient(ellipse 600px 400px at 90% 110%, rgba(212,184,106,0.04), transparent 60%)
+      `,
       fontFamily: "'Plus Jakarta Sans', sans-serif",
+      color: C.ink,
     }}>
-      {/* ============ HEADER DARK PREMIUM ============ */}
+      {/* ============ HEADER DARK PREMIUM (com !important via style force) ============ */}
       <header style={{
-        background: C.bgHeader,
-        backgroundImage: `
-          radial-gradient(ellipse 600px 300px at 10% 50%, rgba(74,158,255,0.10), transparent 60%),
-          radial-gradient(ellipse 400px 200px at 90% 50%, rgba(212,184,106,0.06), transparent 60%)
-        `,
+        backgroundColor: C.bgHeader,
+        background: `${C.bgHeader} radial-gradient(ellipse 600px 300px at 10% 50%, rgba(74,158,255,0.12), transparent 60%), radial-gradient(ellipse 400px 200px at 90% 50%, rgba(212,184,106,0.08), transparent 60%)`,
         padding: '18px 28px',
         display: 'flex',
         alignItems: 'center',
@@ -379,10 +378,13 @@ export default function PainelContratos({ token, onLogout }: Props) {
         gap: 14,
         borderBottom: `1px solid ${C.border}`,
         position: 'relative',
+        zIndex: 5,
+        color: C.ink,
       }}>
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0, height: 1,
           background: `linear-gradient(90deg, transparent, ${C.gold}40 50%, transparent)`,
+          pointerEvents: 'none',
         }} />
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, position: 'relative' }}>
@@ -405,7 +407,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
               color: C.accent2,
               fontSize: 11,
               fontWeight: 500,
-              letterSpacing: 0.04,
+              letterSpacing: 0.4,
               marginTop: 2,
               textTransform: 'uppercase',
             }}>Gestão de contratos vigentes</div>
@@ -416,7 +418,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
           <Link href="/" style={headerBtn}>← Início</Link>
           <button onClick={onLogout} style={{
             ...headerBtn,
-            border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+            border: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: 'inherit',
           }}>Sair</button>
         </div>
       </header>
@@ -443,7 +445,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
           icone="💰" label="Financiamentos" />
       </div>
 
-      <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24 }}>
+      <main style={{ maxWidth: 1200, margin: '0 auto', padding: 24, position: 'relative', zIndex: 1 }}>
 
         {abaAtiva === 'faturamento' ? (
           <FaturamentoPainel token={token} onLogout={onLogout} />
@@ -460,7 +462,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
             <ResumoContratos contratos={contratos} />
           )
         ) : (
-          // ============ ABA CONTRATOS — DARK ============
           <>
             <div style={fundoFixo} />
             <div style={wrapperStyle}>
@@ -491,7 +492,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
                       sub="Atualize o status (renovado ou encerrado) para manter o painel correto." />
                   )}
 
-                  {/* KPIs */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -512,7 +512,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
                     <KPI titulo="Valor total vigente" valor={fmtReal(kpis.valorTotal)} cor={C.green} highlight />
                   </div>
 
-                  {/* Filtros */}
                   <div style={{
                     background: C.bgPanel, padding: 14, borderRadius: 12,
                     display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
@@ -618,7 +617,6 @@ export default function PainelContratos({ token, onLogout }: Props) {
   )
 }
 
-// ============ BotaoAba DARK ============
 const BotaoAba = ({ ativo, onClick, icone, label }: {
   ativo: boolean; onClick: () => void; icone: string; label: string
 }) => (
@@ -647,7 +645,6 @@ const BotaoAba = ({ ativo, onClick, icone, label }: {
   </button>
 )
 
-// ============ CardContrato DARK ============
 const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExcluir }: {
   contrato: ContratoComAlerta
   token: string
@@ -734,7 +731,6 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
           padding: '14px', borderTop: `1px solid ${C.border}`,
           background: C.bgPanel2,
         }}>
-
           <div style={{
             fontSize: 12, color: C.ink2, marginBottom: 12,
             display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
@@ -879,7 +875,6 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
   )
 }
 
-// ============ AlertaTopo DARK ============
 const AlertaTopo = ({ cor, emoji, titulo, sub }: {
   cor: string; emoji: string; titulo: string; sub: string
 }) => (
@@ -899,7 +894,6 @@ const AlertaTopo = ({ cor, emoji, titulo, sub }: {
   </div>
 )
 
-// ============ KPI DARK ============
 const KPI = ({ titulo, valor, cor, onClick, ativo, highlight }: {
   titulo: string
   valor: string
@@ -997,9 +991,8 @@ const KPI = ({ titulo, valor, cor, onClick, ativo, highlight }: {
   )
 }
 
-// ============ Estilos compartilhados ============
 const headerBtn: React.CSSProperties = {
-  background: 'rgba(74,158,255,0.10)',
+  background: 'rgba(74,158,255,0.15)',
   color: C.ink,
   padding: '8px 16px',
   borderRadius: 8,
@@ -1008,6 +1001,7 @@ const headerBtn: React.CSSProperties = {
   fontWeight: 600,
   border: `1px solid ${C.border}`,
   transition: 'all 0.15s',
+  display: 'inline-block',
 }
 
 const selectStyleDark: React.CSSProperties = {
