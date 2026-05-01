@@ -7,6 +7,7 @@ import {
   calcularSituacao, itensVigentes, valorTotalAtual,
   rotuloAditamentoAtual, rotuloTipoAditamento, corTipoAditamento,
 } from '@/lib/contratos-types'
+import { abrirContratoPDF } from '@/lib/contratos-download'
 import FormularioContrato from './FormularioContrato'
 import PreviaImportacao from './PreviaImportacao'
 import ResumoContratos from './ResumoContratos'
@@ -790,12 +791,19 @@ const CardContrato = ({ contrato, token, expandido, onToggle, onEditar, onExclui
 
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {contrato.arquivoUrl && (
-              <a href={contrato.arquivoUrl} target="_blank" rel="noreferrer" style={{
-                ...acaoStyle(C.accent),
-                display: 'inline-flex', alignItems: 'center',
-              }}>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  abrirContratoPDF(contrato.id, contrato.arquivoNome, token)
+                }}
+                style={{
+                  ...acaoStyle(C.accent),
+                  display: 'inline-flex', alignItems: 'center',
+                }}
+              >
                 📄 PDF
-              </a>
+              </button>
             )}
             {itens.length > 0 && (
               <button onClick={(e) => { e.stopPropagation() }} style={{
