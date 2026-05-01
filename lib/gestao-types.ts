@@ -5,7 +5,7 @@
 export const ANO_GESTAO = 2026
 
 // Multiplicador de encargos sociais sobre a folha líquida.
-export const MULTIPLICADOR_ENCARGOS = 1.7
+export const MULTIPLICADOR_ENCARGOS = 1.37
 
 // Alíquota agregada de impostos sobre receita.
 export const ALIQUOTA_IMPOSTOS = 0.13                       // 13%
