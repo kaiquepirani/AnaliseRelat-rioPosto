@@ -255,6 +255,25 @@ export const matchTolerante = (alvo: string, lista: string[]): boolean => {
 }
 
 // ──────────────────────────────────────────────────────────────────────
+// Match EXATO para cidades de folha (após normalizar acentos/case)
+//
+// Por que essa função existe?
+// As cidades de folha vêm do dropdown do DP (type Cidade fixo), então o
+// nome é sempre exato. Usar matchTolerante aqui é PERIGOSO por causa de
+// SUBSTRING: 'Lindóia' bate dentro de 'Águas de Lindóia (Folha)', fazendo
+// com que pagamentos de Lindóia caiam erradamente na base Águas de Lindóia.
+// ──────────────────────────────────────────────────────────────────────
+export const matchCidadeExato = (alvo: string, lista: string[]): boolean => {
+  if (!alvo || !lista || lista.length === 0) return false
+  const alvoN = normalizar(alvo)
+  if (!alvoN) return false
+  for (let i = 0; i < lista.length; i++) {
+    if (normalizar(lista[i]) === alvoN) return true
+  }
+  return false
+}
+
+// ──────────────────────────────────────────────────────────────────────
 // Lançamentos de terceirização (vindos da nova API)
 // ──────────────────────────────────────────────────────────────────────
 
@@ -275,7 +294,7 @@ export interface ValorMensal {
   receita: number
   combustivel: number
   folhaLiquida: number
-  terceirizacao: number  // ← NOVO
+  terceirizacao: number
 }
 
 export interface ConsolidadoBase {
@@ -286,7 +305,7 @@ export interface ConsolidadoBase {
   totalReceita: number
   totalCombustivel: number
   totalFolhaLiquida: number
-  totalTerceirizacao: number  // ← NOVO
+  totalTerceirizacao: number
   temFolhaMapeada: boolean
   temPostoMapeado: boolean
   temFaturamentoMapeado: boolean
@@ -302,7 +321,7 @@ export interface ConsolidadoCompleto {
     totalReceita: number
     totalCombustivel: number
     totalFolhaLiquida: number
-    totalTerceirizacao: number  // ← NOVO
+    totalTerceirizacao: number
   }
   totaisPorMes: ValorMensal[]
   postosOrfaos: string[]
@@ -313,7 +332,7 @@ export interface ConsolidadoCompleto {
     qtdExtratos: number
     qtdPagamentos: number
     qtdLinhasFaturamento: number
-    qtdLancamentosTerceirizacao: number  // ← NOVO
+    qtdLancamentosTerceirizacao: number
   }
 }
 
@@ -328,7 +347,7 @@ interface InputConsolidacao {
   pagamentos: any[]
   bases: BaseOperacional[]
   vinculosPostos?: VinculosPostos
-  terceirizacao?: LancamentoTerceirizacao[]  // ← NOVO
+  terceirizacao?: LancamentoTerceirizacao[]
 }
 
 const parseAnoMes = (data: string): { ano: number | null; mes: number | null } => {
@@ -406,9 +425,21 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   const cidadesFolhaUsadas: { [cidade: string]: true } = {}
   const linhasFatUsadas: { [linha: string]: true } = {}
 
+  // Marcador tolerante (para postos/faturamento — onde a flexibilidade ajuda)
   const marcarEncontrado = (lista: string[], alvo: string) => {
     for (let i = lista.length - 1; i >= 0; i--) {
       if (matchTolerante(alvo, [lista[i]])) {
+        lista.splice(i, 1)
+      }
+    }
+  }
+
+  // Marcador EXATO (para cidades de folha — evita o bug do substring)
+  const marcarEncontradoExato = (lista: string[], alvo: string) => {
+    const alvoN = normalizar(alvo)
+    if (!alvoN) return
+    for (let i = lista.length - 1; i >= 0; i--) {
+      if (normalizar(lista[i]) === alvoN) {
         lista.splice(i, 1)
       }
     }
@@ -480,6 +511,8 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
   }
 
   // ───── Folha (Pagamentos do DP) ─────
+  // ⚠️ IMPORTANTE: usa matchCidadeExato (não matchTolerante) pra evitar que
+  // 'Lindóia' caia em 'Águas de Lindóia (Folha)' por colisão de substring.
   let qtdPagAno = 0
   for (let i = 0; i < pagamentos.length; i++) {
     const p = pagamentos[i]
@@ -492,7 +525,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
 
     let baseEncontrada: BaseOperacional | null = null
     for (let j = 0; j < bases.length; j++) {
-      if (matchTolerante(cidade, bases[j].folhaCidades)) {
+      if (matchCidadeExato(cidade, bases[j].folhaCidades)) {
         baseEncontrada = bases[j]
         break
       }
@@ -500,7 +533,7 @@ export const consolidar = (input: InputConsolidacao): ConsolidadoCompleto => {
     if (!baseEncontrada) continue
 
     cidadesFolhaUsadas[cidade] = true
-    marcarEncontrado(porBase[baseEncontrada.id].folhaCidadesMapeadasNaoEncontradas, cidade)
+    marcarEncontradoExato(porBase[baseEncontrada.id].folhaCidadesMapeadasNaoEncontradas, cidade)
 
     const partes = String(p.mesAno).split('-')
     const mesIdx = partes.length >= 2 ? parseInt(partes[1], 10) - 1 : -1
