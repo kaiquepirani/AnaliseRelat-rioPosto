@@ -1,6 +1,6 @@
 'use client'
 import Image from 'next/image'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 interface Props {
   onLogin: (token: string) => void
@@ -21,12 +21,48 @@ const C = {
   accent3: '#2a7fd9',
   gold: '#d4b86a',
   red: '#f87171',
+  amber: '#fbbf24',
 }
 
 export default function TelaSenha({ onLogin }: Props) {
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
+  const [capsLockOn, setCapsLockOn] = useState(false)
+
+  // ──────────────────────────────────────────────────────────────────
+  // Detecção de Caps Lock
+  //
+  // Estratégia em duas camadas para máxima confiabilidade:
+  // 1) onKeyDown/onKeyUp do input — pega o estado em tempo real
+  //    enquanto o usuário digita.
+  // 2) Listener global no document — pega quando o usuário pressiona
+  //    a tecla CapsLock antes mesmo de começar a digitar (ex.: ao
+  //    abrir a tela com CapsLock já ativo no sistema, e o usuário
+  //    aperta a tecla pra desativar).
+  //
+  // getModifierState('CapsLock') retorna o estado real do modificador,
+  // não apenas se a tecla está pressionada no momento.
+  // ──────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (typeof e.getModifierState === 'function') {
+        setCapsLockOn(e.getModifierState('CapsLock'))
+      }
+    }
+    document.addEventListener('keydown', handler)
+    document.addEventListener('keyup', handler)
+    return () => {
+      document.removeEventListener('keydown', handler)
+      document.removeEventListener('keyup', handler)
+    }
+  }, [])
+
+  const verificarCapsLock = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === 'function') {
+      setCapsLockOn(e.getModifierState('CapsLock'))
+    }
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,7 +168,10 @@ export default function TelaSenha({ onLogin }: Props) {
         </p>
 
         <label style={{
-          display: 'block',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
           marginTop: 28,
           fontSize: 11,
           color: C.ink2,
@@ -140,19 +179,34 @@ export default function TelaSenha({ onLogin }: Props) {
           textTransform: 'uppercase',
           letterSpacing: 0.5,
         }}>
-          Senha
+          <span>Senha</span>
+          {capsLockOn && (
+            <span style={{
+              fontSize: 10,
+              color: C.amber,
+              fontWeight: 700,
+              letterSpacing: 0.4,
+              background: `${C.amber}15`,
+              border: `1px solid ${C.amber}40`,
+              padding: '2px 8px',
+              borderRadius: 4,
+              textTransform: 'uppercase',
+            }}>⚠️ Caps Lock</span>
+          )}
         </label>
 
         <input
           type="password"
           value={senha}
           onChange={e => setSenha(e.target.value)}
+          onKeyDown={verificarCapsLock}
+          onKeyUp={verificarCapsLock}
           autoFocus
           style={{
             width: '100%',
             padding: '13px 14px',
             marginTop: 8,
-            border: `1px solid ${C.border}`,
+            border: `1px solid ${capsLockOn ? `${C.amber}80` : C.border}`,
             borderRadius: 8,
             fontSize: 15,
             outline: 'none',
@@ -162,9 +216,35 @@ export default function TelaSenha({ onLogin }: Props) {
             color: C.ink,
             transition: 'all 0.15s',
           }}
-          onFocus={(e) => { e.currentTarget.style.borderColor = C.accent }}
-          onBlur={(e) => { e.currentTarget.style.borderColor = C.border }}
+          onFocus={(e) => {
+            if (!capsLockOn) e.currentTarget.style.borderColor = C.accent
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = capsLockOn ? `${C.amber}80` : C.border
+          }}
         />
+
+        {capsLockOn && (
+          <div style={{
+            marginTop: 10,
+            padding: '8px 12px',
+            background: `${C.amber}10`,
+            color: C.amber,
+            border: `1px solid ${C.amber}30`,
+            borderLeft: `3px solid ${C.amber}`,
+            borderRadius: 6,
+            fontSize: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            lineHeight: 1.4,
+          }}>
+            <span style={{ fontSize: 14 }}>⚠️</span>
+            <span>
+              <strong>Caps Lock está ativado.</strong> Sua senha pode ser digitada em maiúsculas.
+            </span>
+          </div>
+        )}
 
         {erro && (
           <div style={{
