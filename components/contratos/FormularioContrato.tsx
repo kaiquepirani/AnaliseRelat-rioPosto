@@ -82,6 +82,13 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
   const arquivoNome = contrato?.arquivoNome || ''
   const arquivoSize = contrato?.arquivoSize || 0
 
+  // Verifica se existe algum aditamento com itensResultantes — nesse caso,
+  // o estado atual dos itens é "congelado" pelo histórico de aditamentos e
+  // não deve ser editado diretamente (deve-se criar um novo aditamento).
+  const algumAditamentoSobrescreveItens = aditamentos.some(
+    ad => Array.isArray(ad.itensResultantes) && ad.itensResultantes.length > 0,
+  )
+
   const itensAtuais = aditamentos.length > 0
     ? (() => {
         for (let i = aditamentos.length - 1; i >= 0; i--) {
@@ -92,10 +99,53 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
       })()
     : itensState
 
+  // Só permite editar (excluir) itens quando o estado atual vem direto do
+  // contrato original (itensState). Se vem de um aditamento, o usuário
+  // deve criar um novo aditamento de supressão para alterar.
+  const podeEditarItens = !algumAditamentoSobrescreveItens
+
   const toggleExpandirAd = (id: string) => {
     const n = new Set(aditExpandidos)
     if (n.has(id)) n.delete(id); else n.add(id)
     setAditExpandidos(n)
+  }
+
+  // ──────────────────────────────────────────────────────────────────
+  // Excluir item individual (dos itens originais do contrato)
+  //
+  // Caso de uso típico: contrato importado de uma Ata de Registro de
+  // Preços compartilhada com outra empresa. O parser pegou todos os
+  // itens da ata, mas só alguns são da ETCO. Os demais devem ser
+  // removidos para que o valor total reflita só o que é nosso.
+  //
+  // Comportamento:
+  // - Pede confirmação
+  // - Remove do itensState
+  // - Recalcula valorTotal automaticamente (soma dos itens restantes)
+  // - Não persiste até o usuário clicar em "Salvar"
+  // ──────────────────────────────────────────────────────────────────
+  const excluirItem = (item: ItemContrato) => {
+    const descCurta = item.descricao.length > 80
+      ? item.descricao.slice(0, 80) + '...'
+      : item.descricao
+    const valorStr = item.valorTotal != null ? ` (${fmtReal(item.valorTotal)})` : ''
+    if (!confirm(
+      `Excluir este item?\n\n"${descCurta}"${valorStr}\n\n` +
+      `O valor total do contrato será recalculado automaticamente.\n` +
+      `A alteração só será persistida ao clicar em "Salvar".`,
+    )) return
+
+    const novosItens = itensState.filter(i => i.id !== item.id)
+    setItensState(novosItens)
+
+    // Recalcula valorTotal só se a soma dos itens for confiável
+    // (todos têm valorTotal preenchido, ou pelo menos o resultado > 0)
+    const novoTotal = somarValoresItens(novosItens)
+    if (novoTotal > 0) {
+      setValorTotal(String(novoTotal))
+    } else if (novosItens.length === 0) {
+      setValorTotal('')
+    }
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -318,9 +368,11 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                     ITENS VIGENTES ({itensAtuais.length})
                   </div>
                   <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-                    {aditamentos.length > 0
-                      ? 'Estado após o último aditamento. Para editar, faça um novo aditamento.'
-                      : 'Itens do contrato original.'}
+                    {algumAditamentoSobrescreveItens
+                      ? 'Estado após o último aditamento. Para alterar, faça um novo aditamento.'
+                      : podeEditarItens
+                        ? 'Itens do contrato original. Clique em 🗑️ para remover itens que não pertencem à ETCO (ex.: Atas compartilhadas com outras empresas).'
+                        : 'Itens do contrato original.'}
                   </div>
                 </div>
                 <div style={{
@@ -330,7 +382,10 @@ export default function FormularioContrato({ contrato, token, onCancelar, onSalv
                   {fmtReal(totalItens)}
                 </div>
               </div>
-              <TabelaItens itens={itensAtuais} />
+              <TabelaItens
+                itens={itensAtuais}
+                onExcluir={podeEditarItens ? excluirItem : undefined}
+              />
             </div>
           )}
 
@@ -750,7 +805,10 @@ function NovoAditamento({ contratoId, token, onCancelar, onAdicionado }: NovoAdi
 
 // ==== Componentes auxiliares ====
 
-const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
+const TabelaItens = ({ itens, onExcluir }: {
+  itens: ItemContrato[]
+  onExcluir?: (item: ItemContrato) => void
+}) => (
   <div style={{ overflowX: 'auto' }}>
     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
@@ -764,6 +822,7 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
           <th style={thStyle}>Unid</th>
           <th style={{ ...thStyle, textAlign: 'right' }}>V. Unit.</th>
           <th style={{ ...thStyle, textAlign: 'right' }}>V. Total</th>
+          {onExcluir && <th style={{ ...thStyle, textAlign: 'center', width: 50 }}></th>}
         </tr>
       </thead>
       <tbody>
@@ -775,6 +834,35 @@ const TabelaItens = ({ itens }: { itens: ItemContrato[] }) => (
             <td style={tdStyle}>{it.unidade || '—'}</td>
             <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace' }}>{it.valorUnitario != null ? fmtReal4(it.valorUnitario) : '—'}</td>
             <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600, color: C.ink, fontFamily: 'monospace' }}>{it.valorTotal != null ? fmtReal(it.valorTotal) : '—'}</td>
+            {onExcluir && (
+              <td style={{ ...tdStyle, textAlign: 'center', padding: '4px 8px' }}>
+                <button
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); onExcluir(it) }}
+                  title="Excluir item"
+                  style={{
+                    background: 'transparent',
+                    color: C.red,
+                    border: `1px solid ${C.red}30`,
+                    borderRadius: 4,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    padding: '4px 8px',
+                    fontFamily: 'inherit',
+                    transition: 'all 0.15s',
+                    lineHeight: 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = `${C.red}20`
+                    e.currentTarget.style.borderColor = `${C.red}80`
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent'
+                    e.currentTarget.style.borderColor = `${C.red}30`
+                  }}
+                >🗑️</button>
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
