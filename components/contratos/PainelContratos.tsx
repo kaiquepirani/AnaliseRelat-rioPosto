@@ -56,6 +56,22 @@ const fmtData = (iso: string | undefined) => {
   return `${p[2]}/${p[1]}/${p[0]}`
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// Normalização para busca tolerante a acentos.
+// Remove diacríticos via NFD + regex e força minúsculas.
+// Ex.: 'São Luiz do Paraitinga' → 'sao luiz do paraitinga'
+//      'Aguaí' → 'aguai'
+//      'Lindóia' → 'lindoia'
+// Assim, digitar 'sao luiz' OU 'São Luiz' encontram o mesmo contrato.
+// ──────────────────────────────────────────────────────────────────────
+const normalizarBusca = (s: string): string => {
+  if (!s) return ''
+  return s
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
 const corSituacao = (s: ContratoComAlerta['situacao']) => {
   if (s === 'vencido')       return { bg: `${C.red}15`,    border: `${C.red}40`,    text: C.red }
   if (s === 'vencendo')      return { bg: `${C.amber}15`,  border: `${C.amber}40`,  text: C.amber }
@@ -120,7 +136,8 @@ export default function PainelContratos({ token, onLogout }: Props) {
   }, [contratos])
 
   const filtrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase()
+    // Normaliza o termo de busca: remove acentos, espaços nas pontas e força minúsculas.
+    const termo = normalizarBusca(busca.trim())
     const lista = contratosComAlerta.filter(c => {
       if (filtroSituacao === 'ativos') {
         if (c.situacao === 'encerrado') return false
@@ -131,7 +148,10 @@ export default function PainelContratos({ token, onLogout }: Props) {
       }
       if (filtroCidade && c.cidade !== filtroCidade) return false
       if (termo) {
-        const alvo = `${c.cliente} ${c.contratante || ''} ${c.numero} ${c.tipoServico} ${c.cidade}`.toLowerCase()
+        // Normaliza também o "alvo" pra que a busca encontre 'sao luiz' em 'São Luiz'
+        const alvo = normalizarBusca(
+          `${c.cliente} ${c.contratante || ''} ${c.numero} ${c.tipoServico} ${c.cidade}`,
+        )
         if (alvo.indexOf(termo) === -1) return false
       }
       return true
@@ -519,7 +539,7 @@ export default function PainelContratos({ token, onLogout }: Props) {
                     marginBottom: 16, border: `1px solid ${C.border}`,
                   }}>
                     <input
-                      placeholder="Buscar por contratante, número, cidade..."
+                      placeholder="Buscar por contratante, número, cidade... (ignora acentos)"
                       value={busca} onChange={e => setBusca(e.target.value)}
                       style={{
                         flex: '1 1 220px', padding: '10px 12px',
